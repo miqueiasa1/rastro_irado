@@ -225,7 +225,12 @@ def main():
         results = run_collection_cycle(conn)
 
         for sym, r in results.items():
-            if r["status"] == "ok":
+            if sym == "IV_ATM":
+                if r["status"] == "ok":
+                    log.info(f"  {'IV_ATM':<12} iv={r['iv']:<12.1f}% ({r['option']} K={r['strike']:.0f})")
+                elif r["status"] != "no_data":
+                    log.warning(f"  {'IV_ATM':<12} {r['status']}: {r.get('error', '?')}")
+            elif r["status"] == "ok":
                 log.info(f"  {sym:<12} bid={r['bid']:<12.2f} +{r['inserted']} barras")
             else:
                 log.warning(f"  {sym:<12} ERRO: {r.get('error', '?')}")
