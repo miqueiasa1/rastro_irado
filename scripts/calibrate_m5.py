@@ -26,15 +26,17 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ── Configuração ──────────────────────────────────────────
-FACTORS = ["DOL$N", "DI1$N", "VIX", "DXY", "BRENT", "IV_ATM"]
+FACTORS = ["DOL$N", "DI1$N", "VIX", "DXY", "BRENT", "IV_ATM", "CHINA50", "USDMXN", "DE40"]
 FACTOR_LABELS = {
     "DOL$N": "dol", "DI1$N": "di", "VIX": "vix",
     "DXY": "dxy", "BRENT": "brent", "IV_ATM": "iv",
+    "CHINA50": "china", "USDMXN": "mxn", "DE40": "dax",
 }
 TARGET = "WIN$N"
 
 EXPECTED_SIGNS = {
     "dol": -1, "di": -1, "vix": -1, "dxy": -1, "brent": +1, "iv": -1,
+    "china": +1, "mxn": -1, "dax": +1,
 }
 
 # Sessão B3: 10:00 - 17:55 BRT = 13:00 - 20:55 UTC

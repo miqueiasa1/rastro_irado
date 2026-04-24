@@ -17,8 +17,12 @@ from backend.db import get_connection, DB_PATH
 
 
 # ── Configuração ──────────────────────────────────────────
-FACTORS = ["DOL$N", "DI1$N", "VIX", "DXY", "BRENT", "IV_ATM"]
-FACTOR_LABELS = {"DOL$N": "dol", "DI1$N": "di", "VIX": "vix", "DXY": "dxy", "BRENT": "brent", "IV_ATM": "iv"}
+FACTORS = ["DOL$N", "DI1$N", "VIX", "DXY", "BRENT", "IV_ATM", "CHINA50", "USDMXN", "DE40"]
+FACTOR_LABELS = {
+    "DOL$N": "dol", "DI1$N": "di", "VIX": "vix", "DXY": "dxy",
+    "BRENT": "brent", "IV_ATM": "iv",
+    "CHINA50": "china", "USDMXN": "mxn", "DE40": "dax",
+}
 TARGET = "WIN$N"
 
 # Sessão B3: 10:00 - 17:55 BRT
