@@ -24,23 +24,20 @@ function barToTime(barIdx) {
 
 /* ── Big Gauge ────────────────────────────────────── */
 function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNorm }) {
-  const isBuy = pUp >= 50
-  const isSell = pUp < 50
+  const isBuy = pUp >= 60
+  const isSell = pUp <= 40
+  const isNeutral = !isBuy && !isSell
 
-  const signalText = pUp >= 60 ? 'COMPRA' : pUp <= 40 ? 'VENDA' : 'NEUTRO'
-  const signalColor = pUp >= 60 ? '#4ADE80' : pUp <= 40 ? '#F87171' : '#94A3B8'
-  const signalBg = pUp >= 60 ? 'rgba(74,222,128,0.08)' : pUp <= 40 ? 'rgba(248,113,113,0.08)' : 'rgba(148,163,184,0.05)'
+  const signalText = isBuy ? 'COMPRA' : isSell ? 'VENDA' : 'NEUTRO'
+  const signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#94A3B8'
+  const signalBg = isBuy ? 'rgba(74,222,128,0.08)' : isSell ? 'rgba(248,113,113,0.08)' : 'rgba(148,163,184,0.05)'
 
-  // Intensidade: 0 = neutro (50%), 100 = máxima convicção (0% ou 100%)
-  const intensity = Math.round(Math.abs(pUp - 50) * 2) // 0-100
-  const intLabel = intensity > 70 ? 'FORTE' : intensity > 40 ? 'moderado' : 'fraco'
+  // Confidence: how far from 50%
+  const confidence = Math.abs(pUp - 50) * 2 // 0-100
+  const confLabel = confidence > 50 ? 'FORTE' : confidence > 25 ? 'moderado' : 'fraco'
 
-  // Gauge: agulha vai de 0 (esquerda) a 100 (direita), onde 0 = sem convicção, 100 = máxima
-  const angle = ((intensity / 100) * 180) - 90 // -90 (0) to +90 (100)
-
-  // Cores do arco: verde se compra, vermelho se venda
-  const arcColor = isBuy ? '#4ADE80' : '#F87171'
-  const arcColorFaded = isBuy ? '#4ADE8033' : '#F8717133'
+  // Gauge arc angle
+  const angle = ((pUp / 100) * 180) - 90 // -90 to +90
 
   return (
     <div style={{
@@ -49,18 +46,15 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
       borderRadius: 8, padding: '28px 36px',
       display: 'flex', alignItems: 'center', gap: 40,
     }}>
-      {/* SVG Gauge — intensidade 0-100 */}
-      <div style={{ position: 'relative', width: 160, height: 100, flexShrink: 0 }}>
-        <svg viewBox="0 0 160 100" width="160" height="100">
+      {/* SVG Gauge */}
+      <div style={{ position: 'relative', width: 160, height: 90, flexShrink: 0 }}>
+        <svg viewBox="0 0 160 90" width="160" height="90">
           {/* Background arc */}
           <path d="M 10 85 A 70 70 0 0 1 150 85" fill="none" stroke="#1E293B" strokeWidth="8" strokeLinecap="round" />
-          {/* Colored zone — intensity fill */}
-          {intensity > 5 && (
-            <path
-              d={describeArc(80, 85, 70, 180, 180 + (intensity / 100) * 180)}
-              fill="none" stroke={arcColorFaded} strokeWidth="8" strokeLinecap="round"
-            />
-          )}
+          {/* Red zone 0-35% */}
+          <path d="M 10 85 A 70 70 0 0 1 30.5 28.5" fill="none" stroke="#F8717133" strokeWidth="8" strokeLinecap="round" />
+          {/* Green zone 65-100% */}
+          <path d="M 129.5 28.5 A 70 70 0 0 1 150 85" fill="none" stroke="#4ADE8033" strokeWidth="8" strokeLinecap="round" />
           {/* Needle */}
           <line
             x1="80" y1="85"
@@ -70,13 +64,9 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
           />
           <circle cx="80" cy="85" r="4" fill={signalColor} />
           {/* Labels */}
-          <text x="12" y="82" fill="#475569" fontSize="9" fontFamily="var(--font-mono)">0</text>
-          <text x="74" y="18" fill="#64748B" fontSize="8" fontFamily="var(--font-mono)">50</text>
-          <text x="140" y="82" fill={arcColor} fontSize="9" fontFamily="var(--font-mono)">100</text>
-          {/* Direction label below gauge */}
-          <text x="80" y="98" textAnchor="middle" fill={signalColor} fontSize="9" fontFamily="var(--font-mono)" fontWeight="600">
-            {isBuy ? '▲ COMPRA' : '▼ VENDA'}
-          </text>
+          <text x="12" y="82" fill="#F87171" fontSize="9" fontFamily="var(--font-mono)">0%</text>
+          <text x="74" y="18" fill="#64748B" fontSize="8" fontFamily="var(--font-mono)">50%</text>
+          <text x="138" y="82" fill="#4ADE80" fontSize="9" fontFamily="var(--font-mono)">100%</text>
         </svg>
       </div>
 
@@ -94,7 +84,7 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
           marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 13,
           color: '#94A3B8',
         }}>
-          intensidade <span style={{ color: signalColor, fontWeight: 600 }}>{intensity}</span>/100 · <span style={{ color: signalColor }}>{intLabel}</span>
+          {pUp.toFixed(1)}% chance de alta · confiança <span style={{ color: signalColor }}>{confLabel}</span>
         </div>
       </div>
 
@@ -128,18 +118,6 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
       </div>
     </div>
   )
-}
-
-// Helper: SVG arc path
-function describeArc(cx, cy, r, startAngle, endAngle) {
-  const start = polarToCartesian(cx, cy, r, endAngle)
-  const end = polarToCartesian(cx, cy, r, startAngle)
-  const largeArc = endAngle - startAngle > 180 ? 1 : 0
-  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 0 ${end.x} ${end.y}`
-}
-function polarToCartesian(cx, cy, r, angleDeg) {
-  const rad = (angleDeg - 90) * Math.PI / 180
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
 }
 
 /* ── Factor signal card ──────────────────────────── */
