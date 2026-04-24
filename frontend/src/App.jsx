@@ -13,6 +13,7 @@ const FACTOR_META = {
   vix:   { label: 'VIX',   icon: '😰', desc: 'VIX — Volatilidade', invertido: true },
   dxy:   { label: 'DXY',   icon: '🌐', desc: 'DXY — Dólar global', invertido: true },
   brent: { label: 'PETRÓLEO', icon: '🛢️', desc: 'Brent Crude', invertido: false },
+  iv:    { label: 'IV ATM', icon: '📊', desc: 'IV IBOV — Opções ATM', invertido: true },
 }
 
 function barToTime(barIdx) {
@@ -513,7 +514,7 @@ export default function App() {
 
             {/* ── COMPACT FACTOR ROW ── */}
             <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto',
+              display: 'grid', gridTemplateColumns: 'repeat(6, 1fr) auto',
               gap: 8, marginTop: 12, alignItems: 'center',
             }}>
               {Object.entries(FACTOR_META).map(([key]) => {

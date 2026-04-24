@@ -111,6 +111,48 @@ def is_b3_session() -> bool:
     return True
 
 
+def collect_iv_atm(conn: sqlite3.Connection) -> dict:
+    """Coleta IV ATM de opções BOVA11 e insere como pseudo-barra."""
+    from backend.irai.iv_calc import compute_iv_atm
+
+    try:
+        result = compute_iv_atm(mt5, underlying="BOVA11")
+        if result is None:
+            return {"status": "no_data", "iv": None}
+
+        iv = result["iv"]
+        ts = datetime.now(timezone.utc)
+        # Arredondar para M5 mais próximo
+        minute = (ts.minute // 5) * 5
+        ts = ts.replace(minute=minute, second=0, microsecond=0)
+        ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Gravar como pseudo-barra: close = IV decimal
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT OR REPLACE INTO market_bars
+               (symbol, source, timeframe, timestamp_utc, open, high, low, close,
+                volume, real_volume, delta)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("IV_ATM", "br", "M5", ts_iso,
+             iv, iv, iv, iv,  # OHLC = all IV
+             0, 0, 0),
+        )
+        conn.commit()
+
+        return {
+            "status": "ok",
+            "iv": round(iv * 100, 2),
+            "option": result["option_symbol"],
+            "strike": result["strike"],
+            "spot": result["spot"],
+            "days": result["days_to_expiry"],
+        }
+    except Exception as e:
+        log.warning(f"IV ATM falhou: {e}")
+        return {"status": "error", "error": str(e)}
+
+
 def run_collection_cycle(conn: sqlite3.Connection) -> dict:
     """Executa um ciclo de coleta em todos os terminais."""
     results = {}
@@ -139,6 +181,13 @@ def run_collection_cycle(conn: sqlite3.Connection) -> dict:
                 "bid": bid,
                 "source": terminal["source"],
             }
+
+        # Coletar IV ATM enquanto o terminal BR está conectado
+        if terminal.get("source") == "br":
+            iv_result = collect_iv_atm(conn)
+            results["IV_ATM"] = iv_result
+            if iv_result["status"] == "ok":
+                log.info(f"  IV_ATM: {iv_result['iv']:.1f}% ({iv_result['option']} K={iv_result['strike']:.0f})")
 
         mt5.shutdown()
 
