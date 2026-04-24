@@ -34,8 +34,9 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
   const confidence = Math.abs(pUp - 50) * 2
   const confLabel = confidence > 50 ? 'FORTE' : confidence > 25 ? 'moderado' : 'fraco'
 
-  // Gauge: 0%=left (-90°), 50%=top (0°), 100%=right (+90°)
-  const angle = ((pUp / 100) * 180) - 90
+  // Gauge: arc goes left(180°) → top(90°) → right(0°) in math coords
+  // 0% = left, 50% = top, 100% = right
+  const angleRad = Math.PI * (1 - pUp / 100)
 
   return (
     <div style={{
@@ -52,8 +53,8 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
           <path d="M 88 20 A 48 48 0 0 1 102 58" fill="none" stroke="#4ADE8033" strokeWidth="6" strokeLinecap="round" />
           <line
             x1="55" y1="58"
-            x2={55 + 38 * Math.cos(angle * Math.PI / 180)}
-            y2={58 - 38 * Math.sin(angle * Math.PI / 180)}
+            x2={55 + 38 * Math.cos(angleRad)}
+            y2={58 - 38 * Math.sin(angleRad)}
             stroke={signalColor} strokeWidth="2" strokeLinecap="round"
           />
           <circle cx="55" cy="58" r="3" fill={signalColor} />

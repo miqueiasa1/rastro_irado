@@ -67,7 +67,7 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, n_ba
     inserted = 0
     cursor = conn.cursor()
 
-    for bar in rates:
+    for i, bar in enumerate(rates):
         ts = datetime.fromtimestamp(bar[0], tz=timezone.utc)
         ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -76,9 +76,14 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, n_ba
         real_vol = float(bar[7]) if len(bar) > 7 and bar[7] else 0
         delta = compute_bar_delta(o, h, l, c, real_vol)
 
+        # Barra mais recente (em formação) → REPLACE para atualizar OHLCV a cada ciclo
+        # Barras antigas (fechadas) → IGNORE para não reescrever dados finalizados
+        is_current_bar = (i == len(rates) - 1)
+        verb = "INSERT OR REPLACE" if is_current_bar else "INSERT OR IGNORE"
+
         try:
             cursor.execute(
-                """INSERT OR IGNORE INTO market_bars
+                f"""{verb} INTO market_bars
                    (symbol, source, timeframe, timestamp_utc, open, high, low, close,
                     volume, real_volume, delta)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
