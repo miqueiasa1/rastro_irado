@@ -219,6 +219,8 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 /* ── Main App ────────────────────────────────────── */
+const REFRESH_INTERVAL = 30_000 // 30 seconds
+
 export default function App() {
   const [dates, setDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
@@ -226,7 +228,10 @@ export default function App() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [lastUpdate, setLastUpdate] = useState(null)
+  const [nextRefresh, setNextRefresh] = useState(REFRESH_INTERVAL / 1000)
 
+  // Fetch dates once
   useEffect(() => {
     fetch(`${API}/api/irai/dates`)
       .then(r => r.json())
@@ -237,10 +242,11 @@ export default function App() {
       .catch(e => setError(e.message))
   }, [])
 
-  useEffect(() => {
-    if (!selectedDate) return
-    setLoading(true)
-    fetch(`${API}/api/irai/series?session_date=${selectedDate}`)
+  // Fetch series data (silent = no loading spinner on auto-refresh)
+  const fetchSeries = (date, silent = false) => {
+    if (!date) return
+    if (!silent) setLoading(true)
+    fetch(`${API}/api/irai/series?session_date=${date}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) { setError(data.error); setLoading(false); return }
@@ -251,9 +257,36 @@ export default function App() {
         setSeries(processed)
         setSummary(data.summary)
         setLoading(false)
+        setLastUpdate(new Date())
+        setError(null)
       })
       .catch(e => { setError(e.message); setLoading(false) })
+  }
+
+  // Initial load on date change
+  useEffect(() => {
+    fetchSeries(selectedDate, false)
   }, [selectedDate])
+
+  // Auto-refresh polling
+  useEffect(() => {
+    if (!selectedDate) return
+    const interval = setInterval(() => {
+      fetchSeries(selectedDate, true)
+    }, REFRESH_INTERVAL)
+    return () => clearInterval(interval)
+  }, [selectedDate])
+
+  // Countdown timer
+  useEffect(() => {
+    const tick = setInterval(() => {
+      if (lastUpdate) {
+        const elapsed = (Date.now() - lastUpdate.getTime()) / 1000
+        setNextRefresh(Math.max(0, Math.round(REFRESH_INTERVAL / 1000 - elapsed)))
+      }
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [lastUpdate])
 
   const now = series.length > 0 ? series[series.length - 1] : null
 
@@ -318,6 +351,19 @@ export default function App() {
                 fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
               }}>{now.time} · barra {series.length}/{96}</span>
             )}
+            {/* Live pulse + countdown */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569',
+            }}>
+              <div style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: nextRefresh <= 3 ? '#4ADE80' : '#334155',
+                boxShadow: nextRefresh <= 3 ? '0 0 6px #4ADE80' : 'none',
+                transition: 'all 0.3s ease',
+              }} />
+              <span>{nextRefresh}s</span>
+            </div>
             <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value)}>
               {dates.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
