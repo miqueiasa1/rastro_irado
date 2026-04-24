@@ -26,62 +26,55 @@ function barToTime(barIdx) {
 function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNorm }) {
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
-  const isNeutral = !isBuy && !isSell
 
   const signalText = isBuy ? 'COMPRA' : isSell ? 'VENDA' : 'NEUTRO'
   const signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#94A3B8'
   const signalBg = isBuy ? 'rgba(74,222,128,0.08)' : isSell ? 'rgba(248,113,113,0.08)' : 'rgba(148,163,184,0.05)'
 
-  // Confidence: how far from 50%
-  const confidence = Math.abs(pUp - 50) * 2 // 0-100
+  const confidence = Math.abs(pUp - 50) * 2
   const confLabel = confidence > 50 ? 'FORTE' : confidence > 25 ? 'moderado' : 'fraco'
 
-  // Gauge arc angle
-  const angle = ((pUp / 100) * 180) - 90 // -90 to +90
+  // Gauge: 0%=left (-90°), 50%=top (0°), 100%=right (+90°)
+  const angle = ((pUp / 100) * 180) - 90
 
   return (
     <div style={{
       background: signalBg,
       border: `1px solid ${signalColor}22`,
-      borderRadius: 8, padding: '28px 36px',
-      display: 'flex', alignItems: 'center', gap: 40,
+      borderRadius: 8, padding: '14px 28px',
+      display: 'flex', alignItems: 'center', gap: 28,
     }}>
-      {/* SVG Gauge */}
-      <div style={{ position: 'relative', width: 160, height: 90, flexShrink: 0 }}>
-        <svg viewBox="0 0 160 90" width="160" height="90">
-          {/* Background arc */}
-          <path d="M 10 85 A 70 70 0 0 1 150 85" fill="none" stroke="#1E293B" strokeWidth="8" strokeLinecap="round" />
-          {/* Red zone 0-35% */}
-          <path d="M 10 85 A 70 70 0 0 1 30.5 28.5" fill="none" stroke="#F8717133" strokeWidth="8" strokeLinecap="round" />
-          {/* Green zone 65-100% */}
-          <path d="M 129.5 28.5 A 70 70 0 0 1 150 85" fill="none" stroke="#4ADE8033" strokeWidth="8" strokeLinecap="round" />
-          {/* Needle */}
+      {/* SVG Gauge — compact */}
+      <div style={{ position: 'relative', width: 110, height: 62, flexShrink: 0 }}>
+        <svg viewBox="0 0 110 62" width="110" height="62">
+          <path d="M 8 58 A 48 48 0 0 1 102 58" fill="none" stroke="#1E293B" strokeWidth="6" strokeLinecap="round" />
+          <path d="M 8 58 A 48 48 0 0 1 22 20" fill="none" stroke="#F8717133" strokeWidth="6" strokeLinecap="round" />
+          <path d="M 88 20 A 48 48 0 0 1 102 58" fill="none" stroke="#4ADE8033" strokeWidth="6" strokeLinecap="round" />
           <line
-            x1="80" y1="85"
-            x2={80 + 55 * Math.cos(angle * Math.PI / 180)}
-            y2={85 - 55 * Math.sin(angle * Math.PI / 180)}
-            stroke={signalColor} strokeWidth="2.5" strokeLinecap="round"
+            x1="55" y1="58"
+            x2={55 + 38 * Math.cos(angle * Math.PI / 180)}
+            y2={58 - 38 * Math.sin(angle * Math.PI / 180)}
+            stroke={signalColor} strokeWidth="2" strokeLinecap="round"
           />
-          <circle cx="80" cy="85" r="4" fill={signalColor} />
-          {/* Labels */}
-          <text x="12" y="82" fill="#F87171" fontSize="9" fontFamily="var(--font-mono)">0%</text>
-          <text x="74" y="18" fill="#64748B" fontSize="8" fontFamily="var(--font-mono)">50%</text>
-          <text x="138" y="82" fill="#4ADE80" fontSize="9" fontFamily="var(--font-mono)">100%</text>
+          <circle cx="55" cy="58" r="3" fill={signalColor} />
+          <text x="6" y="56" fill="#F87171" fontSize="7" fontFamily="var(--font-mono)">0%</text>
+          <text x="51" y="10" fill="#64748B" fontSize="7" fontFamily="var(--font-mono)">50%</text>
+          <text x="93" y="56" fill="#4ADE80" fontSize="7" fontFamily="var(--font-mono)">100</text>
         </svg>
       </div>
 
       {/* Signal text */}
       <div style={{ flex: 1 }}>
         <div style={{
-          fontSize: 11, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em',
-          color: '#64748B', textTransform: 'uppercase', marginBottom: 6,
+          fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em',
+          color: '#64748B', textTransform: 'uppercase', marginBottom: 4,
         }}>sinal IRAI</div>
         <div style={{
-          fontFamily: 'var(--font-serif)', fontSize: 52, lineHeight: 1,
+          fontFamily: 'var(--font-serif)', fontSize: 38, lineHeight: 1,
           color: signalColor, fontWeight: 400,
         }}>{signalText}</div>
         <div style={{
-          marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 13,
+          marginTop: 5, fontFamily: 'var(--font-mono)', fontSize: 11,
           color: '#94A3B8',
         }}>
           {pUp.toFixed(1)}% chance de alta · confiança <span style={{ color: signalColor }}>{confLabel}</span>
@@ -89,18 +82,18 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
       </div>
 
       {/* WIN return + flow */}
-      <div style={{ textAlign: 'right', minWidth: 150 }}>
+      <div style={{ textAlign: 'right', minWidth: 140 }}>
         <div style={{
-          fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em',
-          color: '#64748B', textTransform: 'uppercase', marginBottom: 4,
+          fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em',
+          color: '#64748B', textTransform: 'uppercase', marginBottom: 3,
         }}>WIN agora</div>
         <div style={{
-          fontFamily: 'var(--font-serif)', fontSize: 36, lineHeight: 1,
+          fontFamily: 'var(--font-serif)', fontSize: 28, lineHeight: 1,
           color: winReturn >= 0 ? '#4ADE80' : '#F87171',
         }}>{winReturn >= 0 ? '+' : ''}{winReturn.toFixed(2)}%</div>
         <div style={{
-          marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11,
-          padding: '4px 10px', borderRadius: 4, display: 'inline-block',
+          marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 10,
+          padding: '3px 8px', borderRadius: 4, display: 'inline-block',
           background: flowConfirms === true ? 'rgba(74,222,128,0.12)'
                     : flowConfirms === false ? 'rgba(251,191,36,0.12)'
                     : 'rgba(148,163,184,0.08)',
