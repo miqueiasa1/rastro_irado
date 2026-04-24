@@ -388,38 +388,38 @@ export default function App() {
               cumDeltaNorm={now.cum_delta_norm}
             />
 
-            {/* ── MAIN CHART + FACTORS ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 16, marginTop: 16 }}>
+            {/* ── DUAL CHARTS: side by side ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
 
-              {/* Hero chart: WIN real vs P_up */}
+              {/* LEFT: WIN vs IRAI */}
               <div style={{
                 background: '#0F172A', border: '1px solid #1E293B',
-                borderRadius: 8, padding: '20px 20px 12px',
+                borderRadius: 8, padding: '16px 16px 8px',
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div>
                     <div style={{
-                      fontFamily: 'var(--font-serif)', fontSize: 20, color: '#E2E8F0',
+                      fontFamily: 'var(--font-serif)', fontSize: 18, color: '#E2E8F0',
                     }}>
                       WIN <span style={{ fontStyle: 'italic', color: '#64748B' }}>vs</span> IRAI
                     </div>
                     <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 9, color: '#475569', marginTop: 2,
-                    }}>branco = WIN real · dourado = sinal IRAI (P_up)</div>
+                      fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 2,
+                    }}>rastro macro · fatores externos</div>
                   </div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{ width: 16, height: 2, background: '#E2E8F0' }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B' }}>WIN %</span>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ width: 12, height: 2, background: '#E2E8F0' }} />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>WIN</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{ width: 16, height: 2, background: '#D4A84C', borderTop: '1px dashed #D4A84C' }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B' }}>P(↑)</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ width: 12, height: 2, background: '#D4A84C', borderTop: '1px dashed #D4A84C' }} />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>P(↑)</span>
                     </div>
                   </div>
                 </div>
-                <ResponsiveContainer width="100%" height={320}>
-                  <ComposedChart data={series} margin={{ top: 10, right: 45, left: 0, bottom: 0 }}>
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={series} margin={{ top: 10, right: 40, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="winFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#E2E8F0" stopOpacity={0.08} />
@@ -437,128 +437,174 @@ export default function App() {
                     <CartesianGrid stroke="#1E293B" vertical={false} />
                     <XAxis
                       dataKey="time"
-                      tick={{ fill: '#475569', fontSize: 9, fontFamily: 'JetBrains Mono' }}
+                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
                       stroke="#1E293B" interval={11}
                     />
                     <YAxis
                       yAxisId="win" orientation="left"
-                      tick={{ fill: '#475569', fontSize: 9, fontFamily: 'JetBrains Mono' }}
+                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
                       stroke="#1E293B" tickFormatter={v => `${Number(v).toFixed(1)}%`}
                     />
                     <YAxis
                       yAxisId="pup" orientation="right" domain={[0, 100]}
                       ticks={[0, 25, 50, 75, 100]}
-                      tick={{ fill: '#475569', fontSize: 9, fontFamily: 'JetBrains Mono' }}
+                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
                       stroke="#1E293B" tickFormatter={v => `${v}%`}
                     />
-                    {/* Buy zone (>60%) */}
                     <ReferenceArea yAxisId="pup" y1={60} y2={100} fill="url(#buyZone)" />
-                    {/* Sell zone (<40%) */}
                     <ReferenceArea yAxisId="pup" y1={0} y2={40} fill="url(#sellZone)" />
-                    {/* 50% line */}
                     <ReferenceLine yAxisId="pup" y={50} stroke="#334155" strokeDasharray="4 4" />
                     <ReferenceLine yAxisId="win" y={0} stroke="#334155" strokeDasharray="2 2" />
-
                     <Tooltip content={<CustomTooltip />} />
-
-                    {/* WIN area */}
                     <Area yAxisId="win" type="monotone" dataKey="win_return" stroke="none" fill="url(#winFill)" isAnimationActive={false} />
-                    {/* WIN line */}
                     <Line yAxisId="win" type="monotone" dataKey="win_return" stroke="#E2E8F0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                    {/* P_up */}
                     <Line yAxisId="pup" type="monotone" dataKey="p_up" stroke="#D4A84C" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
-
-                {/* ── CUMULATIVE DELTA MINI-CHART ── */}
-                <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px solid #1E293B22' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 9, color: '#475569',
-                      letterSpacing: '0.1em', textTransform: 'uppercase',
-                    }}>
-                      📊 cumulative delta · fluxo de ordens
-                    </div>
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                      color: now.cum_delta >= 0 ? '#4ADE80' : '#F87171',
-                    }}>
-                      {now.cum_delta >= 0 ? '▲' : '▼'} {(now.cum_delta / 1000).toFixed(0)}k
-                      <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                        norm {now.cum_delta_norm >= 0 ? '+' : ''}{now.cum_delta_norm?.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={60}>
-                    <ComposedChart data={series} margin={{ top: 2, right: 45, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="deltaPos" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#4ADE80" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#4ADE80" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="deltaNeg" x1="0" y1="1" x2="0" y2="0">
-                          <stop offset="0%" stopColor="#F87171" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#F87171" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis dataKey="time" hide />
-                      <YAxis hide />
-                      <ReferenceLine y={0} stroke="#334155" strokeWidth={1} />
-                      <Area
-                        type="monotone" dataKey="cum_delta" stroke="none"
-                        fill="url(#deltaPos)" isAnimationActive={false}
-                        baseValue={0}
-                      />
-                      <Line
-                        type="monotone" dataKey="cum_delta" dot={false}
-                        stroke={now.cum_delta >= 0 ? '#4ADE80' : '#F87171'}
-                        strokeWidth={1.5} isAnimationActive={false}
-                      />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between',
-                    fontFamily: 'var(--font-mono)', fontSize: 8, color: '#334155', marginTop: 2,
-                  }}>
-                    <span>acima da linha = compradores dominam</span>
-                    <span>abaixo = vendedores dominam</span>
-                  </div>
-                </div>
               </div>
 
-              {/* Factor signals */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569',
-                  letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 2, paddingLeft: 4,
-                }}>fatores · favorável para IBOV?</div>
-
-                {Object.entries(FACTOR_META).map(([key]) => (
-                  <FactorSignal key={key} fkey={key} data={now.factors?.[key]} />
-                ))}
-
-                {/* Net score */}
-                <div style={{
-                  marginTop: 4, padding: '12px 16px',
-                  background: now.score > 0 ? 'rgba(74,222,128,0.06)' : now.score < 0 ? 'rgba(248,113,113,0.06)' : 'transparent',
-                  border: '1px solid #1E293B', borderRadius: 6,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                }}>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 10, color: '#64748B',
-                    letterSpacing: '0.1em', textTransform: 'uppercase',
-                  }}>score líquido</span>
-                  <span style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 600,
-                    color: now.score > 0 ? '#4ADE80' : now.score < 0 ? '#F87171' : '#94A3B8',
-                  }}>{now.score >= 0 ? '+' : ''}{now.score.toFixed(3)}</span>
+              {/* RIGHT: Cumulative Delta */}
+              <div style={{
+                background: '#0F172A', border: '1px solid #1E293B',
+                borderRadius: 8, padding: '16px 16px 8px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div>
+                    <div style={{
+                      fontFamily: 'var(--font-serif)', fontSize: 18, color: '#E2E8F0',
+                    }}>
+                      Fluxo <span style={{ fontStyle: 'italic', color: '#64748B' }}>Delta</span>
+                    </div>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 2,
+                    }}>delta cumulativo · pressão local WIN</div>
+                  </div>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600,
+                    color: now.cum_delta >= 0 ? '#4ADE80' : '#F87171',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    {now.cum_delta >= 0 ? '▲' : '▼'} {(now.cum_delta / 1000).toFixed(0)}k
+                    <span style={{ fontSize: 9, color: '#475569', fontWeight: 400 }}>
+                      norm {now.cum_delta_norm >= 0 ? '+' : ''}{now.cum_delta_norm?.toFixed(2)}
+                    </span>
+                  </div>
                 </div>
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={series} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="deltaPos" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#4ADE80" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#4ADE80" stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="deltaNeg" x1="0" y1="1" x2="0" y2="0">
+                        <stop offset="0%" stopColor="#F87171" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#F87171" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#1E293B" vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
+                      stroke="#1E293B" interval={11}
+                    />
+                    <YAxis
+                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
+                      stroke="#1E293B"
+                      tickFormatter={v => `${(v / 1000).toFixed(0)}k`}
+                    />
+                    <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                    <Tooltip
+                      formatter={(v) => [`${(v / 1000).toFixed(1)}k`, 'Delta']}
+                      contentStyle={{ background: '#0F172A', border: '1px solid #1E293B', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                      labelStyle={{ color: '#94A3B8' }}
+                    />
+                    <Area
+                      type="monotone" dataKey="cum_delta" stroke="none"
+                      fill="url(#deltaPos)" isAnimationActive={false}
+                      baseValue={0}
+                    />
+                    <Line
+                      type="monotone" dataKey="cum_delta" dot={false}
+                      stroke={now.cum_delta >= 0 ? '#4ADE80' : '#F87171'}
+                      strokeWidth={2} isAnimationActive={false}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* ── COMPACT FACTOR ROW ── */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto',
+              gap: 8, marginTop: 12, alignItems: 'center',
+            }}>
+              {Object.entries(FACTOR_META).map(([key]) => {
+                const data = now.factors?.[key]
+                if (!data) return null
+                const meta = FACTOR_META[key]
+                const contrib = data.contribution || 0
+                const isFavorBuy = contrib > 0.02
+                const isFavorSell = contrib < -0.02
+                const color = isFavorBuy ? '#4ADE80' : isFavorSell ? '#F87171' : '#475569'
+                const label = isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : '—'
+                const ret = data.ret || 0
+                const intensity = Math.min(Math.abs(contrib) / 0.5, 1) * 100
+
+                return (
+                  <div key={key} style={{
+                    background: isFavorBuy ? 'rgba(74,222,128,0.05)' : isFavorSell ? 'rgba(248,113,113,0.05)' : 'rgba(71,85,105,0.03)',
+                    border: `1px solid ${isFavorBuy ? 'rgba(74,222,128,0.12)' : isFavorSell ? 'rgba(248,113,113,0.12)' : 'rgba(71,85,105,0.08)'}`,
+                    borderRadius: 6, padding: '10px 12px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontSize: 16 }}>{meta.icon}</span>
+                      <span style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+                        color: color,
+                      }}>{label}</span>
+                    </div>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color: '#CBD5E1',
+                    }}>{meta.label}</div>
+                    {/* Mini intensity bar */}
+                    <div style={{
+                      marginTop: 4, height: 2, background: '#1E293B', borderRadius: 1,
+                      position: 'relative', overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        position: 'absolute', top: 0, bottom: 0, left: 0,
+                        width: `${intensity}%`, background: color,
+                        borderRadius: 1, transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 3,
+                    }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</div>
+                  </div>
+                )
+              })}
+
+              {/* Score líquido */}
+              <div style={{
+                background: now.score > 0 ? 'rgba(74,222,128,0.05)' : now.score < 0 ? 'rgba(248,113,113,0.05)' : 'transparent',
+                border: '1px solid #1E293B', borderRadius: 6,
+                padding: '10px 14px', textAlign: 'center',
+              }}>
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B',
+                  letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4,
+                }}>score</div>
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600,
+                  color: now.score > 0 ? '#4ADE80' : now.score < 0 ? '#F87171' : '#94A3B8',
+                }}>{now.score >= 0 ? '+' : ''}{now.score.toFixed(2)}</div>
               </div>
             </div>
 
             {/* ── FOOTER ── */}
             <div style={{
-              marginTop: 20, paddingTop: 14, borderTop: '1px solid #1E293B',
+              marginTop: 16, paddingTop: 12, borderTop: '1px solid #1E293B',
               fontFamily: 'var(--font-mono)', fontSize: 10, color: '#334155',
               display: 'flex', justifyContent: 'space-between',
             }}>
