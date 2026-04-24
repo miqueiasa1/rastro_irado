@@ -282,6 +282,16 @@ class IRAIEngine:
 
         self.set_session_opens(opens)
 
+        # Pré-indexar preços dos fatores por timestamp (O(n) em vez de O(n²))
+        factor_prices = {}
+        for factor in FACTORS:
+            fb = df[df["symbol"] == factor].sort_values("timestamp")
+            if len(fb) > 0:
+                # Lista de (timestamp, close) ordenada
+                factor_prices[factor] = list(zip(fb["timestamp"], fb["close"].astype(float)))
+            else:
+                factor_prices[factor] = []
+
         # Iterar sobre barras do WIN
         win_bars = df[df["symbol"] == TARGET].sort_values("timestamp")
         n_bars = len(win_bars)
@@ -289,15 +299,22 @@ class IRAIEngine:
         cum_delta = 0.0
         cum_real_vol = 0.0
 
+        # Cursor de posição para cada fator (evita busca repetida)
+        factor_cursors = {f: 0 for f in FACTORS}
+
         for bar_idx, (_, win_row) in enumerate(win_bars.iterrows()):
             ts = win_row["timestamp"]
 
-            # Atualizar preços dos fatores (mais recente <= ts)
+            # Atualizar preços dos fatores via cursor (O(1) amortizado)
             for factor in FACTORS:
-                factor_bars = df[(df["symbol"] == factor) & (df["timestamp"] <= ts)]
-                if len(factor_bars) > 0:
-                    price = float(factor_bars.sort_values("timestamp").iloc[-1]["close"])
-                    self.update_price(factor, price, ts.isoformat())
+                prices = factor_prices[factor]
+                cursor = factor_cursors[factor]
+                # Avançar cursor até a última barra <= ts
+                while cursor < len(prices) - 1 and prices[cursor + 1][0] <= ts:
+                    cursor += 1
+                factor_cursors[factor] = cursor
+                if cursor < len(prices) and prices[cursor][0] <= ts:
+                    self.update_price(factor, prices[cursor][1], ts.isoformat())
 
             snap = self.compute(
                 bar_idx=bar_idx,
@@ -316,15 +333,14 @@ class IRAIEngine:
             snap.bar_delta = round(bar_d, 0)
             snap.cum_delta = round(cum_delta, 0)
 
-            # Normalizar: cum_delta / volume médio por barra * n_barras
+            # Normalizar: cum_delta / volume médio por barra
             avg_vol = cum_real_vol / (bar_idx + 1) if bar_idx >= 0 else 1
             if avg_vol > 0:
                 snap.cum_delta_norm = round(cum_delta / avg_vol, 3)
             else:
                 snap.cum_delta_norm = 0.0
 
-            # Flow confirms: delta positivo + P_up > 55 = confirma compra
-            #                delta negativo + P_up < 45 = confirma venda
+            # Flow confirms
             if snap.p_up > 55 and cum_delta > 0:
                 snap.flow_confirms = True
             elif snap.p_up < 45 and cum_delta < 0:
@@ -334,7 +350,7 @@ class IRAIEngine:
             elif snap.p_up < 45 and cum_delta > 0:
                 snap.flow_confirms = False
             else:
-                snap.flow_confirms = None  # neutro / indeciso
+                snap.flow_confirms = None
 
             snapshots.append(snap)
 
