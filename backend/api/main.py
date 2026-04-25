@@ -2,20 +2,23 @@
 IRAI — FastAPI Backend.
 
 Endpoints:
-  GET /api/irai/current       → snapshot corrente (live ou última sessão)
-  GET /api/irai/series        → série completa de uma sessão
-  GET /api/irai/dates         → datas disponíveis
-  GET /api/model/params       → parâmetros do modelo
-  GET /api/health             → status do sistema
+  GET  /api/irai/current       → snapshot corrente (live ou última sessão)
+  GET  /api/irai/series        → série completa de uma sessão (target=WIN$N|DOL$N)
+  GET  /api/irai/dates         → datas disponíveis
+  GET  /api/model/params       → parâmetros do modelo
+  GET  /api/health             → status do sistema
+  WS   /ws/irai                → push em tempo real (5s)
 """
 
 import os
 import sys
+import asyncio
+import json
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -25,6 +28,43 @@ from backend.irai.engine import IRAIEngine, FACTORS, FACTOR_LABELS, TARGET
 
 # ── Engine singleton ──────────────────────────────────────
 engine: IRAIEngine = None
+ws_clients: set = set()
+
+
+async def ws_broadcast_loop():
+    """Push dados para todos os WebSocket clients a cada 5s."""
+    while True:
+        await asyncio.sleep(5)
+        if not ws_clients:
+            continue
+        try:
+            today = date.today().isoformat()
+            snapshots = engine.compute_from_db(today)
+            if not snapshots:
+                continue
+            payload = json.dumps({
+                "type": "series",
+                "session_date": today,
+                "bars": len(snapshots),
+                "series": [_snap_to_dict(s) for s in snapshots],
+                "summary": {
+                    "p_up_min": min(s.p_up for s in snapshots),
+                    "p_up_max": max(s.p_up for s in snapshots),
+                    "p_up_final": snapshots[-1].p_up,
+                    "score_final": snapshots[-1].score,
+                    "verdict": snapshots[-1].verdict,
+                    "win_return": snapshots[-1].win_return,
+                },
+            })
+            dead = set()
+            for ws in ws_clients.copy():
+                try:
+                    await ws.send_text(payload)
+                except Exception:
+                    dead.add(ws)
+            ws_clients -= dead
+        except Exception as e:
+            print(f"WS broadcast error: {e}")
 
 
 @asynccontextmanager
@@ -32,7 +72,9 @@ async def lifespan(app: FastAPI):
     global engine
     engine = IRAIEngine()
     print(f"IRAI Engine loaded: alpha={engine.alpha:.4f}, {len(engine.weights)} weights")
+    task = asyncio.create_task(ws_broadcast_loop())
     yield
+    task.cancel()
     print("IRAI Engine shutdown")
 
 
@@ -89,13 +131,14 @@ async def irai_dates():
 
 @app.get("/api/irai/series")
 async def irai_series(
-    session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)")
+    session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)"),
+    target: str = Query("WIN$N", description="Target: WIN$N ou DOL$N"),
 ):
-    """Série IRAI completa para uma sessão."""
+    """Série IRAI completa para uma sessão. Suporta multi-target."""
     if session_date is None:
         session_date = date.today().isoformat()
 
-    snapshots = engine.compute_from_db(session_date)
+    snapshots = engine.compute_from_db(session_date, target=target)
 
     if not snapshots:
         return JSONResponse(
@@ -103,8 +146,10 @@ async def irai_series(
             content={"error": f"Sem dados para sessão {session_date}"}
         )
 
+    target_label = "win" if target == "WIN$N" else "dol"
     return {
         "session_date": session_date,
+        "target": target,
         "bars": len(snapshots),
         "series": [_snap_to_dict(s) for s in snapshots],
         "summary": {
@@ -113,7 +158,7 @@ async def irai_series(
             "p_up_final": snapshots[-1].p_up,
             "score_final": snapshots[-1].score,
             "verdict": snapshots[-1].verdict,
-            "win_return": snapshots[-1].win_return,
+            f"{target_label}_return": snapshots[-1].win_return,
         },
     }
 
@@ -187,6 +232,23 @@ def _bar_time(bar_idx: int) -> str:
     h = total_min // 60
     m = total_min % 60
     return f"{h:02d}:{m:02d}"
+
+
+@app.websocket("/ws/irai")
+async def websocket_irai(ws: WebSocket):
+    """WebSocket push: envia série IRAI a cada 5s."""
+    await ws.accept()
+    ws_clients.add(ws)
+    print(f"WS client connected ({len(ws_clients)} total)")
+    try:
+        while True:
+            # Keep alive — espera por mensagens do client (ping/pong)
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        ws_clients.discard(ws)
+        print(f"WS client disconnected ({len(ws_clients)} total)")
+    except Exception:
+        ws_clients.discard(ws)
 
 
 if __name__ == "__main__":

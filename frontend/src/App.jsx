@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceArea, ReferenceLine, Area, ComposedChart,
@@ -6,6 +6,11 @@ import {
 } from 'recharts'
 
 const API = 'http://localhost:8888'
+const WS_URL = 'ws://localhost:8888/ws/irai'
+const TARGETS = [
+  { key: 'WIN$N', label: 'WIN', icon: '🇧🇷', desc: 'Mini Índice' },
+  { key: 'DOL$N', label: 'DOL', icon: '💵', desc: 'Mini Dólar' },
+]
 
 const FACTOR_META = {
   dol:   { label: 'DÓLAR', icon: '💵', desc: 'Câmbio BRL/USD', invertido: true },
@@ -214,17 +219,21 @@ function CustomTooltip({ active, payload, label }) {
 }
 
 /* ── Main App ────────────────────────────────────── */
-const REFRESH_INTERVAL = 30_000 // 30 seconds
+const REFRESH_INTERVAL = 30_000 // 30 seconds (fallback polling)
 
 export default function App() {
   const [dates, setDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
+  const [selectedTarget, setSelectedTarget] = useState('WIN$N')
   const [series, setSeries] = useState([])
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [nextRefresh, setNextRefresh] = useState(REFRESH_INTERVAL / 1000)
+  const [wsConnected, setWsConnected] = useState(false)
+  const wsRef = useRef(null)
+  const reconnectTimer = useRef(null)
 
   // Fetch dates once
   useEffect(() => {
@@ -238,10 +247,10 @@ export default function App() {
   }, [])
 
   // Fetch series data (silent = no loading spinner on auto-refresh)
-  const fetchSeries = (date, silent = false) => {
+  const fetchSeries = useCallback((date, target, silent = false) => {
     if (!date) return
     if (!silent) setLoading(true)
-    fetch(`${API}/api/irai/series?session_date=${date}`)
+    fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}`)
       .then(r => r.json())
       .then(data => {
         if (data.error) { setError(data.error); setLoading(false); return }
@@ -256,21 +265,69 @@ export default function App() {
         setError(null)
       })
       .catch(e => { setError(e.message); setLoading(false) })
-  }
+  }, [])
 
-  // Initial load on date change
+  // Initial load on date or target change
   useEffect(() => {
-    fetchSeries(selectedDate, false)
-  }, [selectedDate])
+    fetchSeries(selectedDate, selectedTarget, false)
+  }, [selectedDate, selectedTarget, fetchSeries])
 
-  // Auto-refresh polling
+  // WebSocket connection (live push)
   useEffect(() => {
-    if (!selectedDate) return
+    const today = dates.length > 0 ? dates[0] : null
+    // Only use WS for today's data with default target
+    const isLive = selectedDate === today && selectedTarget === 'WIN$N'
+    if (!isLive) {
+      // Close WS when browsing history
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null; setWsConnected(false) }
+      return
+    }
+
+    function connect() {
+      const ws = new WebSocket(WS_URL)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        setWsConnected(true)
+        console.log('WS connected')
+      }
+      ws.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data)
+          if (data.type === 'series' && data.series) {
+            const processed = data.series.map(s => ({ ...s, time: barToTime(s.bar_idx) }))
+            setSeries(processed)
+            setSummary(data.summary)
+            setLastUpdate(new Date())
+            setError(null)
+            setLoading(false)
+          }
+        } catch (e) { console.error('WS parse error', e) }
+      }
+      ws.onclose = () => {
+        setWsConnected(false)
+        wsRef.current = null
+        // Reconnect after 3s
+        reconnectTimer.current = setTimeout(connect, 3000)
+      }
+      ws.onerror = () => { ws.close() }
+    }
+
+    connect()
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
+    }
+  }, [selectedDate, selectedTarget, dates])
+
+  // Fallback polling (only when WS is disconnected)
+  useEffect(() => {
+    if (wsConnected || !selectedDate) return
     const interval = setInterval(() => {
-      fetchSeries(selectedDate, true)
+      fetchSeries(selectedDate, selectedTarget, true)
     }, REFRESH_INTERVAL)
     return () => clearInterval(interval)
-  }, [selectedDate])
+  }, [selectedDate, selectedTarget, wsConnected, fetchSeries])
 
   // Countdown timer
   useEffect(() => {
@@ -346,18 +403,37 @@ export default function App() {
                 fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
               }}>{now.time} · barra {series.length}/{96}</span>
             )}
-            {/* Live pulse + countdown */}
+            {/* WS/Poll status indicator */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6,
               fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569',
             }}>
               <div style={{
                 width: 6, height: 6, borderRadius: '50%',
-                background: nextRefresh <= 3 ? '#4ADE80' : '#334155',
-                boxShadow: nextRefresh <= 3 ? '0 0 6px #4ADE80' : 'none',
+                background: wsConnected ? '#4ADE80' : nextRefresh <= 3 ? '#FBBF24' : '#334155',
+                boxShadow: wsConnected ? '0 0 6px #4ADE80' : 'none',
                 transition: 'all 0.3s ease',
               }} />
-              <span>{nextRefresh}s</span>
+              <span>{wsConnected ? 'LIVE' : `${nextRefresh}s`}</span>
+            </div>
+            {/* Target selector tabs */}
+            <div style={{
+              display: 'flex', gap: 0, border: '1px solid #334155', borderRadius: 4,
+              overflow: 'hidden',
+            }}>
+              {TARGETS.map(t => (
+                <button key={t.key}
+                  onClick={() => setSelectedTarget(t.key)}
+                  style={{
+                    background: selectedTarget === t.key ? '#334155' : '#1E293B',
+                    color: selectedTarget === t.key ? '#E2E8F0' : '#64748B',
+                    border: 'none', padding: '5px 14px', cursor: 'pointer',
+                    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                    transition: 'all 0.2s ease',
+                    borderRight: t.key !== TARGETS[TARGETS.length - 1].key ? '1px solid #334155' : 'none',
+                  }}
+                >{t.icon} {t.label}</button>
+              ))}
             </div>
             <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value)}>
               {dates.map(d => <option key={d} value={d}>{d}</option>)}
@@ -394,7 +470,7 @@ export default function App() {
                   <div style={{
                     fontFamily: 'var(--font-serif)', fontSize: 18, color: '#E2E8F0',
                   }}>
-                    WIN <span style={{ fontStyle: 'italic', color: '#64748B' }}>vs</span> IRAI
+                    {TARGETS.find(t => t.key === selectedTarget)?.label || 'WIN'} <span style={{ fontStyle: 'italic', color: '#64748B' }}>vs</span> IRAI
                   </div>
                   <div style={{
                     fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 2,
@@ -582,10 +658,10 @@ export default function App() {
               fontFamily: 'var(--font-mono)', fontSize: 10, color: '#334155',
               display: 'flex', justifyContent: 'space-between',
             }}>
-              <span>R²=0.46 · α=1.42 · 67.5% acurácia direcional · 5 fatores cross-asset</span>
+              <span>R²=0.46 · α=1.31 · 71.0% acurácia direcional · 6 fatores cross-asset</span>
               <span>
                 sessão {selectedDate} ·
-                WIN {now.win_open?.toFixed(0)} → {now.win_current?.toFixed(0)}
+                {TARGETS.find(t => t.key === selectedTarget)?.label || 'WIN'} {now.win_open?.toFixed(0)} → {now.win_current?.toFixed(0)}
               </span>
             </div>
           </>

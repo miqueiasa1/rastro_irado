@@ -232,14 +232,23 @@ class IRAIEngine:
             stale_factors=stale_factors,
         )
 
-    def compute_from_db(self, session_date: str = None) -> list[IRAISnapshot]:
-        """Computa série IRAI completa para uma sessão a partir do banco."""
+    def compute_from_db(self, session_date: str = None, target: str = None) -> list[IRAISnapshot]:
+        """Computa série IRAI completa para uma sessão a partir do banco.
+        
+        Args:
+            session_date: Data YYYY-MM-DD
+            target: Símbolo alvo (WIN$N, DOL$N). Default: WIN$N
+        """
         session_date = session_date or date.today().isoformat()
+        target = target or TARGET
+
+        # Quando target é DOL$N, remover DOL dos fatores para evitar circularidade
+        active_factors = [f for f in FACTORS if f != target]
 
         conn = get_connection(self.db_path)
 
         # Pegar barras da sessão
-        all_symbols = [TARGET] + FACTORS
+        all_symbols = [target] + active_factors
         placeholders = ",".join(["?"] * len(all_symbols))
         query = f"""
             SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
@@ -264,8 +273,10 @@ class IRAIEngine:
         df["hour"] = df["timestamp"].dt.hour
 
         # Detectar se timestamps são BRT ou UTC
-        win_hours = df[df["symbol"] == TARGET]["hour"].value_counts()
-        if win_hours.index.min() < 13:
+        target_hours = df[df["symbol"] == target]["hour"].value_counts()
+        if target_hours.empty:
+            return []
+        if target_hours.index.min() < 13:
             # BRT timestamps
             session_mask = (df["hour"] >= 10) & (df["hour"] < 18)
         else:
@@ -280,14 +291,14 @@ class IRAIEngine:
             if len(sym_bars) > 0:
                 opens[sym] = float(sym_bars.iloc[0]["open"])
 
-        if TARGET not in opens:
+        if target not in opens:
             return []
 
         self.set_session_opens(opens)
 
         # Pré-indexar preços dos fatores por timestamp (O(n) em vez de O(n²))
         factor_prices = {}
-        for factor in FACTORS:
+        for factor in active_factors:
             fb = df[df["symbol"] == factor].sort_values("timestamp")
             if len(fb) > 0:
                 # Lista de (timestamp, close) ordenada
@@ -295,21 +306,21 @@ class IRAIEngine:
             else:
                 factor_prices[factor] = []
 
-        # Iterar sobre barras do WIN
-        win_bars = df[df["symbol"] == TARGET].sort_values("timestamp")
-        n_bars = len(win_bars)
+        # Iterar sobre barras do target
+        target_bars = df[df["symbol"] == target].sort_values("timestamp")
+        n_bars = len(target_bars)
         snapshots = []
         cum_delta = 0.0
         cum_real_vol = 0.0
 
         # Cursor de posição para cada fator (evita busca repetida)
-        factor_cursors = {f: 0 for f in FACTORS}
+        factor_cursors = {f: 0 for f in active_factors}
 
-        for bar_idx, (_, win_row) in enumerate(win_bars.iterrows()):
-            ts = win_row["timestamp"]
+        for bar_idx, (_, row) in enumerate(target_bars.iterrows()):
+            ts = row["timestamp"]
 
             # Atualizar preços dos fatores via cursor (O(1) amortizado)
-            for factor in FACTORS:
+            for factor in active_factors:
                 prices = factor_prices[factor]
                 cursor = factor_cursors[factor]
                 # Avançar cursor até a última barra <= ts
@@ -321,15 +332,15 @@ class IRAIEngine:
 
             snap = self.compute(
                 bar_idx=bar_idx,
-                win_current=float(win_row["close"]),
-                win_open=opens[TARGET],
+                win_current=float(row["close"]),
+                win_open=opens[target],
                 session_date=session_date,
             )
             snap.timestamp = ts.isoformat()
 
             # Cumulative Delta
-            bar_d = float(win_row["delta"]) if "delta" in win_row.index and win_row["delta"] else 0.0
-            rv = float(win_row["real_volume"]) if "real_volume" in win_row.index and win_row["real_volume"] else 0.0
+            bar_d = float(row["delta"]) if "delta" in row.index and row["delta"] else 0.0
+            rv = float(row["real_volume"]) if "real_volume" in row.index and row["real_volume"] else 0.0
             cum_delta += bar_d
             cum_real_vol += rv
 
