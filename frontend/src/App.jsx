@@ -10,13 +10,12 @@ const API = 'http://localhost:8888'
 const FACTOR_META = {
   dol:   { label: 'DÓLAR', icon: '💵', desc: 'Câmbio BRL/USD', invertido: true },
   di:    { label: 'JUROS', icon: '📈', desc: 'DI Futuro BR', invertido: true },
+  china: { label: 'CHINA50', icon: '🇨🇳', desc: 'China A50 Index', invertido: false },
   vix:   { label: 'VIX',   icon: '😰', desc: 'VIX — Volatilidade', invertido: true },
+  mxn:   { label: 'USDMXN', icon: '🇲🇽', desc: 'Peso Mexicano', invertido: true },
   dxy:   { label: 'DXY',   icon: '🌐', desc: 'DXY — Dólar global', invertido: true },
   brent: { label: 'PETRÓLEO', icon: '🛢️', desc: 'Brent Crude', invertido: false },
   iv:    { label: 'IV ATM', icon: '📊', desc: 'IV IBOV — Opções ATM', invertido: true },
-  china: { label: 'CHINA50', icon: '🇨🇳', desc: 'China A50 Index', invertido: false },
-  mxn:   { label: 'USDMXN', icon: '🇲🇽', desc: 'Peso Mexicano', invertido: true },
-  dax:   { label: 'DE40', icon: '🇩🇪', desc: 'DAX — Alemanha', invertido: false },
 }
 
 function barToTime(barIdx) {
@@ -517,7 +516,7 @@ export default function App() {
 
             {/* ── COMPACT FACTOR ROW ── */}
             <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(9, 1fr) auto',
+              display: 'grid', gridTemplateColumns: 'repeat(8, 1fr) auto',
               gap: 8, marginTop: 12, alignItems: 'center',
             }}>
               {Object.entries(FACTOR_META).map(([key]) => {

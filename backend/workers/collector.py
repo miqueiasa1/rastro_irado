@@ -35,7 +35,7 @@ TERMINALS = [
         "name": "Tickmill",
         "path": r"C:\Program Files\Tickmill MT5 Terminal\terminal64.exe",
         "source": "tickmill",
-        "symbols": ["VIX", "DXY", "BRENT", "CHINA50", "USDMXN", "DE40"],
+        "symbols": ["VIX", "DXY", "BRENT", "CHINA50", "USDMXN"],
     },
 ]
 
