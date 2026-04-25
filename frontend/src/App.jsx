@@ -9,17 +9,30 @@ const API = 'http://localhost:8888'
 const WS_URL = 'ws://localhost:8888/ws/irai'
 const TARGETS = [
   { key: 'WIN$N', label: 'WIN', icon: '🇧🇷', desc: 'Mini Índice' },
-  { key: 'DOL$N', label: 'DOL', icon: '💵', desc: 'Mini Dólar' },
+  { key: 'WDO$N', label: 'WDO', icon: '💵', desc: 'Mini Dólar' },
 ]
 
-const FACTOR_META = {
-  dol:   { label: 'DÓLAR', icon: '💵', desc: 'Câmbio BRL/USD', invertido: true },
+// Fatores do modelo WIN (prediz IBOV)
+const WIN_FACTOR_META = {
+  wdo:   { label: 'WDO', icon: '💵', desc: 'Mini Dólar Futuro', invertido: true },
   di:    { label: 'JUROS', icon: '📈', desc: 'DI Futuro BR', invertido: true },
   china: { label: 'CHINA50', icon: '🇨🇳', desc: 'China A50 Index', invertido: false },
   mxn:   { label: 'USDMXN', icon: '🇲🇽', desc: 'Peso Mexicano', invertido: true },
   dxy:   { label: 'DXY',   icon: '🌐', desc: 'DXY — Dólar global', invertido: true },
   brent: { label: 'PETRÓLEO', icon: '🛢️', desc: 'Brent Crude', invertido: false },
 }
+
+// Fatores do modelo WDO (prediz dólar)
+const WDO_FACTOR_META = {
+  di:    { label: 'JUROS', icon: '📈', desc: 'DI Futuro BR', invertido: false },
+  win:   { label: 'WIN', icon: '🇧🇷', desc: 'Mini Índice', invertido: true },
+  btc:   { label: 'BITCOIN', icon: '₿', desc: 'BTC/USD', invertido: true },
+  china: { label: 'CHINA50', icon: '🇨🇳', desc: 'China A50 Index', invertido: true },
+  vix:   { label: 'VIX', icon: '💥', desc: 'CBOE Volatility', invertido: false },
+  dxy:   { label: 'DXY', icon: '🌐', desc: 'DXY — Dólar global', invertido: false },
+}
+
+const FACTOR_META_MAP = { 'WIN$N': WIN_FACTOR_META, 'WDO$N': WDO_FACTOR_META }
 
 function barToTime(barIdx) {
   const totalMinutes = 10 * 60 + barIdx * 5
@@ -593,10 +606,11 @@ export default function App() {
               display: 'grid', gridTemplateColumns: 'repeat(6, 1fr) auto',
               gap: 8, marginTop: 12, alignItems: 'center',
             }}>
-              {Object.entries(FACTOR_META).map(([key]) => {
+              {Object.entries(FACTOR_META_MAP[selectedTarget] || WIN_FACTOR_META).map(([key]) => {
                 const data = now.factors?.[key]
                 if (!data) return null
-                const meta = FACTOR_META[key]
+                const activeMeta = FACTOR_META_MAP[selectedTarget] || WIN_FACTOR_META
+                const meta = activeMeta[key]
                 const contrib = data.contribution || 0
                 const isFavorBuy = contrib > 0.02
                 const isFavorSell = contrib < -0.02

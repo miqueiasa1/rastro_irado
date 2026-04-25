@@ -16,13 +16,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.db import get_connection, DB_PATH
 
 
-# ── Configuração ──────────────────────────────────────────
-FACTORS = ["DOL$N", "DI1$N", "DXY", "BRENT", "CHINA50", "USDMXN"]
-FACTOR_LABELS = {
-    "DOL$N": "dol", "DI1$N": "di", "DXY": "dxy",
+# ── Configuração dual-model ───────────────────────────────
+# WIN model: fatores que predizem IBOV
+WIN_FACTORS = ["WDO$N", "DI1$N", "DXY", "BRENT", "CHINA50", "USDMXN"]
+WIN_FACTOR_LABELS = {
+    "WDO$N": "wdo", "DI1$N": "di", "DXY": "dxy",
     "BRENT": "brent", "CHINA50": "china", "USDMXN": "mxn",
 }
+
+# WDO model: fatores que predizem dólar
+WDO_FACTORS = ["DI1$N", "WIN$N", "BTCUSD", "CHINA50", "VIX", "DXY"]
+WDO_FACTOR_LABELS = {
+    "DI1$N": "di", "WIN$N": "win", "BTCUSD": "btc",
+    "CHINA50": "china", "VIX": "vix", "DXY": "dxy",
+}
+
+# Defaults (backward compat)
+FACTORS = WIN_FACTORS
+FACTOR_LABELS = WIN_FACTOR_LABELS
 TARGET = "WIN$N"
+
+# Model configs por target
+MODEL_CONFIGS = {
+    "WIN$N": {"factors": WIN_FACTORS, "labels": WIN_FACTOR_LABELS, "param_prefix": ""},
+    "WDO$N": {"factors": WDO_FACTORS, "labels": WDO_FACTOR_LABELS, "param_prefix": "wdo_"},
+    "DOL$N": {"factors": WDO_FACTORS, "labels": WDO_FACTOR_LABELS, "param_prefix": "wdo_"},
+}
 
 # Sessão B3: 10:00 - 17:55 BRT
 SESSION_START_H = 10
@@ -77,25 +96,38 @@ def sigmoid(x: float) -> float:
 
 
 class IRAIEngine:
-    """Motor de cálculo do IRAI."""
+    """Motor de cálculo do IRAI — suporta WIN e WDO como targets."""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or DB_PATH
+        # WIN model (default)
         self.weights: dict[str, float] = {}
         self.sigmas: dict[str, float] = {}
         self.alpha: float = 1.0
         self.intercept: float = 0.0
-        self.session_opens: dict[str, float] = {}  # symbol -> open price
+        # WDO model
+        self.wdo_weights: dict[str, float] = {}
+        self.wdo_sigmas: dict[str, float] = {}
+        self.wdo_alpha: float = 1.0
+        self.wdo_intercept: float = 0.0
+
+        self.session_opens: dict[str, float] = {}
         self.factor_states: dict[str, FactorState] = {}
         self._load_params()
 
     def _load_params(self):
-        """Carrega parâmetros mais recentes do banco."""
+        """Carrega parâmetros de ambos os modelos (WIN + WDO)."""
         conn = get_connection(self.db_path)
+
+        # WIN params: max effective_from entre params SEM prefixo wdo_
         cursor = conn.execute("""
             SELECT param_name, value
             FROM model_params
-            WHERE effective_from = (SELECT MAX(effective_from) FROM model_params)
+            WHERE param_name NOT LIKE 'wdo_%'
+              AND effective_from = (
+                  SELECT MAX(effective_from) FROM model_params
+                  WHERE param_name NOT LIKE 'wdo_%'
+              )
         """)
         for row in cursor:
             name = row["param_name"]
@@ -110,9 +142,32 @@ class IRAIEngine:
             elif name == "intercept":
                 self.intercept = value
 
+        # WDO params: max effective_from entre params COM prefixo wdo_
+        cursor2 = conn.execute("""
+            SELECT param_name, value
+            FROM model_params
+            WHERE param_name LIKE 'wdo_%'
+              AND effective_from = (
+                  SELECT MAX(effective_from) FROM model_params
+                  WHERE param_name LIKE 'wdo_%'
+              )
+        """)
+        for row in cursor2:
+            name = row["param_name"]
+            value = row["value"]
+            if name.startswith("wdo_w_"):
+                self.wdo_weights[name.replace("wdo_", "")] = value
+            elif name.startswith("wdo_sigma_"):
+                label = name.replace("wdo_sigma_", "")
+                self.wdo_sigmas[label] = value
+            elif name == "wdo_alpha":
+                self.wdo_alpha = value
+            elif name == "wdo_intercept":
+                self.wdo_intercept = value
+
         conn.close()
 
-        # Inicializar factor states
+        # Inicializar factor states (WIN por default)
         for symbol, label in FACTOR_LABELS.items():
             self.factor_states[label] = FactorState(
                 symbol=symbol,
@@ -120,6 +175,13 @@ class IRAIEngine:
                 weight=self.weights.get(f"w_{label}", 0.0),
                 sigma=self.sigmas.get(label, 0.01),
             )
+
+    def _get_model_config(self, target: str):
+        """Retorna weights, sigmas, alpha, intercept para o target."""
+        cfg = MODEL_CONFIGS.get(target, MODEL_CONFIGS["WIN$N"])
+        if cfg["param_prefix"] == "wdo_":
+            return self.wdo_weights, self.wdo_sigmas, self.wdo_alpha, self.wdo_intercept, cfg
+        return self.weights, self.sigmas, self.alpha, self.intercept, cfg
 
     def set_session_opens(self, opens: dict[str, float]):
         """Define preços de abertura da sessão."""
@@ -237,18 +299,37 @@ class IRAIEngine:
         
         Args:
             session_date: Data YYYY-MM-DD
-            target: Símbolo alvo (WIN$N, DOL$N). Default: WIN$N
+            target: Símbolo alvo (WIN$N, WDO$N, DOL$N). Default: WIN$N
         """
         session_date = session_date or date.today().isoformat()
         target = target or TARGET
 
-        # Quando target é DOL$N, remover DOL dos fatores para evitar circularidade
-        active_factors = [f for f in FACTORS if f != target]
+        # Carregar modelo correto para o target
+        t_weights, t_sigmas, t_alpha, t_intercept, cfg = self._get_model_config(target)
+        active_factors = cfg["factors"]
+        active_labels = cfg["labels"]
+
+        # Setup factor states para este target
+        self.factor_states = {}
+        for symbol, label in active_labels.items():
+            self.factor_states[label] = FactorState(
+                symbol=symbol,
+                label=label,
+                weight=t_weights.get(f"w_{label}", 0.0),
+                sigma=t_sigmas.get(label, 0.01),
+            )
+        # Temporariamente setar alpha/intercept para compute()
+        saved_alpha, saved_intercept = self.alpha, self.intercept
+        self.alpha = t_alpha
+        self.intercept = t_intercept
+
+        # Se target é WDO, usar DOL$N como proxy nos dados (cotação idêntica)
+        data_target = "DOL$N" if target == "WDO$N" else target
 
         conn = get_connection(self.db_path)
 
         # Pegar barras da sessão
-        all_symbols = [target] + active_factors
+        all_symbols = list(set([data_target] + active_factors))
         placeholders = ",".join(["?"] * len(all_symbols))
         query = f"""
             SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
@@ -267,17 +348,18 @@ class IRAIEngine:
         conn.close()
 
         if df.empty:
+            self.alpha, self.intercept = saved_alpha, saved_intercept
             return []
 
         df["timestamp"] = pd.to_datetime(df["timestamp_utc"])
         df["hour"] = df["timestamp"].dt.hour
 
         # Detectar se timestamps são BRT ou UTC
-        target_hours = df[df["symbol"] == target]["hour"].value_counts()
+        target_hours = df[df["symbol"] == data_target]["hour"].value_counts()
         if target_hours.empty:
+            self.alpha, self.intercept = saved_alpha, saved_intercept
             return []
         if target_hours.index.min() < 13:
-            # BRT timestamps
             session_mask = (df["hour"] >= 10) & (df["hour"] < 18)
         else:
             session_mask = (df["hour"] >= 13) & (df["hour"] < 21)
@@ -291,7 +373,8 @@ class IRAIEngine:
             if len(sym_bars) > 0:
                 opens[sym] = float(sym_bars.iloc[0]["open"])
 
-        if target not in opens:
+        if data_target not in opens:
+            self.alpha, self.intercept = saved_alpha, saved_intercept
             return []
 
         self.set_session_opens(opens)
@@ -307,7 +390,7 @@ class IRAIEngine:
                 factor_prices[factor] = []
 
         # Iterar sobre barras do target
-        target_bars = df[df["symbol"] == target].sort_values("timestamp")
+        target_bars = df[df["symbol"] == data_target].sort_values("timestamp")
         n_bars = len(target_bars)
         snapshots = []
         cum_delta = 0.0
@@ -333,7 +416,7 @@ class IRAIEngine:
             snap = self.compute(
                 bar_idx=bar_idx,
                 win_current=float(row["close"]),
-                win_open=opens[target],
+                win_open=opens[data_target],
                 session_date=session_date,
             )
             snap.timestamp = ts.isoformat()
@@ -367,6 +450,9 @@ class IRAIEngine:
                 snap.flow_confirms = None
 
             snapshots.append(snap)
+
+        # Restaurar alpha/intercept default (WIN)
+        self.alpha, self.intercept = saved_alpha, saved_intercept
 
         return snapshots
 
