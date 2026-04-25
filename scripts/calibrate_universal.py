@@ -80,8 +80,21 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
 
     target_ret = daily[data_sym].rename("target")
 
-    # Fatores candidatos = todos menos o target e seu proxy
+    # Fatores candidatos
     exclude = {target, data_sym}
+    
+    # Regras de negócio
+    br_assets = {"WIN$N", "DOL$N", "DI1$N", "WDO$N"}
+    us_indices = {"US500", "US30", "USTEC"}
+    
+    if target in us_indices:
+        # US indices não seguem outros US indices
+        exclude.update(us_indices)
+        
+    if target not in br_assets:
+        # Internacional não usa BR
+        exclude.update(br_assets)
+        
     available_factors = [f for f in ALL_FACTORS if f in daily and f not in exclude]
     
     print(f"  Fatores disponíveis: {len(available_factors)}")
@@ -108,12 +121,15 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     y_dir = (y_ret > 0).astype(int)
 
     # Brute force
-    best_acc = 0.0
+    best_score = -float("inf")
     best_result = None
     total_combos = 0
 
     factor_labels_map = {f: f.replace("$N", "").lower() for f in available_factors}
     available_labels = [factor_labels_map[f] for f in available_factors]
+
+    # Precompute TSS for R2
+    tss = np.sum((y_ret - y_ret.mean()) ** 2)
 
     for n_factors in range(min_factors, min(max_factors + 1, len(available_factors) + 1)):
         for combo in combinations(range(len(available_factors)), n_factors):
@@ -132,10 +148,13 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
             yp = Xb @ beta
             correct = np.sum((yp > 0) == (y_ret > 0))
             acc = correct / len(y_ret)
+            
+            # Score Misto: 70% Direcional, 30% Correlação Estrutural (R²)
+            r2 = 1 - np.sum((y_ret - yp) ** 2) / tss
+            score = (acc * 0.7) + (max(0, r2) * 0.3)
 
-            if acc > best_acc:
-                r2 = 1 - np.sum((y_ret - yp) ** 2) / np.sum((y_ret - y_ret.mean()) ** 2)
-                best_acc = acc
+            if score > best_score:
+                best_score = score
                 best_result = {
                     "factors": factors,
                     "labels": labels,
@@ -201,6 +220,15 @@ def save_to_db(conn, target, slug, result):
     effective = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prefix = f"{slug}_"
 
+    # Limpar TODOS os params antigos deste slug antes de inserir os novos.
+    # Isso evita params de calibrações anteriores (com fatores diferentes)
+    # ficarem no banco e causando modelos híbridos incorretos.
+    deleted = conn.execute(
+        "DELETE FROM model_params WHERE param_name LIKE ?", (f"{prefix}%",)
+    ).rowcount
+    if deleted:
+        print(f"  [purge] {deleted} params antigos de '{prefix}' removidos")
+
     params = []
     for label, w in result["weights"].items():
         params.append((f"{prefix}w_{label}", w, effective))
@@ -210,7 +238,7 @@ def save_to_db(conn, target, slug, result):
     params.append((f"{prefix}intercept", result["intercept"], effective))
 
     conn.executemany(
-        "INSERT OR REPLACE INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
+        "INSERT INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
         params,
     )
 

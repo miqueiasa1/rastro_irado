@@ -366,9 +366,17 @@ def save_params_m5(conn, weights, sigmas, alpha, intercept, r_squared, accuracy)
     for label, sigma in sigmas.items():
         all_params[f"sigma_{label}_session"] = sigma
 
+    # Purge: remover todos os params win_ antes de inserir para evitar
+    # modelos híbridos quando os fatores mudarem entre calibrações.
+    deleted = cursor.execute(
+        "DELETE FROM model_params WHERE param_name LIKE 'win_%'"
+    ).rowcount
+    if deleted:
+        print(f"  [purge] {deleted} params antigos de 'win_' removidos")
+
     for name, value in all_params.items():
         cursor.execute(
-            "INSERT OR REPLACE INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
+            "INSERT INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
             (name, value, effective),
         )
 

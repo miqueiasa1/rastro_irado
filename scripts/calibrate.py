@@ -278,9 +278,17 @@ def save_params(conn: sqlite3.Connection, weights: dict, sigmas: dict, alpha: fl
     all_params = {**weights, **sigmas, "alpha": alpha}
 
     cursor = conn.cursor()
+
+    # Purge: remover params win_ antigos para evitar modelos híbridos
+    deleted = cursor.execute(
+        "DELETE FROM model_params WHERE param_name LIKE 'win_%'"
+    ).rowcount
+    if deleted:
+        print(f"  [purge] {deleted} params antigos de 'win_' removidos")
+
     for name, value in all_params.items():
         cursor.execute(
-            "INSERT OR REPLACE INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
+            "INSERT INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
             (name, value, effective_from),
         )
 

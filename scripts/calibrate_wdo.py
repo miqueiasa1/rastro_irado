@@ -123,7 +123,7 @@ print(f"  alpha = {alpha:.4f}")
 print(f"  intercept = {intercept:.4f}")
 print(f"  Directional ACC (logistic) = {dir_acc:.1f}%")
 
-# Save to DB
+# Save to DB — purge old wdo_ params first to avoid hybrid model contamination
 effective = datetime.utcnow().strftime("%Y-%m-%dT00:00:00Z")
 params = []
 for label, w in weights.items():
@@ -133,8 +133,14 @@ for label, s in sigmas.items():
 params.append(("wdo_alpha", alpha, effective))
 params.append(("wdo_intercept", intercept, effective))
 
+deleted = conn.execute(
+    "DELETE FROM model_params WHERE param_name LIKE 'wdo_%'"
+).rowcount
+if deleted:
+    print(f"[purge] {deleted} params antigos de 'wdo_' removidos")
+
 conn.executemany(
-    "INSERT OR REPLACE INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
+    "INSERT INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
     params)
 conn.commit()
 conn.close()
