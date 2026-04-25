@@ -234,6 +234,7 @@ export default function App() {
   const [page, setPage] = useState('overview')
   const [dates, setDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
+  const [liveMode, setLiveMode] = useState(true) // Start in LIVE mode
   const [selectedTarget, setSelectedTarget] = useState('WIN$N')
   const [targetsMeta, setTargetsMeta] = useState([]) // From /api/irai/targets
   const [seriesInfo, setSeriesInfo] = useState({}) // display_name, icon from series response
@@ -247,15 +248,26 @@ export default function App() {
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)
 
-  // Fetch dates + targets list once
+  // The effective date: LIVE = today (from backend), or manually selected
+  const effectiveDate = liveMode ? (dates.length > 0 ? dates[0] : selectedDate) : selectedDate
+
+  // Fetch dates + targets list once (and poll every 60s in live mode to detect new sessions)
   useEffect(() => {
-    fetch(`${API}/api/irai/dates`)
-      .then(r => r.json())
-      .then(data => {
-        setDates(data.dates || [])
-        if (data.dates?.length > 0) setSelectedDate(data.dates[0])
-      })
-      .catch(e => setError(e.message))
+    function loadDates() {
+      fetch(`${API}/api/irai/dates`)
+        .then(r => r.json())
+        .then(data => {
+          setDates(data.dates || [])
+          if (data.dates?.length > 0 && !selectedDate) setSelectedDate(data.dates[0])
+        })
+        .catch(e => setError(e.message))
+    }
+    loadDates()
+    const poll = setInterval(loadDates, 60_000)
+    return () => clearInterval(poll)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     fetch(`${API}/api/irai/targets`)
       .then(r => r.json())
       .then(data => setTargetsMeta((data.targets || []).filter(t => t.calibrated)))
@@ -284,17 +296,14 @@ export default function App() {
       .catch(e => { setError(e.message); setLoading(false) })
   }, [])
 
-  // Initial load on date or target change
+  // Initial load on date/target/liveMode change
   useEffect(() => {
-    fetchSeries(selectedDate, selectedTarget, false)
-  }, [selectedDate, selectedTarget, fetchSeries])
+    fetchSeries(effectiveDate, selectedTarget, false)
+  }, [effectiveDate, selectedTarget, fetchSeries])
 
-  // WebSocket connection (live push)
+  // WebSocket connection — only when liveMode is active
   useEffect(() => {
-    const today = dates.length > 0 ? dates[0] : null
-    // Only use WS for today's data with default target
-    const isLive = selectedDate === today
-    if (!isLive) {
+    if (!liveMode) {
       // Close WS when browsing history
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null; setWsConnected(false) }
       return
@@ -324,8 +333,7 @@ export default function App() {
       ws.onclose = () => {
         setWsConnected(false)
         wsRef.current = null
-        // Reconnect after 3s
-        reconnectTimer.current = setTimeout(connect, 3000)
+        if (liveMode) reconnectTimer.current = setTimeout(connect, 3000)
       }
       ws.onerror = () => { ws.close() }
     }
@@ -335,16 +343,16 @@ export default function App() {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
       if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
     }
-  }, [selectedDate, selectedTarget, dates])
+  }, [liveMode])
 
   // Fallback polling (only when WS is disconnected)
   useEffect(() => {
-    if (wsConnected || !selectedDate) return
+    if (wsConnected || !effectiveDate) return
     const interval = setInterval(() => {
-      fetchSeries(selectedDate, selectedTarget, true)
+      fetchSeries(effectiveDate, selectedTarget, true)
     }, REFRESH_INTERVAL)
     return () => clearInterval(interval)
-  }, [selectedDate, selectedTarget, wsConnected, fetchSeries])
+  }, [effectiveDate, selectedTarget, wsConnected, fetchSeries])
 
   // Countdown timer
   useEffect(() => {
@@ -430,26 +438,28 @@ export default function App() {
               letterSpacing: '0.1em', textTransform: 'uppercase',
             }}>Intraday Risk Appetite Index · B3</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {now && (
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
               }}>{now.time} · barra {series.length}/{96}</span>
             )}
-            {/* WS/Poll status indicator */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: '#475569',
-            }}>
+            {/* WS connection dot */}
+            {wsConnected && (
               <div style={{
-                width: 6, height: 6, borderRadius: '50%',
-                background: wsConnected ? '#4ADE80' : nextRefresh <= 3 ? '#FBBF24' : '#334155',
-                boxShadow: wsConnected ? '0 0 6px #4ADE80' : 'none',
-                transition: 'all 0.3s ease',
-              }} />
-              <span>{wsConnected ? 'LIVE' : `${nextRefresh}s`}</span>
-            </div>
-            {/* Target selector dropdown */}
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80',
+              }}>
+                <div style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: '#4ADE80',
+                  boxShadow: '0 0 6px #4ADE80',
+                  animation: 'pulse 2s infinite',
+                }} />
+                WS
+              </div>
+            )}
+            {/* Target selector */}
             <select
               value={selectedTarget}
               onChange={e => setSelectedTarget(e.target.value)}
@@ -460,9 +470,48 @@ export default function App() {
                 </option>
               ))}
             </select>
-            <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value)}>
-              {dates.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+            {/* LIVE button + date dropdown */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+              <button
+                onClick={() => setLiveMode(true)}
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.1em', padding: '6px 11px',
+                  borderRadius: '4px 0 0 4px',
+                  border: `1px solid ${liveMode ? '#4ADE80' : '#334155'}`,
+                  borderRight: 'none',
+                  background: liveMode ? 'rgba(74,222,128,0.12)' : '#1E293B',
+                  color: liveMode ? '#4ADE80' : '#475569',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {liveMode && (
+                  <span style={{
+                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                    background: '#4ADE80',
+                    boxShadow: '0 0 5px #4ADE80',
+                    animation: 'pulse 2s infinite',
+                  }} />
+                )}
+                LIVE
+              </button>
+              <select
+                value={liveMode ? (dates[0] || '') : (selectedDate || '')}
+                onChange={e => {
+                  setLiveMode(false)
+                  setSelectedDate(e.target.value)
+                }}
+                style={{
+                  borderRadius: '0 4px 4px 0',
+                  borderLeft: `1px solid ${liveMode ? '#4ADE8033' : '#334155'}`,
+                  opacity: liveMode ? 0.5 : 1,
+                }}
+              >
+                {dates.map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
           </div>
         </header>
 
@@ -685,7 +734,7 @@ export default function App() {
             }}>
               <span>IRAI · {Object.keys(now.factors || {}).length} fatores cross-asset</span>
               <span>
-                sessão {selectedDate} ·
+                sessão {effectiveDate} ·
                 {seriesInfo.display_name || selectedTarget} {now.win_open?.toFixed(0)} → {now.win_current?.toFixed(0)}
               </span>
             </div>
