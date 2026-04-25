@@ -43,10 +43,20 @@ MODEL_CONFIGS = {
     "DOL$N": {"factors": WDO_FACTORS, "labels": WDO_FACTOR_LABELS, "param_prefix": "wdo_"},
 }
 
-# Sessão B3: 10:00 - 17:55 BRT
-SESSION_START_H = 10
+# Alias: símbolo lógico → símbolo no banco de dados
+# WDO$N e DOL$N são o mesmo subjacente, mas dados históricos estão como DOL$N
+SYMBOL_ALIASES = {
+    "WDO$N": "DOL$N",
+}
+
+def resolve_symbol(sym: str) -> str:
+    """Resolve alias para o símbolo real no banco."""
+    return SYMBOL_ALIASES.get(sym, sym)
+
+# Sessão B3: 09:00 - 18:00 BRT
+SESSION_START_H = 9
 SESSION_END_H = 18
-BARS_PER_SESSION = 96  # 8h * 12 barras/h
+BARS_PER_SESSION = 108  # 9h * 12 barras/h
 
 
 @dataclass
@@ -186,22 +196,23 @@ class IRAIEngine:
     def set_session_opens(self, opens: dict[str, float]):
         """Define preços de abertura da sessão."""
         self.session_opens = opens
-        for symbol, label in FACTOR_LABELS.items():
-            if symbol in opens and opens[symbol] > 0:
-                self.factor_states[label].open_price = opens[symbol]
+        for label, state in self.factor_states.items():
+            # Resolver alias: se o símbolo lógico é WDO$N, procurar DOL$N nos opens
+            db_sym = resolve_symbol(state.symbol)
+            if db_sym in opens and opens[db_sym] > 0:
+                state.open_price = opens[db_sym]
+            elif state.symbol in opens and opens[state.symbol] > 0:
+                state.open_price = opens[state.symbol]
 
     def update_price(self, symbol: str, price: float, timestamp: str = None):
         """Atualiza o preço corrente de um fator."""
-        label = FACTOR_LABELS.get(symbol)
-        if label is None:
-            if symbol == TARGET:
-                return  # WIN é tratado separadamente
-            return
-
-        state = self.factor_states[label]
-        state.current_price = price
-        state.last_update = timestamp or datetime.now().isoformat()
-        state.stale = False
+        # Procurar nos factor_states pelo símbolo lógico
+        for label, state in self.factor_states.items():
+            if state.symbol == symbol:
+                state.current_price = price
+                state.last_update = timestamp or datetime.now().isoformat()
+                state.stale = False
+                return
 
     def compute(self, bar_idx: int, win_current: float = 0, win_open: float = 0,
                 session_date: str = None, stale_threshold_sec: int = 600) -> IRAISnapshot:
@@ -323,13 +334,18 @@ class IRAIEngine:
         self.alpha = t_alpha
         self.intercept = t_intercept
 
-        # Se target é WDO, usar DOL$N como proxy nos dados (cotação idêntica)
-        data_target = "DOL$N" if target == "WDO$N" else target
+        # Resolver aliases: símbolo lógico → símbolo no banco
+        data_target = resolve_symbol(target)
+        # Mapear fatores lógicos → símbolos no banco
+        factor_to_db = {f: resolve_symbol(f) for f in active_factors}
+        db_factors = list(set(factor_to_db.values()))
+        # Reverso: DB symbol → fator lógico (para update_price)
+        db_to_factor = {v: k for k, v in factor_to_db.items()}
 
         conn = get_connection(self.db_path)
 
-        # Pegar barras da sessão
-        all_symbols = list(set([data_target] + active_factors))
+        # Pegar barras da sessão (usa símbolos do banco)
+        all_symbols = list(set([data_target] + db_factors))
         placeholders = ",".join(["?"] * len(all_symbols))
         query = f"""
             SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
@@ -382,7 +398,8 @@ class IRAIEngine:
         # Pré-indexar preços dos fatores por timestamp (O(n) em vez de O(n²))
         factor_prices = {}
         for factor in active_factors:
-            fb = df[df["symbol"] == factor].sort_values("timestamp")
+            db_sym = factor_to_db.get(factor, factor)
+            fb = df[df["symbol"] == db_sym].sort_values("timestamp")
             if len(fb) > 0:
                 # Lista de (timestamp, close) ordenada
                 factor_prices[factor] = list(zip(fb["timestamp"], fb["close"].astype(float)))
