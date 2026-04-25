@@ -16,47 +16,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.db import get_connection, DB_PATH
 
 
-# ── Configuração dual-model ───────────────────────────────
-# WIN model: fatores que predizem IBOV
-WIN_FACTORS = ["WDO$N", "DI1$N", "DXY", "BRENT", "CHINA50", "USDMXN"]
-WIN_FACTOR_LABELS = {
-    "WDO$N": "wdo", "DI1$N": "di", "DXY": "dxy",
-    "BRENT": "brent", "CHINA50": "china", "USDMXN": "mxn",
-}
-
-# WDO model: fatores que predizem dólar
-WDO_FACTORS = ["DI1$N", "WIN$N", "BTCUSD", "CHINA50", "VIX", "DXY"]
-WDO_FACTOR_LABELS = {
-    "DI1$N": "di", "WIN$N": "win", "BTCUSD": "btc",
-    "CHINA50": "china", "VIX": "vix", "DXY": "dxy",
-}
-
-# Defaults (backward compat)
-FACTORS = WIN_FACTORS
-FACTOR_LABELS = WIN_FACTOR_LABELS
-TARGET = "WIN$N"
-
-# Model configs por target
-MODEL_CONFIGS = {
-    "WIN$N": {"factors": WIN_FACTORS, "labels": WIN_FACTOR_LABELS, "param_prefix": ""},
-    "WDO$N": {"factors": WDO_FACTORS, "labels": WDO_FACTOR_LABELS, "param_prefix": "wdo_"},
-    "DOL$N": {"factors": WDO_FACTORS, "labels": WDO_FACTOR_LABELS, "param_prefix": "wdo_"},
-}
-
-# Alias: símbolo lógico → símbolo no banco de dados
-# WDO$N e DOL$N são o mesmo subjacente, mas dados históricos estão como DOL$N
-SYMBOL_ALIASES = {
-    "WDO$N": "DOL$N",
-}
+# ── Alias de símbolos ─────────────────────────────────────
+SYMBOL_ALIASES = {"WDO$N": "DOL$N"}
 
 def resolve_symbol(sym: str) -> str:
     """Resolve alias para o símbolo real no banco."""
     return SYMBOL_ALIASES.get(sym, sym)
 
-# Sessão B3: 09:00 - 18:00 BRT
-SESSION_START_H = 9
-SESSION_END_H = 18
-BARS_PER_SESSION = 108  # 9h * 12 barras/h
+# Defaults para backward compat
+TARGET = "WIN$N"
+FACTOR_LABELS = {}  # carregado do DB
+BARS_PER_SESSION = 108
 
 
 @dataclass
@@ -106,92 +76,135 @@ def sigmoid(x: float) -> float:
 
 
 class IRAIEngine:
-    """Motor de cálculo do IRAI — suporta WIN e WDO como targets."""
+    """Motor de cálculo do IRAI — suporta N targets via DB."""
 
     def __init__(self, db_path: str = None):
         self.db_path = db_path or DB_PATH
-        # WIN model (default)
-        self.weights: dict[str, float] = {}
-        self.sigmas: dict[str, float] = {}
-        self.alpha: float = 1.0
-        self.intercept: float = 0.0
-        # WDO model
-        self.wdo_weights: dict[str, float] = {}
-        self.wdo_sigmas: dict[str, float] = {}
-        self.wdo_alpha: float = 1.0
-        self.wdo_intercept: float = 0.0
+        # Modelo por slug: {slug: {weights, sigmas, alpha, intercept, factors, labels, session_h}}
+        self.models: dict[str, dict] = {}
+        # Target → slug mapping
+        self.target_slugs: dict[str, str] = {}
+        # All registered targets
+        self.registered_targets: list[dict] = []
 
         self.session_opens: dict[str, float] = {}
         self.factor_states: dict[str, FactorState] = {}
+        # Active model's alpha/intercept (set during compute)
+        self.alpha: float = 1.0
+        self.intercept: float = 0.0
         self._load_params()
 
     def _load_params(self):
-        """Carrega parâmetros de ambos os modelos (WIN + WDO)."""
+        """Carrega configs de asset_models + params de model_params."""
+        import json
         conn = get_connection(self.db_path)
 
-        # WIN params: max effective_from entre params SEM prefixo wdo_
-        cursor = conn.execute("""
-            SELECT param_name, value
-            FROM model_params
-            WHERE param_name NOT LIKE 'wdo_%'
-              AND effective_from = (
-                  SELECT MAX(effective_from) FROM model_params
-                  WHERE param_name NOT LIKE 'wdo_%'
-              )
-        """)
-        for row in cursor:
-            name = row["param_name"]
-            value = row["value"]
-            if name.startswith("w_"):
-                self.weights[name] = value
-            elif name.startswith("sigma_"):
-                label = name.replace("sigma_", "").replace("_session", "").replace("_daily", "")
-                self.sigmas[label] = value
-            elif name == "alpha":
-                self.alpha = value
-            elif name == "intercept":
-                self.intercept = value
+        # 1) Carregar asset_models
+        try:
+            rows = conn.execute(
+                "SELECT target, slug, display_name, icon, factors, factor_labels, "
+                "session_start_h, session_end_h, data_proxy, accuracy, r_squared, active "
+                "FROM asset_models WHERE active=1"
+            ).fetchall()
+        except Exception:
+            rows = []
 
-        # WDO params: max effective_from entre params COM prefixo wdo_
-        cursor2 = conn.execute("""
-            SELECT param_name, value
-            FROM model_params
-            WHERE param_name LIKE 'wdo_%'
-              AND effective_from = (
-                  SELECT MAX(effective_from) FROM model_params
-                  WHERE param_name LIKE 'wdo_%'
-              )
-        """)
-        for row in cursor2:
-            name = row["param_name"]
-            value = row["value"]
-            if name.startswith("wdo_w_"):
-                self.wdo_weights[name.replace("wdo_", "")] = value
-            elif name.startswith("wdo_sigma_"):
-                label = name.replace("wdo_sigma_", "")
-                self.wdo_sigmas[label] = value
-            elif name == "wdo_alpha":
-                self.wdo_alpha = value
-            elif name == "wdo_intercept":
-                self.wdo_intercept = value
+        for row in rows:
+            target = row["target"]
+            slug = row["slug"]
+            factors = json.loads(row["factors"]) if row["factors"] else []
+            factor_labels = json.loads(row["factor_labels"]) if row["factor_labels"] else {}
+            
+            self.target_slugs[target] = slug
+            self.registered_targets.append({
+                "target": target, "slug": slug,
+                "display_name": row["display_name"], "icon": row["icon"],
+                "factors": factors, "factor_labels": factor_labels,
+                "session_start_h": row["session_start_h"] or 0,
+                "session_end_h": row["session_end_h"] or 24,
+                "data_proxy": row["data_proxy"],
+                "accuracy": row["accuracy"], "r_squared": row["r_squared"],
+            })
+
+            # Determinar prefixo dos params
+            prefix = f"{slug}_" if slug != "win" else ""
+
+            # 2) Carregar model_params para este slug
+            if prefix:
+                params_cursor = conn.execute("""
+                    SELECT param_name, value FROM model_params
+                    WHERE param_name LIKE ? AND effective_from = (
+                        SELECT MAX(effective_from) FROM model_params WHERE param_name LIKE ?
+                    )
+                """, (f"{prefix}%", f"{prefix}%"))
+            else:
+                params_cursor = conn.execute("""
+                    SELECT param_name, value FROM model_params
+                    WHERE param_name NOT LIKE '%\\_%\\_%' ESCAPE '\\'
+                      AND effective_from = (
+                          SELECT MAX(effective_from) FROM model_params
+                          WHERE param_name NOT LIKE '%\\_%\\_%' ESCAPE '\\'
+                      )
+                """)
+
+            weights, sigmas = {}, {}
+            alpha, intercept = 1.0, 0.0
+
+            for p in params_cursor:
+                name = p["param_name"]
+                value = p["value"]
+                # Strip prefix
+                clean = name[len(prefix):] if prefix and name.startswith(prefix) else name
+                if clean.startswith("w_"):
+                    weights[clean] = value
+                elif clean.startswith("sigma_"):
+                    label = clean.replace("sigma_", "").replace("_session", "").replace("_daily", "")
+                    sigmas[label] = value
+                elif clean == "alpha":
+                    alpha = value
+                elif clean == "intercept":
+                    intercept = value
+
+            self.models[slug] = {
+                "weights": weights, "sigmas": sigmas,
+                "alpha": alpha, "intercept": intercept,
+                "factors": factors, "factor_labels": factor_labels,
+                "prefix": prefix,
+                "session_start_h": row["session_start_h"] or 0,
+                "session_end_h": row["session_end_h"] or 24,
+                "data_proxy": row["data_proxy"],
+            }
 
         conn.close()
 
-        # Inicializar factor states (WIN por default)
-        for symbol, label in FACTOR_LABELS.items():
-            self.factor_states[label] = FactorState(
-                symbol=symbol,
-                label=label,
-                weight=self.weights.get(f"w_{label}", 0.0),
-                sigma=self.sigmas.get(label, 0.01),
-            )
+        # Backward compat: set default FACTOR_LABELS from WIN model
+        global FACTOR_LABELS
+        if "win" in self.models:
+            FACTOR_LABELS = self.models["win"]["factor_labels"]
 
     def _get_model_config(self, target: str):
-        """Retorna weights, sigmas, alpha, intercept para o target."""
-        cfg = MODEL_CONFIGS.get(target, MODEL_CONFIGS["WIN$N"])
-        if cfg["param_prefix"] == "wdo_":
-            return self.wdo_weights, self.wdo_sigmas, self.wdo_alpha, self.wdo_intercept, cfg
-        return self.weights, self.sigmas, self.alpha, self.intercept, cfg
+        """Retorna weights, sigmas, alpha, intercept, cfg para o target."""
+        slug = self.target_slugs.get(target)
+        if slug and slug in self.models:
+            m = self.models[slug]
+            return m["weights"], m["sigmas"], m["alpha"], m["intercept"], {
+                "factors": m["factors"],
+                "labels": m["factor_labels"],
+                "param_prefix": m["prefix"],
+                "session_start_h": m["session_start_h"],
+                "session_end_h": m["session_end_h"],
+                "data_proxy": m["data_proxy"],
+            }
+        # Fallback WIN
+        if "win" in self.models:
+            m = self.models["win"]
+            return m["weights"], m["sigmas"], m["alpha"], m["intercept"], {
+                "factors": m["factors"], "labels": m["factor_labels"],
+                "param_prefix": "", "session_start_h": 12, "session_end_h": 21,
+                "data_proxy": None,
+            }
+        return {}, {}, 1.0, 0.0, {"factors": [], "labels": {}, "param_prefix": "",
+                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None}
 
     def set_session_opens(self, opens: dict[str, float]):
         """Define preços de abertura da sessão."""
@@ -335,7 +348,7 @@ class IRAIEngine:
         self.intercept = t_intercept
 
         # Resolver aliases: símbolo lógico → símbolo no banco
-        data_target = resolve_symbol(target)
+        data_target = cfg.get("data_proxy") or resolve_symbol(target)
         # Mapear fatores lógicos → símbolos no banco
         factor_to_db = {f: resolve_symbol(f) for f in active_factors}
         db_factors = list(set(factor_to_db.values()))
@@ -370,17 +383,28 @@ class IRAIEngine:
         df["timestamp"] = pd.to_datetime(df["timestamp_utc"])
         df["hour"] = df["timestamp"].dt.hour
 
-        # Detectar se timestamps são BRT ou UTC
+        # Detectar sessão via config do modelo
+        session_start = cfg.get("session_start_h", 0)
+        session_end = cfg.get("session_end_h", 24)
+
         target_hours = df[df["symbol"] == data_target]["hour"].value_counts()
         if target_hours.empty:
             self.alpha, self.intercept = saved_alpha, saved_intercept
             return []
-        if target_hours.index.min() < 13:
-            session_mask = (df["hour"] >= 10) & (df["hour"] < 18)
-        else:
-            session_mask = (df["hour"] >= 13) & (df["hour"] < 21)
 
-        df = df[session_mask]
+        if session_end == 24 and session_start == 0:
+            # 24h asset — sem filtro de sessão
+            pass
+        else:
+            # Detectar se timestamps são BRT ou UTC
+            if target_hours.index.min() < 13:
+                # BRT timestamps: ajustar para horários locais
+                brt_start = max(session_start - 3, 9)  # UTC→BRT approx
+                brt_end = min(session_end - 3, 18)
+                session_mask = (df["hour"] >= brt_start) & (df["hour"] < brt_end)
+            else:
+                session_mask = (df["hour"] >= session_start) & (df["hour"] < session_end)
+            df = df[session_mask]
 
         # Opens = primeira barra de cada símbolo
         opens = {}

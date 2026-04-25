@@ -35,7 +35,11 @@ TERMINALS = [
         "name": "Tickmill",
         "path": r"C:\Program Files\Tickmill MT5 Terminal\terminal64.exe",
         "source": "tickmill",
-        "symbols": ["DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD"],
+        "symbols": [
+            "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
+            "US500", "US30", "USTEC", "XAUUSD",
+            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
+        ],
     },
 ]
 

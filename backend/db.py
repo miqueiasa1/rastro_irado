@@ -69,6 +69,24 @@ CREATE TABLE IF NOT EXISTS calibration_log (
     params_json      TEXT NOT NULL,         -- JSON com todos os pesos
     notes            TEXT
 );
+
+-- Configuração de modelos por ativo
+CREATE TABLE IF NOT EXISTS asset_models (
+    target          TEXT PRIMARY KEY,          -- 'US500', 'XAUUSD', etc.
+    slug            TEXT NOT NULL UNIQUE,      -- 'us500' (prefixo no model_params)
+    display_name    TEXT NOT NULL,             -- 'S&P 500'
+    icon            TEXT DEFAULT '📊',
+    factors         TEXT NOT NULL,             -- JSON: ["DXY","VIX","BTCUSD"]
+    factor_labels   TEXT NOT NULL,             -- JSON: {"DXY":"dxy","VIX":"vix"}
+    session_start_h INTEGER DEFAULT 0,        -- hora UTC início sessão
+    session_end_h   INTEGER DEFAULT 24,       -- hora UTC fim sessão (0-24 = 24h)
+    data_proxy      TEXT,                     -- símbolo no banco se diferente (DOL$N para WDO$N)
+    accuracy        REAL,                     -- última acurácia direcional calibrada
+    r_squared       REAL,                     -- último R²
+    n_sessions      INTEGER,                  -- sessões usadas na calibração
+    calibrated_at   TEXT,                     -- timestamp última calibração
+    active          INTEGER DEFAULT 1         -- 1=ativo, 0=inativo
+);
 """
 
 

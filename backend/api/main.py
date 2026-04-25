@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.db import get_connection, DB_PATH
-from backend.irai.engine import IRAIEngine, FACTORS, FACTOR_LABELS, TARGET
+from backend.irai.engine import IRAIEngine, FACTOR_LABELS, TARGET
 
 # ── Engine singleton ──────────────────────────────────────
 engine: IRAIEngine = None
@@ -71,7 +71,7 @@ async def ws_broadcast_loop():
 async def lifespan(app: FastAPI):
     global engine
     engine = IRAIEngine()
-    print(f"IRAI Engine loaded: alpha={engine.alpha:.4f}, {len(engine.weights)} weights")
+    print(f"IRAI Engine loaded: {len(engine.models)} models, {len(engine.registered_targets)} targets")
     task = asyncio.create_task(ws_broadcast_loop())
     yield
     task.cancel()
@@ -106,11 +106,70 @@ async def health():
         "status": "ok",
         "bars_total": bar_count,
         "last_bar": last_bar,
-        "model": {
-            "alpha": engine.alpha,
-            "intercept": engine.intercept,
-            "weights": engine.weights,
-        },
+        "models_loaded": len(engine.models),
+        "targets": [t["target"] for t in engine.registered_targets],
+    }
+
+
+@app.get("/api/irai/targets")
+async def irai_targets():
+    """Lista todos os targets disponíveis com status."""
+    return {
+        "targets": [
+            {
+                "target": t["target"],
+                "slug": t["slug"],
+                "display_name": t["display_name"],
+                "icon": t["icon"],
+                "accuracy": t.get("accuracy"),
+                "r_squared": t.get("r_squared"),
+                "calibrated": t.get("accuracy") is not None,
+                "session_hours": f"{t['session_start_h']:02d}-{t['session_end_h']:02d} UTC",
+            }
+            for t in engine.registered_targets
+        ]
+    }
+
+
+@app.get("/api/irai/overview")
+async def irai_overview(
+    session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)"),
+):
+    """Snapshot atual de TODOS os targets calibrados."""
+    if session_date is None:
+        session_date = date.today().isoformat()
+
+    results = []
+    for t in engine.registered_targets:
+        if not t.get("accuracy"):
+            continue  # Skip não-calibrados
+
+        try:
+            snapshots = engine.compute_from_db(session_date, target=t["target"])
+            if not snapshots:
+                continue
+            last = snapshots[-1]
+            # Sparkline: P_up de cada barra
+            sparkline = [round(s.p_up, 1) for s in snapshots[-24:]]  # últimas 2h
+            results.append({
+                "target": t["target"],
+                "slug": t["slug"],
+                "display_name": t["display_name"],
+                "icon": t["icon"],
+                "p_up": round(last.p_up, 1),
+                "score": round(last.score, 4),
+                "verdict": last.verdict,
+                "win_return": round(last.win_return, 4),
+                "bars": len(snapshots),
+                "accuracy": t.get("accuracy"),
+                "sparkline": sparkline,
+            })
+        except Exception as e:
+            print(f"Overview error for {t['target']}: {e}")
+
+    return {
+        "session_date": session_date,
+        "targets": results,
     }
 
 
@@ -146,10 +205,13 @@ async def irai_series(
             content={"error": f"Sem dados para sessão {session_date}"}
         )
 
-    target_label = "win" if target == "WIN$N" else "dol"
+    # Lookup display info
+    target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
     return {
         "session_date": session_date,
         "target": target,
+        "display_name": target_info.get("display_name", target),
+        "icon": target_info.get("icon", "📊"),
         "bars": len(snapshots),
         "series": [_snap_to_dict(s) for s in snapshots],
         "summary": {
@@ -158,7 +220,7 @@ async def irai_series(
             "p_up_final": snapshots[-1].p_up,
             "score_final": snapshots[-1].score,
             "verdict": snapshots[-1].verdict,
-            f"{target_label}_return": snapshots[-1].win_return,
+            "return": snapshots[-1].win_return,
         },
     }
 
@@ -192,14 +254,18 @@ async def irai_current():
 
 
 @app.get("/api/model/params")
-async def model_params():
-    """Parâmetros do modelo calibrado."""
+async def model_params(target: str = Query("WIN$N")):
+    """Parâmetros do modelo calibrado para um target."""
+    slug = engine.target_slugs.get(target, "win")
+    m = engine.models.get(slug, {})
     return {
-        "weights": engine.weights,
-        "sigmas": engine.sigmas,
-        "alpha": engine.alpha,
-        "intercept": engine.intercept,
-        "factors": list(FACTOR_LABELS.values()),
+        "target": target,
+        "slug": slug,
+        "weights": m.get("weights", {}),
+        "sigmas": m.get("sigmas", {}),
+        "alpha": m.get("alpha", 1.0),
+        "intercept": m.get("intercept", 0.0),
+        "factors": list(m.get("factor_labels", {}).values()),
     }
 
 
