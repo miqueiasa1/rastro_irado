@@ -130,11 +130,19 @@ class IRAIEngine:
             prefix = f"{slug}_"
 
             # 2) Carregar model_params para este slug
+            # Usar MAX(effective_from) POR param_name para pegar a versão mais recente
+            # de cada parâmetro individualmente (evita bug onde calibrações de outros
+            # assets com mesmo prefixo sobrescrevem os params corretos).
             params_cursor = conn.execute("""
-                SELECT param_name, value FROM model_params
-                WHERE param_name LIKE ? AND effective_from = (
-                    SELECT MAX(effective_from) FROM model_params WHERE param_name LIKE ?
-                )
+                SELECT mp.param_name, mp.value FROM model_params mp
+                INNER JOIN (
+                    SELECT param_name, MAX(effective_from) as max_eff
+                    FROM model_params
+                    WHERE param_name LIKE ?
+                    GROUP BY param_name
+                ) latest ON mp.param_name = latest.param_name
+                         AND mp.effective_from = latest.max_eff
+                WHERE mp.param_name LIKE ?
             """, (f"{prefix}%", f"{prefix}%"))
 
             weights, sigmas = {}, {}

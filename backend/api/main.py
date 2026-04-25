@@ -162,6 +162,42 @@ async def irai_overview(
             last = snapshots[-1]
             # Sparkline: P_up de cada barra
             sparkline = [round(s.p_up, 1) for s in snapshots[-24:]]  # últimas 2h
+            # Flow confirms (already present in snap)
+            flow_confirms = getattr(last, "flow_confirms", None)
+            
+            # Price diverges — baseado em z-score do retorno do target
+            # Lógica: IRAI sinaliza direção X mas o preço se move
+            # significativamente na direção oposta (z-score > limiar)
+            price_diverges = False
+            price_diverge_z = None
+            try:
+                slug = t["slug"]
+                m = engine.models.get(slug, {})
+                # Sigma do target como proxy (wdo sigma para WIN, etc.)
+                # Usar o sigma do fator com mesmo nome que o slug se existir,
+                # senão usar std empírico das últimas barras
+                target_sigmas = m.get("sigmas", {})
+                # Tentar sigma de "wdo" para WIN, "win" para WDO, etc.
+                proxy_sigma = (
+                    target_sigmas.get(slug) or          # ex: wdo_sigma_win → "win" para WDO
+                    target_sigmas.get("wdo") or         # wdo é proxy do WIN/DOL
+                    target_sigmas.get("dol") or
+                    0.005  # fallback 0.5% session sigma
+                )
+                if proxy_sigma > 0 and last.t_frac > 0:
+                    import math
+                    # z-score do retorno atual do target
+                    ret_frac = last.win_return / 100.0  # % → fração
+                    ret_z = ret_frac / (proxy_sigma * math.sqrt(last.t_frac))
+                    price_diverge_z = round(ret_z, 2)
+                    # Diverge se IRAI > 55% e retorno z < -0.5, ou IRAI < 45% e z > +0.5
+                    if last.p_up > 55 and ret_z < -0.5:
+                        price_diverges = True
+                    elif last.p_up < 45 and ret_z > 0.5:
+                        price_diverges = True
+            except Exception:
+                pass
+                
             results.append({
                 "target": t["target"],
                 "slug": t["slug"],
@@ -174,6 +210,9 @@ async def irai_overview(
                 "bars": len(snapshots),
                 "accuracy": t.get("accuracy"),
                 "sparkline": sparkline,
+                "flow_confirms": flow_confirms,
+                "price_diverges": price_diverges,
+                "price_diverge_z": price_diverge_z,
             })
         except Exception as e:
             print(f"Overview error for {t['target']}: {e}")
