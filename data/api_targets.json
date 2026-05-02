@@ -1,0 +1,154 @@
+{
+  "targets": [
+    {
+      "target": "WIN$N",
+      "slug": "win",
+      "display_name": "Mini \u00cdndice",
+      "icon": "\ud83c\udde7\ud83c\uddf7",
+      "accuracy": 84.46601941747572,
+      "r_squared": 0.5908041290157622,
+      "calibrated": true,
+      "session_hours": "09h-18h"
+    },
+    {
+      "target": "WDO$N",
+      "slug": "wdo",
+      "display_name": "Mini D\u00f3lar",
+      "icon": "\ud83d\udcb5",
+      "accuracy": 83.49514563106796,
+      "r_squared": 0.5770905684105686,
+      "calibrated": true,
+      "session_hours": "09h-18h"
+    },
+    {
+      "target": "US500",
+      "slug": "us500",
+      "display_name": "S&P 500",
+      "icon": "US",
+      "accuracy": 87.43961352657004,
+      "r_squared": 0.8231900091495213,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "USTEC",
+      "slug": "ustec",
+      "display_name": "Nasdaq 100",
+      "icon": "NQ",
+      "accuracy": 84.05797101449275,
+      "r_squared": 0.7494128651557617,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "US30",
+      "slug": "us30",
+      "display_name": "Dow Jones",
+      "icon": "DJ",
+      "accuracy": 80.19323671497585,
+      "r_squared": 0.6758635351779676,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "BTCUSD",
+      "slug": "btcusd",
+      "display_name": "Bitcoin",
+      "icon": "\u20bf",
+      "accuracy": 75.84541062801932,
+      "r_squared": 0.3988604977928363,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "XAUUSD",
+      "slug": "xauusd",
+      "display_name": "Ouro",
+      "icon": "GL",
+      "accuracy": 72.46376811594203,
+      "r_squared": 0.283688654506175,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "EURUSD",
+      "slug": "eurusd",
+      "display_name": "EUR/USD",
+      "icon": "EU",
+      "accuracy": 89.85507246376811,
+      "r_squared": 0.8438565680693882,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "GBPUSD",
+      "slug": "gbpusd",
+      "display_name": "GBP/USD",
+      "icon": "GB",
+      "accuracy": 86.47342995169082,
+      "r_squared": 0.7241679092883198,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "USDJPY",
+      "slug": "usdjpy",
+      "display_name": "USD/JPY",
+      "icon": "JP",
+      "accuracy": 81.64251207729468,
+      "r_squared": 0.5860042339609648,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "AUDUSD",
+      "slug": "audusd",
+      "display_name": "AUD/USD",
+      "icon": "AU",
+      "accuracy": 89.85507246376811,
+      "r_squared": 0.7555794694973672,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "USDCAD",
+      "slug": "usdcad",
+      "display_name": "USD/CAD",
+      "icon": "CA",
+      "accuracy": 84.05797101449275,
+      "r_squared": 0.5697757120782868,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "USDCHF",
+      "slug": "usdchf",
+      "display_name": "USD/CHF",
+      "icon": "CH",
+      "accuracy": 88.40579710144928,
+      "r_squared": 0.7612012595563827,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "CADCHF",
+      "slug": "cadchf",
+      "display_name": "CAD/CHF",
+      "icon": "CA",
+      "accuracy": 84.54106280193237,
+      "r_squared": 0.5371684073649662,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    },
+    {
+      "target": "AUDNZD",
+      "slug": "audnzd",
+      "display_name": "AUD/NZD",
+      "icon": "AU",
+      "accuracy": 81.15942028985508,
+      "r_squared": 0.17577552358173332,
+      "calibrated": true,
+      "session_hours": "00h-24h"
+    }
+  ]
+}

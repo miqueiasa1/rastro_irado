@@ -1,14 +1,45 @@
 import { useState, useEffect } from 'react'
 
-const API = 'http://localhost:8888'
+const OVERVIEW_STYLES = `
+  @keyframes borderGlowGreen {
+    0%, 100% { box-shadow: 0 0 5px rgba(74,222,128,0.2), inset 0 0 5px rgba(74,222,128,0.05); border-color: rgba(74,222,128,0.4); }
+    50% { box-shadow: 0 0 15px rgba(74,222,128,0.6), inset 0 0 10px rgba(74,222,128,0.1); border-color: rgba(74,222,128,0.8); }
+  }
+  @keyframes borderGlowRed {
+    0%, 100% { box-shadow: 0 0 5px rgba(248,113,113,0.2), inset 0 0 5px rgba(248,113,113,0.05); border-color: rgba(248,113,113,0.4); }
+    50% { box-shadow: 0 0 15px rgba(248,113,113,0.6), inset 0 0 10px rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.8); }
+  }
+  .card-alert-green { animation: borderGlowGreen 2s infinite ease-in-out; }
+  .card-alert-red { animation: borderGlowRed 2s infinite ease-in-out; }
 
-function Sparkline({ data, width = 80, height = 24 }) {
+  /* Mobile Responsive Overrides */
+  .overview-container { padding: 24px 32px; max-width: 1400px; margin: 0 auto; font-family: var(--font-sans); color: #C8C8D4; }
+  .overview-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 24px; }
+  .overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .overview-grid-pending { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .asset-card { padding: 14px 16px 12px; transition: all 0.2s ease; cursor: pointer; position: relative; overflow: hidden; }
+  .sparkline-wrapper { margin-top: 10px; width: 100%; }
+  
+  @media (max-width: 768px) {
+    .overview-container { padding: 16px 12px !important; }
+    .overview-header { flex-direction: column; align-items: flex-start !important; gap: 16px; }
+    .overview-grid { grid-template-columns: 1fr !important; }
+    .overview-grid-pending { grid-template-columns: 1fr !important; }
+    .asset-card { padding: 12px !important; }
+    .sparkline-wrapper { margin-top: 16px !important; }
+  }
+`
+const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
+const API = FIREBASE_URL ? null : 'http://localhost:8888'
+
+function Sparkline({ data, width = '100%', height = 24 }) {
   if (!data || data.length < 2) return null
   const min = Math.min(...data)
   const max = Math.max(...data)
   const range = max - min || 1
+  const viewBoxWidth = 185
   const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * width
+    const x = (i / (data.length - 1)) * viewBoxWidth
     const y = height - ((v - min) / range) * (height - 4) - 2
     return `${x},${y}`
   }).join(' ')
@@ -17,7 +48,7 @@ function Sparkline({ data, width = 80, height = 24 }) {
   const color = last >= 60 ? '#4ADE80' : last <= 40 ? '#F87171' : '#94A3B8'
 
   return (
-    <svg width={width} height={height} style={{ display: 'block' }}>
+    <svg width={width} height={height} viewBox={`0 0 ${viewBoxWidth} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
       <polyline
         fill="none"
         stroke={color}
@@ -38,14 +69,22 @@ export default function Overview({ onSelectTarget }) {
   useEffect(() => {
     async function load() {
       try {
-        const [tRes, oRes] = await Promise.all([
-          fetch(`${API}/api/irai/targets`),
-          fetch(`${API}/api/irai/overview`),
-        ])
-        const tData = await tRes.json()
-        const oData = await oRes.json()
-        setTargets(tData.targets || [])
-        setOverview(oData.targets || [])
+        if (FIREBASE_URL) {
+          const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
+          const res = await fetch(url)
+          const db = await res.json()
+          setTargets(db?.targets?.targets || [])
+          setOverview(db?.overview?.targets || [])
+        } else {
+          const [tRes, oRes] = await Promise.all([
+            fetch(`${API}/api/irai/targets`),
+            fetch(`${API}/api/irai/overview`),
+          ])
+          const tData = await tRes.json()
+          const oData = await oRes.json()
+          setTargets(tData.targets || [])
+          setOverview(oData.targets || [])
+        }
       } catch (e) {
         console.error('Overview load error:', e)
       } finally {
@@ -53,8 +92,40 @@ export default function Overview({ onSelectTarget }) {
       }
     }
     load()
-    const interval = setInterval(load, 15000)
-    return () => clearInterval(interval)
+    
+    let mounted = true
+    let pollTimer = null
+    
+    if (FIREBASE_URL) {
+      // Firebase: poll every 60s (SSE unreliable for large payloads)
+      pollTimer = setInterval(async () => {
+        if (!mounted) return
+        try {
+          const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
+          const res = await fetch(url)
+          const db = await res.json()
+          setTargets(db?.targets?.targets || [])
+          setOverview(db?.overview?.targets || [])
+        } catch (e) { console.error('Overview poll error:', e) }
+      }, 60_000)
+    } else {
+      // Local: simple HTTP polling every 60s
+      pollTimer = setInterval(async () => {
+        if (!mounted) return
+        try {
+          const [oRes] = await Promise.all([
+            fetch(`${API}/api/irai/overview`),
+          ])
+          const oData = await oRes.json()
+          setOverview(oData.targets || [])
+        } catch (e) { console.error('Overview poll error:', e) }
+      }, 60_000)
+    }
+    
+    return () => {
+      mounted = false
+      if (pollTimer) clearInterval(pollTimer)
+    }
   }, [])
 
   // Merge targets + overview data
@@ -79,22 +150,21 @@ export default function Overview({ onSelectTarget }) {
   }
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1400, margin: '0 auto' }}>
+    <div className="overview-container">
+      <style>{OVERVIEW_STYLES}</style>
       {/* Header */}
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        alignItems: 'baseline', marginBottom: 24,
-      }}>
+      <header className="overview-header">
         <div>
           <div style={{
             fontFamily: 'var(--font-serif)', fontSize: 28,
-            fontWeight: 500, color: '#E2E8F0', lineHeight: 1,
+            fontWeight: 500, color: '#C9A227', lineHeight: 1,
+            letterSpacing: '0.04em',
           }}>
-            IRAI <span style={{ color: '#475569', fontWeight: 300 }}>Multi-Asset</span>
+            IRAI <span style={{ color: '#3A3A4A', fontWeight: 300 }}>Multi-Asset</span>
           </div>
           <div style={{
             fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: '#475569', marginTop: 4, letterSpacing: '0.12em',
+            color: '#3A3A4A', marginTop: 4, letterSpacing: '0.12em',
           }}>
             INTRADAY RISK APPETITE INDEX · {calibrated.length} MODELOS ATIVOS
           </div>
@@ -109,14 +179,10 @@ export default function Overview({ onSelectTarget }) {
           }} />
           LIVE
         </div>
-      </div>
+      </header>
 
       {/* Active Models Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-        gap: 12,
-      }}>
+      <div className="overview-grid">
         {calibrated.map(card => (
           <AssetCard key={card.target} card={card} onClick={() => onSelectTarget?.(card.target)} />
         ))}
@@ -132,11 +198,7 @@ export default function Overview({ onSelectTarget }) {
           }}>
             Aguardando dados · {pending.length} ativos
           </div>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-            gap: 8,
-          }}>
+          <div className="overview-grid-pending">
             {pending.map(card => (
               <div key={card.target} style={{
                 background: 'rgba(15,23,42,0.5)',
@@ -170,7 +232,7 @@ export default function Overview({ onSelectTarget }) {
         display: 'flex', justifyContent: 'space-between',
       }}>
         <span>IRAI Multi-Asset v2.0 · Cross-asset macro factor models</span>
-        <span>Auto-refresh 15s</span>
+        <span>Push em tempo real ativo</span>
       </div>
     </div>
   )
@@ -179,30 +241,42 @@ export default function Overview({ onSelectTarget }) {
 
 function AssetCard({ card, onClick }) {
   const pUp = card.p_up || 50
+  const accuracy = card.accuracy || 80
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
-  const isNeutral = !isBuy && !isSell
 
-  const signalText = isBuy ? 'COMPRA' : isSell ? 'VENDA' : 'NEUTRO'
+  const directionText = isBuy ? 'ALTA' : isSell ? 'BAIXA' : 'NEUTRO'
   const signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#64748B'
   const bgColor = isBuy ? 'rgba(74,222,128,0.04)' : isSell ? 'rgba(248,113,113,0.04)' : 'rgba(71,85,105,0.03)'
-  const borderColor = isBuy ? 'rgba(74,222,128,0.15)' : isSell ? 'rgba(248,113,113,0.15)' : '#1E293B'
+  const borderColor = isBuy ? 'rgba(74,222,128,0.15)' : isSell ? 'rgba(248,113,113,0.15)' : '#1C1C22'
+
+  const nweUp = card.nwe_slope !== undefined ? card.nwe_slope >= 0 : undefined;
+  const isNweDivergentBuy = isBuy && nweUp === false;
+  const isNweDivergentSell = isSell && nweUp === true;
+  
+  const hasAlert = card.price_diverges || isNweDivergentBuy || isNweDivergentSell;
+  const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
+
+  // Convicção calibrada por Shrinkage (mesmo algoritmo do SignalGauge)
+  const acc = Math.min(Math.max(accuracy, 50), 100)
+  const shrinkFactor = (2 * acc / 100) - 1
+  const pShrunk = 50 + (pUp - 50) * shrinkFactor
+  const conviction = Math.round(Math.abs(pShrunk - 50) * 2)
+  const maxConviction = Math.round((acc - 50) * 2)
+  const convRatio = maxConviction > 0 ? conviction / maxConviction : 0
+  const convLabel = card.is_preview ? 'pré-mercado' : (convRatio >= 0.55 ? 'forte' : convRatio >= 0.25 ? 'moderada' : 'fraca')
+  const convColor = card.is_preview ? '#EAB308' : (convRatio >= 0.55 ? signalColor : convRatio >= 0.25 ? '#C9A227' : '#334155')
 
   const ret = card.win_return || 0
-  const retColor = ret >= 0 ? '#4ADE80' : '#F87171'
 
   return (
     <div
       onClick={onClick}
+      className={`asset-card ${alertClass}`}
       style={{
         background: bgColor,
         border: `1px solid ${borderColor}`,
         borderRadius: 8,
-        padding: '16px 18px 14px',
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        position: 'relative',
-        overflow: 'hidden',
       }}
       onMouseEnter={e => {
         e.currentTarget.style.transform = 'translateY(-2px)'
@@ -215,102 +289,115 @@ function AssetCard({ card, onClick }) {
         e.currentTarget.style.boxShadow = 'none'
       }}
     >
-      {/* Top row: icon + name + signal */}
+      {/* Top row: icon + name + signal badge */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 20, lineHeight: 1 }}>{card.icon}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 18, lineHeight: 1, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{card.icon}</span>
           <div>
             <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 13,
-              fontWeight: 700, color: '#E2E8F0', lineHeight: 1,
+              fontFamily: 'var(--font-mono)', fontSize: 12,
+              fontWeight: 700, color: '#C8C8D4', lineHeight: 1,
             }}>{card.display_name}</div>
             <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 8,
-              color: '#475569', marginTop: 2,
+              fontFamily: 'var(--font-mono)', fontSize: 7,
+              color: '#2A2A36', marginTop: 1,
             }}>{card.target}</div>
           </div>
         </div>
+        {/* Conviction badge top-right */}
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
-          color: signalColor, letterSpacing: '0.05em',
+          fontFamily: 'var(--font-mono)', fontSize: 8, fontWeight: 700,
+          color: convColor, letterSpacing: '0.04em',
           padding: '2px 6px', borderRadius: 3,
-          background: isBuy ? 'rgba(74,222,128,0.12)' : isSell ? 'rgba(248,113,113,0.12)' : 'rgba(71,85,105,0.08)',
+          background: `${convColor}18`,
+          border: `1px solid ${convColor}33`,
         }}>
-          {signalText}
+          {convLabel}
         </div>
       </div>
 
-      {/* P_up + Flow/Divergence Indicators */}
+      {/* Direction + conviction (main body) */}
       <div style={{
         display: 'flex', justifyContent: 'space-between',
-        alignItems: 'baseline', marginTop: 12,
+        alignItems: 'flex-end', marginTop: 10,
       }}>
         <div>
+          {/* Direction label — large */}
           <div style={{
-            fontFamily: 'var(--font-serif)', fontSize: 26,
+            fontFamily: 'var(--font-serif)', fontSize: 24,
             color: signalColor, fontWeight: 400, lineHeight: 1,
+          }}>{directionText}</div>
+          {/* Conviction % */}
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10,
+            color: convColor, marginTop: 4, fontWeight: 600,
           }}>
-            {pUp.toFixed(0)}%
+            convicção {conviction}%
           </div>
+          {/* Raw P(↑) — small, secondary */}
           <div style={{
             fontFamily: 'var(--font-mono)', fontSize: 8,
-            color: '#475569', marginTop: 2,
-          }}>P(↑)</div>
+            color: '#2A2A36', marginTop: 2,
+          }}>P(↑) {pUp.toFixed(0)}%</div>
         </div>
-        
+
         {/* Indicators Column */}
         <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-          {/* Price Divergence */}
-          {card.price_diverges ? (
-            <div style={{
-              background: 'rgba(248,113,113,0.1)', color: '#F87171',
-              padding: '2px 6px', borderRadius: 4, fontSize: 9,
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em', border: '1px solid rgba(248,113,113,0.2)'
-            }}>⚠️ PREÇO DIVERGE</div>
-          ) : (
-            <div style={{
-              background: 'rgba(74,222,128,0.1)', color: '#4ADE80',
-              padding: '2px 6px', borderRadius: 4, fontSize: 9,
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em', border: '1px solid rgba(74,222,128,0.2)'
-            }}>✓ PREÇO ALINHADO</div>
-          )}
-          
-          {/* Flow Confirmation */}
-          {card.flow_confirms === true ? (
-            <div style={{
-              background: 'rgba(74,222,128,0.1)', color: '#4ADE80',
-              padding: '2px 6px', borderRadius: 4, fontSize: 9,
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em', border: '1px solid rgba(74,222,128,0.2)'
-            }}>💧 FLUXO APOIA</div>
-          ) : card.flow_confirms === false ? (
-            <div style={{
-              background: 'rgba(248,113,113,0.1)', color: '#F87171',
-              padding: '2px 6px', borderRadius: 4, fontSize: 9,
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em', border: '1px solid rgba(248,113,113,0.2)'
-            }}>🛑 FLUXO CONTRA</div>
-          ) : (
-             <div style={{
-              background: 'rgba(71,85,105,0.1)', color: '#64748B',
-              padding: '2px 6px', borderRadius: 4, fontSize: 9,
-              fontFamily: 'var(--font-mono)', letterSpacing: '0.02em', border: '1px solid rgba(71,85,105,0.2)'
-            }}>FLUXO AUSENTE</div>
-          )}
+          {/* Z-SCORE SIGNAL */}
+          <div style={{
+            background: card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
+            color: card.price_diverges ? (isBuy ? '#4ADE80' : '#F87171') : '#64748B',
+            padding: '2px 6px', borderRadius: 4, fontSize: 8,
+            fontFamily: 'var(--font-mono)', border: `1px solid ${card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`
+          }}>
+            {card.price_diverges ? (isBuy ? '🟢 Z-SCORE' : '🔴 Z-SCORE') : '✓ Z-SCORE'}
+          </div>
+
+          {/* NWE SIGNAL */}
+          {(() => {
+            if (card.nwe_slope === undefined) return null;
+            const nweUp = card.nwe_slope >= 0;
+            const isDivergentBuy = isBuy && !nweUp;
+            const isDivergentSell = isSell && nweUp;
+            
+            let bg = 'rgba(148,163,184,0.08)';
+            let color = '#64748B';
+            let border = 'rgba(148,163,184,0.1)';
+            let text = '✓ NWE';
+            
+            if (isDivergentBuy) {
+              bg = 'rgba(74,222,128,0.12)'; color = '#4ADE80'; border = 'rgba(74,222,128,0.2)'; text = '🟢 NWE COMPRA';
+            } else if (isDivergentSell) {
+              bg = 'rgba(248,113,113,0.12)'; color = '#F87171'; border = 'rgba(248,113,113,0.2)'; text = '🔴 NWE VENDA';
+            }
+
+            return (
+              <div style={{
+                background: bg, color: color,
+                padding: '2px 6px', borderRadius: 4, fontSize: 8,
+                fontFamily: 'var(--font-mono)', border: `1px solid ${border}`
+              }}>
+                {text}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
       {/* Sparkline */}
-      <div style={{ marginTop: 10 }}>
-        <Sparkline data={card.sparkline} width={190} height={20} />
+      <div className="sparkline-wrapper">
+        <Sparkline data={card.sparkline} width="100%" height={24} />
       </div>
 
-      {/* Model accuracy */}
+      {/* Footer: acc + bars */}
       <div style={{
-        marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 8,
-        color: '#334155', display: 'flex', justifyContent: 'space-between',
+        marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 7,
+        color: '#1E1E28', display: 'flex', justifyContent: 'space-between',
       }}>
-        <span>acc {card.accuracy?.toFixed(0)}%</span>
+        <span>acc {accuracy.toFixed(0)}%</span>
         <span>{card.bars || 0} barras</span>
       </div>
     </div>
   )
 }
+

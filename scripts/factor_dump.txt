@@ -1,0 +1,356 @@
+﻿# IRAI Multi-Asset - Mapa de Fatores por Ativo (Pos-Calibracao Universal)
+
+> Calibracao: 2026-04-30
+> Min 6 fatores | Max 8 fatores | DE40 na pool global
+> 20 modelos ativos | Brute-force Ridge + filtros anti-multicolinearidade
+
+---
+
+## Ranking por Acuracia
+
+| # | Ativo | ACC | R2 | Sessao | #Fats | Fator Principal |
+|---|-------|-----|-----|--------|-------|-----------------|
+| 1 | **EURJPY** | 99.0% | 0.9824 | 00-24 UTC | 8 | GBPJPY (+1.018960) |
+| 2 | **GBPJPY** | 96.5% | 0.9838 | 00-24 UTC | 8 | EURJPY (+0.972372) |
+| 3 | **EURGBP** | 92.1% | 0.9611 | 00-24 UTC | 8 | GBPJPY (-0.987854) |
+| 4 | **AUDUSD** | 91.1% | 0.7605 | 00-24 UTC | 8 | CADCHF (+0.669348) |
+| 5 | **EURCHF** | 91.1% | 0.8519 | 00-24 UTC | 8 | USDCAD (+0.904151) |
+| 6 | **CADCHF** | 90.1% | 0.7448 | 00-24 UTC | 8 | EURCHF (+0.703797) |
+| 7 | **US500** | 89.6% | 0.8508 | 00-24 UTC | 8 | iSharesUSEmerging+ (+0.331968) |
+| 8 | **EURUSD** | 89.1% | 0.8059 | 00-24 UTC | 8 | USDCAD (-0.674460) |
+| 9 | **USDCHF** | 89.1% | 0.7530 | 00-24 UTC | 8 | USDJPY (+0.895776) |
+| 10 | **USTEC** | 86.6% | 0.7754 | 00-24 UTC | 8 | USDCAD (-0.392714) |
+| 11 | **GBPUSD** | 85.6% | 0.7272 | 00-24 UTC | 8 | AUDUSD (+0.542119) |
+| 12 | **WIN$N** | 85.1% | 0.5801 | 09-18 UTC | 8 | WDO$N (+0.000000) |
+| 13 | **WDO$N** | 84.2% | 0.5844 | 09-18 UTC | 8 | WIN$N (+0.000000) |
+| 14 | **US30** | 84.2% | 0.7412 | 00-24 UTC | 8 | EURUSD (+2.177559) |
+| 15 | **USDCAD** | 84.2% | 0.6066 | 00-24 UTC | 8 | EURUSD (-0.468285) |
+| 16 | **EURAUD** | 81.7% | 0.6186 | 00-24 UTC | 8 | CADCHF (-0.562517) |
+| 17 | **USDJPY** | 81.2% | 0.5663 | 00-24 UTC | 8 | USDCHF (+0.930239) |
+| 18 | **AUDNZD** | 80.7% | 0.2577 | 00-24 UTC | 8 | EURAUD (-0.323664) |
+| 19 | **BTCUSD** | 75.2% | 0.4358 | 00-24 UTC | 8 | EURGBP (-5.484364) |
+| 20 | **XAUUSD** | 73.3% | 0.2852 | 00-24 UTC | 8 | AUDNZD (+0.979383) |
+
+---
+
+## Detalhamento Completo por Ativo
+
+### 1. EURJPY - ACC 99.0% | R2=0.9824 | Sessao: 00h-24h UTC
+```
+alpha=8.0363, intercept=-1.7168
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  DXY                             -0.083972     0.00000   -0.0451  v VENDA
+  GBPUSD                          -0.309428     0.00000   +0.0759  v VENDA
+  USDCHF                          -0.209266     0.00000   +0.0219  v VENDA
+  AUDNZD                          -0.020434     0.00000   +0.0782  v VENDA
+  EURGBP                          +0.711422     0.00000   +0.2325  ^ COMPRA
+  EURCHF                          +0.187129     0.00000   +0.3579  ^ COMPRA
+  GBPJPY                          +1.018960     0.00000   +0.8054  ^ COMPRA
+  iSharesBrazil+                  -0.005670     0.00000   +0.0941  v VENDA
+```
+
+### 2. GBPJPY - ACC 96.5% | R2=0.9838 | Sessao: 00h-24h UTC
+```
+alpha=7.2728, intercept=1.9819
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  USDMXN                          -0.022855     0.00000   -0.3101  v VENDA
+  VIX                             -0.002391     0.00000   -0.4149  v VENDA
+  US30                            -0.029771     0.00000   +0.3068  v VENDA
+  DE40                            +0.015457     0.00000   +0.2739  ^ COMPRA
+  USDCAD                          -0.018651     0.00000   -0.0542  v VENDA
+  AUDNZD                          +0.015784     0.00000   +0.1485  ^ COMPRA
+  EURGBP                          -0.964826     0.00000   -0.3752  v VENDA
+  EURJPY                          +0.972372     0.00000   +0.8054  ^ COMPRA
+```
+
+### 3. EURGBP - ACC 92.1% | R2=0.9611 | Sessao: 00h-24h UTC
+```
+alpha=7.5121, intercept=1.6745
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  BRENT                           -0.003366     0.00000   -0.1331  v VENDA
+  CHINA50                         +0.007002     0.00000   -0.0815  ^ COMPRA
+  BTCUSD                          -0.000785     0.00000   -0.2629  v VENDA
+  US30                            -0.020869     0.00000   -0.2155  v VENDA
+  DE40                            +0.014354     0.00000   -0.2150  ^ COMPRA
+  AUDNZD                          +0.020836     0.00000   -0.1004  ^ COMPRA
+  EURJPY                          +0.974806     0.00000   +0.2325  ^ COMPRA
+  GBPJPY                          -0.987854     0.00000   -0.3752  v VENDA
+```
+
+### 4. AUDUSD - ACC 91.1% | R2=0.7605 | Sessao: 00h-24h UTC
+```
+alpha=4.1079, intercept=0.1379
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  USDMXN                          -0.209704     0.00000   -0.6355  v VENDA
+  VIX                             -0.044918     0.00000   -0.4254  v VENDA
+  US500                           -0.020257     0.00000   +0.5066  v VENDA
+  XAUUSD                          +0.048682     0.00000   +0.4272  ^ COMPRA
+  USDJPY                          -0.317674     0.00000   -0.3740  v VENDA
+  USDCHF                          -0.639418     0.00000   -0.4379  v VENDA
+  CADCHF                          +0.669348     0.00000   -0.0295  ^ COMPRA
+  GBPJPY                          +0.230890     0.00000   +0.1866  ^ COMPRA
+```
+
+### 5. EURCHF - ACC 91.1% | R2=0.8519 | Sessao: 00h-24h UTC
+```
+alpha=2.4198, intercept=-0.7129
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  CHINA50                         +0.022658     0.00000   +0.1714  ^ COMPRA
+  VIX                             +0.003487     0.00000   -0.3863  ^ COMPRA
+  USDJPY                          -0.876736     0.00000   +0.2419  v VENDA
+  USDCAD                          +0.904151     0.00000   +0.0355  ^ COMPRA
+  CADCHF                          +0.873897     0.00000   +0.6163  ^ COMPRA
+  EURJPY                          +0.866244     0.00000   +0.3579  ^ COMPRA
+  iSharesBrazil+                  +0.016980     0.00000   +0.2341  ^ COMPRA
+  iSharesTreasury1-3+             -0.164514     0.00000   -0.2966  v VENDA
+```
+
+### 6. CADCHF - ACC 90.1% | R2=0.7448 | Sessao: 00h-24h UTC
+```
+alpha=3.0346, intercept=1.0797
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  VIX                             +0.017502     0.00000   -0.4123  ^ COMPRA
+  BTCUSD                          -0.001735     0.00000   +0.0611  v VENDA
+  USTEC                           +0.069411     0.00000   +0.4328  ^ COMPRA
+  DE40                            -0.044616     0.00000   +0.3131  v VENDA
+  EURUSD                          -0.496117     0.00000   -0.6255  v VENDA
+  EURCHF                          +0.703797     0.00000   +0.6163  ^ COMPRA
+  EURAUD                          -0.300946     0.00000   -0.5340  v VENDA
+  iSharesTreasury20+              -0.050724     0.00000   -0.0457  v VENDA
+```
+
+### 7. US500 - ACC 89.6% | R2=0.8508 | Sessao: 00h-24h UTC
+```
+alpha=6.3754, intercept=-0.8970
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  VIX                             -0.128661     0.00000   -0.8681  v VENDA
+  DE40                            +0.213314     0.00000   +0.7741  ^ COMPRA
+  XAUUSD                          +0.027193     0.00000   +0.1250  ^ COMPRA
+  AUDUSD                          +0.239462     0.00000   +0.5066  ^ COMPRA
+  CADCHF                          +0.241108     0.00000   +0.4330  ^ COMPRA
+  EURAUD                          +0.171631     0.00000   -0.5904  ^ COMPRA
+  iSharesBrazil+                  +0.003823     0.00000   +0.4999  ^ COMPRA
+  iSharesUSEmerging+              +0.331968     0.00000   +0.6295  ^ COMPRA
+```
+
+### 8. EURUSD - ACC 89.1% | R2=0.8059 | Sessao: 00h-24h UTC
+```
+alpha=3.7326, intercept=1.6692
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  BRENT                           -0.036548     0.00000   -0.2819  v VENDA
+  USDMXN                          -0.195532     0.00000   -0.4478  v VENDA
+  US500                           +0.090057     0.00000   +0.0294  ^ COMPRA
+  US30                            -0.046266     0.00000   +0.0390  v VENDA
+  DE40                            -0.066232     0.00000   +0.0459  v VENDA
+  USDCAD                          -0.674460     0.00000   -0.6053  v VENDA
+  CADCHF                          -0.573498     0.00000   -0.6255  v VENDA
+  GBPJPY                          -0.042832     0.00000   -0.0234  v VENDA
+```
+
+### 9. USDCHF - ACC 89.1% | R2=0.7530 | Sessao: 00h-24h UTC
+```
+alpha=2.7545, intercept=1.2387
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  VIX                             -0.036424     0.00000   -0.2288  v VENDA
+  BTCUSD                          -0.004031     0.00000   -0.0635  v VENDA
+  US30                            -0.083914     0.00000   +0.1172  v VENDA
+  USTEC                           +0.014880     0.00000   +0.1671  ^ COMPRA
+  USDJPY                          +0.895776     0.00000   +0.6767  ^ COMPRA
+  AUDUSD                          -0.097391     0.00000   -0.4379  v VENDA
+  EURJPY                          -0.834758     0.00000   +0.0219  v VENDA
+  iSharesCurrencyBond+            -0.016587     0.00000   -0.1068  v VENDA
+```
+
+### 10. USTEC - ACC 86.6% | R2=0.7754 | Sessao: 00h-24h UTC
+```
+alpha=2.3919, intercept=0.3008
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  VIX                             -0.148015     0.00000   -0.8311  v VENDA
+  BTCUSD                          +0.068173     0.00000   +0.5907  ^ COMPRA
+  DE40                            +0.282226     0.00000   +0.7400  ^ COMPRA
+  EURUSD                          +0.124679     0.00000   +0.0269  ^ COMPRA
+  USDCAD                          -0.392714     0.00000   -0.2684  v VENDA
+  CADCHF                          +0.268248     0.00000   +0.4328  ^ COMPRA
+  EURAUD                          -0.108168     0.00000   -0.5770  v VENDA
+  iSharesTreasury10-20+           -0.054078     0.00000   -0.0616  v VENDA
+```
+
+### 11. GBPUSD - ACC 85.6% | R2=0.7272 | Sessao: 00h-24h UTC
+```
+alpha=3.5699, intercept=0.4260
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  BTCUSD                          +0.021716     0.00000   +0.3001  ^ COMPRA
+  AUDUSD                          +0.542119     0.00000   +0.6765  ^ COMPRA
+  USDCHF                          -0.256739     0.00000   -0.6653  v VENDA
+  AUDNZD                          -0.250597     0.00000   -0.1684  v VENDA
+  EURCHF                          +0.215639     0.00000   +0.0312  ^ COMPRA
+  EURJPY                          -0.098968     0.00000   +0.0759  v VENDA
+  EURAUD                          +0.302787     0.00000   -0.0572  ^ COMPRA
+  iSharesTreasury1-3+             +0.229630     0.00000   +0.1993  ^ COMPRA
+```
+
+### 12. WIN$N - ACC 85.1% | R2=0.5801 | Sessao: 09h-18h BRT
+```
+alpha=0.0000, intercept=0.0000
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  WDO$N                           +0.000000     0.00000   -0.5893  v VENDA
+  DI1$N                           +0.000000     0.00000   -0.5208  v VENDA
+  VIX                             +0.000000     0.00000   -0.2508  v VENDA
+  US500                           +0.000000     0.00000   +0.3368  v VENDA
+  USTEC                           +0.000000     0.00000   +0.3020  v VENDA
+  USDCAD                          +0.000000     0.00000   -0.2109  v VENDA
+  iSharesTreasury1-3+             +0.000000     0.00000   +0.0054  v VENDA
+  iSharesCurrencyBond+            +0.000000     0.00000   +0.0996  v VENDA
+```
+
+### 13. WDO$N - ACC 84.2% | R2=0.5844 | Sessao: 09h-18h BRT
+```
+alpha=0.0000, intercept=0.0000
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  WIN$N                           +0.000000     0.00000   -0.5893  v VENDA
+  VIX                             +0.000000     0.00000   +0.2422  v VENDA
+  US500                           +0.000000     0.00000   -0.4201  v VENDA
+  USTEC                           +0.000000     0.00000   -0.3947  v VENDA
+  DE40                            +0.000000     0.00000   -0.3227  v VENDA
+  XAUUSD                          +0.000000     0.00000   -0.2315  v VENDA
+  USDCAD                          +0.000000     0.00000   +0.3369  v VENDA
+  USDCHF                          +0.000000     0.00000   +0.0642  v VENDA
+```
+
+### 14. US30 - ACC 84.2% | R2=0.7412 | Sessao: 00h-24h UTC
+```
+alpha=0.7276, intercept=0.7340
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  VIX                             -0.112025     0.00000   -0.8131  v VENDA
+  DE40                            +0.309352     0.00000   +0.7498  ^ COMPRA
+  EURUSD                          +2.177559     0.00000   +0.0390  ^ COMPRA
+  USDJPY                          +2.049438     0.00000   +0.1018  ^ COMPRA
+  USDCAD                          -0.315434     0.00000   -0.2181  v VENDA
+  EURGBP                          -2.040464     0.00000   -0.2155  v VENDA
+  GBPJPY                          -2.117778     0.00000   +0.3068  v VENDA
+  iSharesCurrencyBond+            +0.028426     0.00000   +0.2094  ^ COMPRA
+```
+
+### 15. USDCAD - ACC 84.2% | R2=0.6066 | Sessao: 00h-24h UTC
+```
+alpha=3.5231, intercept=0.1235
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  VIX                             -0.030874     0.00000   +0.1615  v VENDA
+  US500                           -0.088244     0.00000   -0.2623  v VENDA
+  EURUSD                          -0.468285     0.00000   -0.6053  v VENDA
+  EURCHF                          +0.212414     0.00000   +0.0355  ^ COMPRA
+  EURJPY                          +0.016553     0.00000   -0.1025  ^ COMPRA
+  EURAUD                          +0.291690     0.00000   +0.2485  ^ COMPRA
+  iSharesTreasury20+              +0.058508     0.00000   -0.0746  ^ COMPRA
+  iSharesCurrencyBond+            -0.040806     0.00000   -0.1955  v VENDA
+```
+
+### 16. EURAUD - ACC 81.7% | R2=0.6186 | Sessao: 00h-24h UTC
+```
+alpha=2.0943, intercept=0.9514
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  USDMXN                          +0.242702     0.00000   +0.3548  ^ COMPRA
+  BTCUSD                          -0.012722     0.00000   -0.3685  v VENDA
+  USTEC                           -0.076023     0.00000   -0.5770  v VENDA
+  CADCHF                          -0.562517     0.00000   -0.5340  v VENDA
+  AUDNZD                          -0.408299     0.00000   -0.4978  v VENDA
+  EURCHF                          +0.470995     0.00000   -0.1400  ^ COMPRA
+  EURJPY                          +0.375959     0.00000   +0.0421  ^ COMPRA
+  GBPJPY                          -0.280607     0.00000   -0.2463  v VENDA
+```
+
+### 17. USDJPY - ACC 81.2% | R2=0.5663 | Sessao: 00h-24h UTC
+```
+alpha=2.1023, intercept=0.5113
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  BRENT                           +0.017218     0.00000   +0.2340  ^ COMPRA
+  USDMXN                          -0.141604     0.00000   +0.1496  v VENDA
+  US30                            +0.038823     0.00000   +0.1018  ^ COMPRA
+  USDCHF                          +0.930239     0.00000   +0.6767  ^ COMPRA
+  EURGBP                          +0.161761     0.00000   -0.1191  ^ COMPRA
+  EURCHF                          -0.716065     0.00000   +0.2419  v VENDA
+  EURAUD                          +0.065219     0.00000   -0.1503  ^ COMPRA
+  iSharesTreasury10-20+           -0.195726     0.00000   -0.2859  v VENDA
+```
+
+### 18. AUDNZD - ACC 80.7% | R2=0.2577 | Sessao: 00h-24h UTC
+```
+alpha=2.3008, intercept=1.1551
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  CHINA50                         +0.028811     0.00000   +0.2569  ^ COMPRA
+  VIX                             -0.000874     0.00000   -0.3356  v VENDA
+  BTCUSD                          +0.002038     0.00000   +0.1100  ^ COMPRA
+  US30                            -0.023658     0.00000   +0.3005  v VENDA
+  XAUUSD                          +0.019366     0.00000   +0.0891  ^ COMPRA
+  USDCAD                          +0.145878     0.00000   -0.0130  ^ COMPRA
+  EURGBP                          +0.249708     0.00000   -0.1004  ^ COMPRA
+  EURAUD                          -0.323664     0.00000   -0.4978  v VENDA
+```
+
+### 19. BTCUSD - ACC 75.2% | R2=0.4358 | Sessao: 00h-24h UTC
+```
+alpha=0.2683, intercept=0.1290
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  USDMXN                          -0.819306     0.00000   -0.4206  v VENDA
+  US500                           -0.422680     0.00000   +0.5737  v VENDA
+  USTEC                           +1.389608     0.00000   +0.5907  ^ COMPRA
+  AUDUSD                          +0.431543     0.00000   +0.3767  ^ COMPRA
+  AUDNZD                          +0.433649     0.00000   +0.1100  ^ COMPRA
+  EURGBP                          -5.484364     0.00000   -0.2629  v VENDA
+  EURJPY                          +4.572824     0.00000   +0.1611  ^ COMPRA
+  GBPJPY                          -3.970316     0.00000   +0.3120  v VENDA
+```
+
+### 20. XAUUSD - ACC 73.3% | R2=0.2852 | Sessao: 00h-24h UTC
+```
+alpha=0.3205, intercept=0.1328
+
+  Fator                                Peso      sigma     Corr  Direcao
+  ============================  ============  ==========  ========  ==========
+  BRENT                           +0.041678     0.00000   +0.0473  ^ COMPRA
+  CHINA50                         +0.102693     0.00000   +0.1359  ^ COMPRA
+  USDMXN                          -0.783235     0.00000   -0.2745  v VENDA
+  VIX                             +0.126224     0.00000   -0.0355  ^ COMPRA
+  AUDUSD                          +0.932809     0.00000   +0.4272  ^ COMPRA
+  USDCHF                          -0.314539     0.00000   -0.3481  v VENDA
+  AUDNZD                          +0.979383     0.00000   +0.0891  ^ COMPRA
+  EURGBP                          -0.192727     0.00000   +0.0306  v VENDA
+```

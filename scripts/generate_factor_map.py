@@ -1,7 +1,16 @@
+import os
 import re
 import json
 
-with open('temp_models.txt', 'r', encoding='utf-16') as f:
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+temp_models_path = os.path.join(project_root, 'scripts', 'explorations', 'temp_models.txt')
+out_md_path = os.path.join(project_root, '.planning', 'docs', 'FACTOR_MAP.md')
+
+if not os.path.exists(temp_models_path):
+    print(f"File not found: {temp_models_path}")
+    exit(1)
+
+with open(temp_models_path, 'r', encoding='utf-16') as f:
     text = f.read()
 
 blocks = text.split('============================================================')[1:]
@@ -98,7 +107,7 @@ for i, m in enumerate(models):
         md += f"  {w[0].upper():<10}  {w[1]:<10}  {w[2]:<8}  {w[3]}\n"
     md += "```\n\n"
 
-with open('C:/Users/ryzen/.gemini/antigravity/brain/bd0c3dce-4b30-4f1b-8562-69d8e770e05f/factor_map.md', 'w', encoding='utf-8') as f:
+with open(out_md_path, 'w', encoding='utf-8') as f:
     f.write(md)
 
 print("Factor map updated successfully.")

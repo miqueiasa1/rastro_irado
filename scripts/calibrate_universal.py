@@ -23,9 +23,21 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 ALL_FACTORS = [
     "WIN$N", "WDO$N", "DI1$N",
     "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
-    "US500", "US30", "USTEC", "XAUUSD",
+    "US500", "US30", "USTEC", "DE40", "XAUUSD",
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
+    "CADCHF", "AUDNZD", "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD",
+    # --- iShares Axi (fatores candidatos, não estão no painel) ---
+    "iSharesBrazil+",       # EWZ - proxy bolsa BR
+    "iSharesTreasury20+",   # TLT - Treasury longo (20+y)
+    "iSharesTreasury10-20+",# TLH - Treasury médio (10-20y)
+    "iSharesTreasury1-3+",  # SHY - Treasury curto (1-3y)
+    "iSharesUSEmerging+",   # EMB - EM USD Bond
+    "iSharesCurrencyBond+", # LEMB - EM Local Currency Bond
 ]
+
+# Pares que compõem o DXY — não podem usar DXY como fator (multicolinearidade)
+DXY_COMPONENTS = {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"}
+
 
 # Alias: target lógico → símbolo nos dados
 # WDO$N e DOL$N rastreiam o mesmo preço — WDO é o contrato mini oficial
@@ -76,7 +88,7 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     daily = load_daily_returns(conn, session_start_h, session_end_h)
 
     if data_sym not in daily:
-        print(f"  ❌ Sem dados para {data_sym}")
+        print(f"  [FAIL] Sem dados para {data_sym}")
         return None
 
     target_ret = daily[data_sym].rename("target")
@@ -91,18 +103,67 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     if target in us_indices:
         # US indices não seguem outros US indices
         exclude.update(us_indices)
-        
+
     if target not in br_assets:
         # Internacional não usa BR
         exclude.update(br_assets)
-        
+
+    if target in DXY_COMPONENTS:
+        # Majors não usam DXY — são componentes do índice (multicolinearidade)
+        exclude.add("DXY")
+        print(f"  [regra] {target} é componente do DXY — DXY excluído dos fatores")
+
+    # ── Exclusão de tautologias aritméticas entre crosses ─────────────────
+    cross_trios = [
+        {"CADCHF", "USDCAD", "USDCHF"},
+        {"EURGBP", "EURUSD", "GBPUSD"},
+        {"EURCHF", "EURUSD", "USDCHF"},
+        {"EURJPY", "EURUSD", "USDJPY"},
+        {"GBPJPY", "GBPUSD", "USDJPY"},
+        {"EURAUD", "EURUSD", "AUDUSD"},
+        # {"EURJPY", "GBPJPY", "EURGBP"}, # Removido para controle manual
+    ]
+    for trio in cross_trios:
+        if target in trio:
+            exclude.update(trio - {target})
+            print(f"  [regra] {target} pertence a um trio de cross — excluindo {trio - {target}}")
+
+    # AUDNZD = AUDUSD / NZDUSD  →  excluir AUDUSD para AUDNZD e vice-versa
+    # (NZDUSD não está no modelo, então AUDNZD ≈ f(AUDUSD) apenas parcialmente)
+    # Mas AUDNZD não pode usar AUDUSD como único fator dominante
+    if target == "AUDNZD":
+        exclude.add("AUDUSD")
+        print(f"  [regra] AUDNZD exclui AUDUSD (correlação estrutural alta)")
+    if target == "AUDUSD":
+        exclude.add("AUDNZD")
+        print(f"  [regra] AUDUSD exclui AUDNZD (correlação estrutural alta)")
+
+    if target == "EURJPY":
+        exclude.add("GBPJPY")
+        print(f"  [regra] EURJPY exclui GBPJPY (pedido manual)")
+    if target == "GBPJPY":
+        exclude.add("EURJPY")
+        print(f"  [regra] GBPJPY exclui EURJPY (pedido manual)")
+
+    # ── Exclusão de iShares redundantes entre si ───────────────────────────────────
+    # Treasuries são altamente correlacionados entre si — no máximo 1 na cesta
+    treasuries = {"iSharesTreasury20+", "iSharesTreasury10-20+", "iSharesTreasury1-3+"}
+    # EM bonds também correlacionam forte entre si
+    em_bonds = {"iSharesUSEmerging+", "iSharesCurrencyBond+"}
+    # iSharesBrazil (EWZ) tem correlação estrutural com WIN$N/WDO$N
+    if target in {"WIN$N", "WDO$N"}:
+        # Para BR assets, EWZ é quase tautologia — excluir
+        exclude.add("iSharesBrazil+")
+        print(f"  [regra] {target} exclui iSharesBrazil+ (proxy da mesma bolsa)")
+
     available_factors = [f for f in ALL_FACTORS if f in daily and f not in exclude]
-    
+
     print(f"  Fatores disponíveis: {len(available_factors)}")
     print(f"  Sessões target: {len(target_ret)}")
 
+
     if len(available_factors) < min_factors:
-        print(f"  ❌ Poucos fatores ({len(available_factors)} < {min_factors})")
+        print(f"  [FAIL] Poucos fatores ({len(available_factors)} < {min_factors})")
         return None
 
     # Últimos 252 dias úteis
@@ -115,7 +176,7 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     print(f"  Sessões merged: {len(merged_all)}")
 
     if len(merged_all) < 100:
-        print(f"  ❌ Poucos dados ({len(merged_all)} < 100)")
+        print(f"  [FAIL] Poucos dados ({len(merged_all)} < 100)")
         return None
 
     y_ret = merged_all["target"].values
@@ -132,8 +193,24 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     # Precompute TSS for R2
     tss = np.sum((y_ret - y_ret.mean()) ** 2)
 
+    # Precompute index sets for multicollinearity groups
+    treasury_indices = {i for i, f in enumerate(available_factors) 
+                        if f in treasuries}
+    em_bond_indices = {i for i, f in enumerate(available_factors)
+                       if f in em_bonds}
+
+    skipped_multicol = 0
+
     for n_factors in range(min_factors, min(max_factors + 1, len(available_factors) + 1)):
         for combo in combinations(range(len(available_factors)), n_factors):
+            # Filtro: no máximo 1 Treasury e 1 EM Bond por cesta
+            combo_set = set(combo)
+            n_treas = len(combo_set & treasury_indices)
+            n_em = len(combo_set & em_bond_indices)
+            if n_treas > 1 or n_em > 1:
+                skipped_multicol += 1
+                continue
+
             total_combos += 1
             labels = [available_labels[i] for i in combo]
             factors = [available_factors[i] for i in combo]
@@ -166,11 +243,12 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
                 }
 
     if best_result is None:
-        print(f"  ❌ Nenhum resultado válido")
+        print(f"  Testadas: {total_combos:,} combos ({skipped_multicol:,} descartadas por multicolinearidade)")
+        print(f"  [FAIL] Nenhum resultado valido")
         return None
 
-    print(f"  Testadas: {total_combos:,} combinações")
-    print(f"  🏆 Melhor: {best_result['n_factors']} fatores, ACC={best_result['acc']:.1%}, R²={best_result['r2']:.4f}")
+    print(f"  Testadas: {total_combos:,} combos ({skipped_multicol:,} descartadas por multicolinearidade)")
+    print(f"  >> Melhor: {best_result['n_factors']} fatores, ACC={best_result['acc']:.1%}, R2={best_result['r2']:.4f}")
     print(f"  Fatores: {', '.join(best_result['factors'])}")
 
     # Calibrar sigmas e logistic
@@ -182,7 +260,7 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     for i, label in enumerate(labels):
         weights[label] = beta[i]
         sigmas[label] = float(merged_all[label].std())
-        print(f"    w_{label:8s} = {beta[i]:+.6f}  σ={sigmas[label]:.5f}")
+        print(f"    w_{label:8s} = {beta[i]:+.6f}  s={sigmas[label]:.5f}")
 
     # Logistic calibration
     scores = np.zeros(len(merged_all))
@@ -199,7 +277,7 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     p_up = expit(alpha * scores + intercept) * 100
     dir_acc = np.mean((p_up > 50).astype(int) == y_dir) * 100
 
-    print(f"  Logistic: α={alpha:.4f}, intercept={intercept:.4f}, ACC={dir_acc:.1f}%")
+    print(f"  Logistic: a={alpha:.4f}, intercept={intercept:.4f}, ACC={dir_acc:.1f}%")
 
     return {
         "factors": best_result["factors"],
@@ -261,7 +339,7 @@ def save_to_db(conn, target, slug, result):
     ))
 
     conn.commit()
-    print(f"  ✅ Salvos {len(params)} params (prefix='{prefix}') + asset_models atualizado")
+    print(f"  [OK] Salvos {len(params)} params (prefix='{prefix}') + asset_models atualizado")
 
 
 def main():
@@ -269,7 +347,7 @@ def main():
     parser.add_argument("--target", type=str, help="Símbolo alvo (ex: US500)")
     parser.add_argument("--all", action="store_true", help="Calibrar todos os targets")
     parser.add_argument("--force", action="store_true", help="Recalibrar mesmo já calibrados")
-    parser.add_argument("--min-factors", type=int, default=4)
+    parser.add_argument("--min-factors", type=int, default=6)
     parser.add_argument("--max-factors", type=int, default=8)
     args = parser.parse_args()
 
@@ -295,7 +373,7 @@ def main():
         parser.print_help()
         return
 
-    print(f"\n🎯 Calibrando {len(targets)} targets...")
+    print(f"\nCalibrando {len(targets)} targets...")
 
     results_summary = []
     for target, slug, s_start, s_end, proxy in targets:
@@ -313,7 +391,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"  RESUMO CALIBRAÇÃO")
     print(f"{'='*60}")
-    print(f"  {'Target':12s} {'ACC':>8s} {'R²':>8s} {'LogACC':>8s} {'#Fats':>6s}")
+    print(f"  {'Target':12s} {'ACC':>8s} {'R2':>8s} {'LogACC':>8s} {'#Fats':>6s}")
     print(f"  {'-'*12} {'-'*8} {'-'*8} {'-'*8} {'-'*6}")
     for target, acc, r2, lacc, nf in results_summary:
         if acc:

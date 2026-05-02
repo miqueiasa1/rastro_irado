@@ -10,7 +10,7 @@ SCHEMA = """
 -- Barras brutas coletadas pelos workers (M5 e D1)
 CREATE TABLE IF NOT EXISTS market_bars (
     symbol          TEXT NOT NULL,
-    source          TEXT NOT NULL CHECK (source IN ('br', 'tickmill')),
+    source          TEXT NOT NULL CHECK (source IN ('br', 'tickmill', 'axi')),
     timeframe       TEXT NOT NULL CHECK (timeframe IN ('M5', 'D1')),
     timestamp_utc   TEXT NOT NULL,    -- ISO 8601 em UTC
     open            REAL NOT NULL,

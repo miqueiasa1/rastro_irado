@@ -12,8 +12,7 @@ DB_PATH = "data/irai.db"
 
 # Símbolos para backfill (os que NÃO estão no DB)
 SYMBOLS = [
-    "USTEC", "US30", "XAUUSD",
-    "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
+    "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD",
 ]
 
 BARS = 100_000  # ~1 ano de M5
@@ -28,7 +27,7 @@ def compute_bar_delta(o, h, l, c, rv):
 def backfill_symbol(symbol, conn):
     rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, BARS)
     if rates is None or len(rates) == 0:
-        print(f"  ❌ {symbol}: sem dados")
+        print(f"  [FAIL] {symbol}: sem dados")
         return 0
 
     inserted = 0
@@ -68,7 +67,7 @@ def main():
     print(f"Backfilling {len(SYMBOLS)} symbols ({BARS:,} bars each)...")
     for sym in SYMBOLS:
         n = backfill_symbol(sym, conn)
-        print(f"  ✅ {sym:10s}: {n:>8,d} bars inserted")
+        print(f"  [OK] {sym:10s}: {n:>8,d} bars inserted")
 
     conn.close()
     mt5.shutdown()

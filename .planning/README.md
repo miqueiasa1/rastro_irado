@@ -1,48 +1,52 @@
 # IRAI — Intraday Risk Appetite Index (V2 Multi-Asset)
 
-Dashboard cross-asset em tempo real que estima a **probabilidade direcional intraday (alta/baixa)** de 13 ativos globais (Índices, Moedas, Commodities e Crypto), inferida a partir de uma regressão múltipla (Ridge) sobre fatores macroeconômicos independentes.
+Dashboard cross-asset em tempo real que estima a **probabilidade direcional intraday (alta/baixa)** de 20 ativos globais (Indices, Moedas, Commodities e Crypto), inferida a partir de uma regressao multipla (Ridge) sobre **27 fatores candidatos** (21 tradicionais + 6 iShares Axi ETFs).
 
 > *"Neste momento do pregão, o resto do mundo está dizendo que este ativo deveria estar subindo ou caindo?"*
 
-Atualiza a cada 30 segundos. Reseta no open da Sessão. Opera com dois terminais MetaTrader 5 em paralelo — um nacional (XP) para WIN/DOL/DI, um internacional (Tickmill) para todo o resto do portfólio.
+Atualiza a cada 60 segundos. Reseta no open da Sessao. Opera com **tres terminais MetaTrader 5** em paralelo -- um nacional (XP) para WIN/DOL/DI (09h-18h), um internacional (Tickmill) para todo o resto (24h), e um terceiro (Axi) para 6 iShares ETFs usados como fatores de calibracao (16h-23h UTC).
 
 ## Documentação relacionada
 
-- [`PRD.md`](./PRD.md) — visão, objetivos, escopo, métricas de sucesso
-- [`SPEC.md`](./SPEC.md) — arquitetura, schema, algoritmo, API contract
+- [`PRD.md`](docs/PRD.md) — visão, objetivos, escopo, métricas de sucesso
+- [`SPEC.md`](docs/SPEC.md) — arquitetura, schema, algoritmo, API contract
 
 ---
 
 ## Performance do Modelo (V2 - Ridge Regularization)
 
-O novo motor Multi-Asset V2 calibra 13 ativos dinamicamente garantindo que não haja *overfitting* via Filtros de Correlação Cruzada e Penalidade L2 (Ridge).
+O novo motor Multi-Asset V2 calibra 20 ativos dinamicamente garantindo que não haja *overfitting* via Filtros de Correlação Cruzada e Penalidade L2 (Ridge).
 
-**Cobertura de Acurácia Direcional (pós-calibração 2026-04-27, sem DXY nos majors):**
-- **Moedas/Forex Major:** 80% a 91% (EURUSD 91.2%, USDCHF 90.0%, GBPUSD 88.8%, AUDUSD 86.4%, USDCAD 80.8%, USDJPY 80.4%)
-- **Índices Americanos:** 77% a 84% (USTEC 83.9%, US500 82.3%, US30 77.5%)
-- **Mercado BR:** 75% a 76% (WDO$N 76.0%, WIN$N 74.8%)
-- **Crypto e Metais:** 73% (BTCUSD 73.1%, XAUUSD 73.5%)
+**Cobertura de Acuracia Direcional (pos-calibracao 2026-04-28, com iShares Axi):**
+- **Moedas/Forex Major:** 82% a 90% (EURUSD 89.9%, AUDUSD 89.9%, USDCHF 88.4%, GBPUSD 86.5%, USDCAD 84.1%, USDJPY 81.6%)
+- **Indices Americanos:** 80% a 87% (US500 87.4%, USTEC 84.1%, US30 80.2%)
+- **Mercado BR:** 84% (WIN$N 84.5%, WDO$N 83.5%)
+- **Cross Pairs:** CADCHF 84.5%, AUDNZD 81.2%, EURGBP, EURCHF, EURJPY, GBPJPY, EURAUD
+- **Crypto e Metais:** 73-76% (BTCUSD 75.8%, XAUUSD 72.5%)
 
-Para a tabela completa de fatores de cada ativo, seus pesos normalizados ($w_i$), sigmas ($\sigma$) e acurácias individuais, consulte o documento dinâmico [`FACTOR_MAP.md`](./FACTOR_MAP.md).
+> 12 de 20 modelos selecionaram pelo menos 1 fator iShares. Todos os 6 ETFs entraram em >= 2 modelos.
+
+Para a tabela completa de fatores de cada ativo, seus pesos normalizados ($w_i$), sigmas ($\sigma$) e acurácias individuais, consulte o documento dinâmico [`FACTOR_MAP.md`](docs/FACTOR_MAP.md).
 
 ---
 
 ## Arquitetura em 30 segundos (Cloud Híbrida)
 
 ```
-MT5 Brasil (XP)     ─┐                                  ┌─► Firebase Realtime DB
-                      ├─► collector.py ─► API :8888 ────┤       ▲
-MT5 Tickmill        ─┘                          │       └─► firebase_sync.py
-                                              SQLite            │
-                                                                ▼
-                                                        React Frontend (Vercel/Firebase)
+MT5 Brasil (XP)     -+                                  +-> Firebase Realtime DB
+                      |                                  |
+MT5 Tickmill        --+-> collector.py -> API :8888 ----+-> firebase_sync.py
+                      |                          |               |
+MT5 Axi (iShares)  -+                        SQLite             v
+                                                         React Frontend (Firebase)
 ```
 
-- **Collector unificado:** coleta sequencial dos 2 terminais MT5 a cada ciclo (30s).
+- **Collector unificado:** coleta sequencial dos 3 terminais MT5 a cada ciclo (60s). Axi coleta 6 iShares ETFs (fatores de calibracao apenas).
 - **SQLite (WAL):** armazena o histórico cru e metadados.
-- **FastAPI:** expõe endpoints com cálculos sob demanda (IRAI + Fatores).
+- **FastAPI:** expõe endpoints com cálculos sob demanda (IRAI + Fatores) + **cache server-side** por `(target, date)` invalidado a cada coleta.
 - **Sincronizador (firebase_sync.py):** roda em background (NSSM) empurrando o estado atual pra nuvem a cada 30s.
 - **Frontend (Firebase Hosting):** site passivo acessível globalmente via celular/desktop, lendo o JSON hospedado.
+- **Atualização local:** HTTP polling a cada 60s (sem WebSocket — estabilidade priorizada sobre latência).
 
 ---
 
@@ -56,10 +60,13 @@ MT5 Tickmill        ─┘                          │       └─► firebase
 
 ### Terminais MT5
 
-1. **XP** — `C:\Program Files\MetaTrader 5 Terminal\terminal64.exe`
-   - Símbolos: `WIN$N`, `DOL$N`, `DI1$N`
-2. **Tickmill** — `C:\Program Files\Tickmill MT5 Terminal\terminal64.exe`
-   - Símbolos: `DXY`, `BRENT`, `CHINA50`, `USDMXN`
+1. **XP** -- `C:\Program Files\MetaTrader 5 Terminal\terminal64.exe`
+   - Simbolos: `WIN$N`, `DOL$N`, `DI1$N`
+2. **Tickmill** -- `C:\Program Files\Tickmill MT5 Terminal\terminal64.exe`
+   - Simbolos: `DXY`, `BRENT`, `CHINA50`, `USDMXN` + 19 ativos globais
+3. **Axi** -- `C:\Program Files\Axi MetaTrader 5 Terminal\terminal64.exe`
+   - Simbolos: `iSharesBrazil+`, `iSharesTreasury20+`, `iSharesTreasury10-20+`, `iSharesTreasury1-3+`, `iSharesUSEmerging+`, `iSharesCurrencyBond+`
+   - Apenas fatores de calibracao (nao entram no dashboard)
 
 ---
 
@@ -67,7 +74,14 @@ MT5 Tickmill        ─┘                          │       └─► firebase
 
 A infraestrutura foi configurada para rodar **100% invisível em background** usando o **NSSM** no Windows.
 
-### Instalação dos Serviços:
+### Inicio Rapido (start_irai.bat):
+Para iniciar todos os servicos de uma vez:
+```cmd
+start_irai.bat
+```
+Isso inicia API (porta 8888), Collector (3 terminais MT5), e Frontend (porta 5175).
+
+### Instalacao dos Servicos (NSSM):
 Abra o PowerShell como Administrador e rode:
 ```powershell
 .\scripts\install_nssm_services.ps1
@@ -154,12 +168,12 @@ rastro_irado/
 
 ### V2 (atual) ✅
 
-- [x] Expansão Multi-Asset (13 Alvos simultâneos)
+- [x] Expansão Multi-Asset (20 Alvos simultâneos)
 - [x] Brute-force Calibrador V2 (`calibrate_v2.py`)
 - [x] Regressão Ridge (Alpha Regularization) para prevenir Overfitting
 - [x] Filtros Dinâmicos de Correlação Cross-Asset
-- [x] Dashboard dinâmico exibindo Divergência de Preço (Z-Score)
-- [x] Integração completa de visualização de Compra/Venda via CSS
+- [x] Dashboard dinâmico exibindo Divergência de Preço (Z-Score) e NWE
+- [x] Refinamentos UI/UX: Interatividade profunda com Zoom/Pan nos gráficos e iconografia com 2-letter codes.
 - [x] **Arquitetura Cloud Híbrida**: Firebase Realtime DB + Hosting para acesso mobile.
 - [x] **Deploy Invisível**: Instalação automatizada via NSSM Services (`install_nssm_services.ps1`).
 
@@ -178,8 +192,7 @@ Projeto pessoal, uso interno. **IRAI é ferramenta de suporte à decisão, não 
 
 **Autor:** Miqueias
 **Início:** 2026-04-23
-**Última atualização:** 2026-04-27
+**Ultima atualizacao:** 2026-04-28
 
-
-## Arquitetura Multi-Ativo (V2)
-O sistema evoluiu para cobrir 13 ativos globais. Para entender a relação de fatores e pesos de cada modelo (WIN, WDO, S&P500, Forex, Cripto), consulte o [FACTOR_MAP.md](FACTOR_MAP.md).
+## Arquitetura Multi-Ativo (V2 + iShares)
+O sistema cobre 20 ativos globais com 27 fatores candidatos (incluindo 6 iShares Axi). Para entender a relacao de fatores e pesos de cada modelo, consulte o [FACTOR_MAP.md](docs/FACTOR_MAP.md).

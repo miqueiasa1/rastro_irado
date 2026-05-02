@@ -27,7 +27,7 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 TERMINALS = [
     {
         "name": "BR (XP)",
-        "path": r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+        "path": r"C:\Program Files\MetaTrader 5 Terminal - milhao - Copia\terminal64.exe",
         "source": "br",
         "symbols": ["WIN$N", "WDO$N", "DI1$N"],
     },
@@ -39,6 +39,21 @@ TERMINALS = [
             "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
             "US500", "US30", "USTEC", "XAUUSD",
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
+            "CADCHF", "AUDNZD", "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD",
+        ],
+    },
+    {
+        "name": "Axi",
+        "path": r"C:\Program Files\Axi MetaTrader 5 Terminal\terminal64.exe",
+        "source": "axi",
+        "symbols": [
+            # iShares — apenas fatores de calibracao, nao entram no painel
+            "iSharesBrazil+",       # EWZ
+            "iSharesTreasury20+",   # TLT (20+y)
+            "iSharesTreasury10-20+",# TLH (10-20y)
+            "iSharesTreasury1-3+",  # SHY (1-3y)
+            "iSharesUSEmerging+",   # EMB
+            "iSharesCurrencyBond+", # LEMB
         ],
     },
 ]
@@ -115,56 +130,20 @@ def is_b3_session() -> bool:
     return True
 
 
-def collect_iv_atm(conn: sqlite3.Connection) -> dict:
-    """Coleta IV ATM de opções BOVA11 e insere como pseudo-barra."""
-    from backend.irai.iv_calc import compute_iv_atm
-
-    try:
-        result = compute_iv_atm(mt5, underlying="BOVA11")
-        if result is None:
-            return {"status": "no_data", "iv": None}
-
-        iv = result["iv"]
-        ts = datetime.now(timezone.utc)
-        # Arredondar para M5 mais próximo
-        minute = (ts.minute // 5) * 5
-        ts = ts.replace(minute=minute, second=0, microsecond=0)
-        ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        # Gravar como pseudo-barra: close = IV decimal
-        cursor = conn.cursor()
-        cursor.execute(
-            """INSERT OR REPLACE INTO market_bars
-               (symbol, source, timeframe, timestamp_utc, open, high, low, close,
-                volume, real_volume, delta)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            ("IV_ATM", "br", "M5", ts_iso,
-             iv, iv, iv, iv,  # OHLC = all IV
-             0, 0, 0),
-        )
-        conn.commit()
-
-        return {
-            "status": "ok",
-            "iv": round(iv * 100, 2),
-            "option": result["option_symbol"],
-            "strike": result["strike"],
-            "spot": result["spot"],
-            "days": result["days_to_expiry"],
-        }
-    except Exception as e:
-        log.warning(f"IV ATM falhou: {e}")
-        return {"status": "error", "error": str(e)}
-
-
-def run_collection_cycle(conn: sqlite3.Connection) -> dict:
+def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False) -> dict:
     """Executa um ciclo de coleta em todos os terminais."""
     results = {}
 
     for terminal in TERMINALS:
+        # Pular terminal BR fora do horário
+        if skip_br and terminal.get("source") == "br":
+            for sym in terminal["symbols"]:
+                results[sym] = {"status": "skipped", "error": "B3 fechada"}
+            continue
+
         try:
             mt5.shutdown()
-        except:
+        except Exception:
             pass
         time.sleep(0.5)
 
@@ -186,13 +165,6 @@ def run_collection_cycle(conn: sqlite3.Connection) -> dict:
                 "source": terminal["source"],
             }
 
-        # Coletar IV ATM enquanto o terminal BR está conectado
-        if terminal.get("source") == "br":
-            iv_result = collect_iv_atm(conn)
-            results["IV_ATM"] = iv_result
-            if iv_result["status"] == "ok":
-                log.info(f"  IV_ATM: {iv_result['iv']:.1f}% ({iv_result['option']} K={iv_result['strike']:.0f})")
-
         mt5.shutdown()
 
     return results
@@ -211,30 +183,22 @@ def main():
     log.info(f"Intervalo: {args.interval}s | DB: {args.db}")
     log.info("=" * 50)
 
-    conn = get_connection(args.db)
     cycle = 0
 
     while True:
         cycle += 1
+        
+        conn = get_connection(args.db)
 
-        if not args.force and not is_b3_session():
-            if args.once:
-                log.info("Fora do horario de pregao. Use --force para forcar.")
-                break
-            log.debug(f"Fora do horario. Aguardando...")
-            time.sleep(30)
-            continue
+        b3_open = args.force or is_b3_session()
 
-        log.info(f"--- Ciclo {cycle} ---")
-        results = run_collection_cycle(conn)
+        log.info(f"--- Ciclo {cycle} {'(B3 aberta)' if b3_open else '(apenas internacional)'} ---")
+        results = run_collection_cycle(conn, skip_br=not b3_open)
 
         for sym, r in results.items():
-            if sym == "IV_ATM":
-                if r["status"] == "ok":
-                    log.info(f"  {'IV_ATM':<12} iv={r['iv']:<12.1f}% ({r['option']} K={r['strike']:.0f})")
-                elif r["status"] != "no_data":
-                    log.warning(f"  {'IV_ATM':<12} {r['status']}: {r.get('error', '?')}")
-            elif r["status"] == "ok":
+            if r.get("status") == "skipped":
+                continue  # Silencioso para ativos fora do horário
+            if r["status"] == "ok":
                 log.info(f"  {sym:<12} bid={r['bid']:<12.2f} +{r['inserted']} barras")
             else:
                 log.warning(f"  {sym:<12} ERRO: {r.get('error', '?')}")
@@ -242,10 +206,18 @@ def main():
         if args.once:
             break
 
+        # Notificar API sobre novos dados para push via WebSocket
+        try:
+            import requests
+            requests.post("http://127.0.0.1:8888/api/internal/notify_update", timeout=1.0)
+        except Exception as e:
+            log.debug(f"Falha ao notificar API local: {e}")
+
+        conn.close()
+
         log.info(f"  Proximo ciclo em {args.interval}s...")
         time.sleep(args.interval)
 
-    conn.close()
     log.info("Collector encerrado.")
 
 

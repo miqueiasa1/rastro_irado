@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import os
+import math
 import sys
 import asyncio
 import json
@@ -22,49 +23,72 @@ from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.db import get_connection, DB_PATH
 from backend.irai.engine import IRAIEngine, FACTOR_LABELS, TARGET
 
 # ── Engine singleton ──────────────────────────────────────
 engine: IRAIEngine = None
-ws_clients: set = set()
+ws_clients: dict = {}
+data_updated_event = asyncio.Event()
+
+# ── Cache de resultados computados ─────────────────────
+series_cache: dict = {}   # (target, date) → result dict
+overview_cache_data = {"date": None, "result": None}
 
 
 async def ws_broadcast_loop():
-    """Push dados para todos os WebSocket clients a cada 5s."""
+    """Push dados para todos os WebSocket clients quando ativado pelo collector."""
     while True:
-        await asyncio.sleep(5)
+        await data_updated_event.wait()
+        data_updated_event.clear()
+        
         if not ws_clients:
             continue
+            
         try:
-            today = date.today().isoformat()
-            snapshots = engine.compute_from_db(today)
-            if not snapshots:
-                continue
-            payload = json.dumps({
-                "type": "series",
-                "session_date": today,
-                "bars": len(snapshots),
-                "series": [_snap_to_dict(s) for s in snapshots],
-                "summary": {
-                    "p_up_min": min(s.p_up for s in snapshots),
-                    "p_up_max": max(s.p_up for s in snapshots),
-                    "p_up_final": snapshots[-1].p_up,
-                    "score_final": snapshots[-1].score,
-                    "verdict": snapshots[-1].verdict,
-                    "win_return": snapshots[-1].win_return,
-                },
-            })
+            # Usar a data mais recente do banco (mesma lógica do overview/dates)
+            conn = get_connection()
+            row = conn.execute("""
+                SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
+                FROM market_bars WHERE timeframe='M5'
+                ORDER BY d DESC LIMIT 1
+            """).fetchone()
+            conn.close()
+            session_date = row["d"] if row else date.today().isoformat()
+
+            overview_cache = None
+            
             dead = set()
-            for ws in ws_clients.copy():
+            for ws, config in ws_clients.copy().items():
                 try:
+                    target = config.get("target", "WIN$N")
+                    
+                    if overview_cache is None:
+                        overview_cache = await irai_overview(session_date)
+                        
+                    if target not in series_cache:
+                        res = await irai_series(session_date, target)
+                        if isinstance(res, JSONResponse):
+                            series_cache[target] = {"error": "Sem dados"}
+                        else:
+                            series_cache[target] = res
+                            
+                    payload = json.dumps({
+                        "type": "update",
+                        "session_date": session_date,
+                        "overview": overview_cache,
+                        "series": series_cache[target]
+                    })
                     await ws.send_text(payload)
                 except Exception:
                     dead.add(ws)
-            ws_clients -= dead
+            for ws in dead:
+                ws_clients.pop(ws, None)
         except Exception as e:
             print(f"WS broadcast error: {e}")
+
+
 
 
 @asynccontextmanager
@@ -91,6 +115,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.post("/api/internal/notify_update")
+async def notify_update():
+    """Chamado pelo collector.py após inserir novas barras."""
+    series_cache.clear()
+    overview_cache_data["date"] = None
+    overview_cache_data["result"] = None
+    data_updated_event.set()
+    return {"status": "ok"}
 
 
 @app.get("/api/health")
@@ -124,7 +158,7 @@ async def irai_targets():
                 "accuracy": t.get("accuracy"),
                 "r_squared": t.get("r_squared"),
                 "calibrated": t.get("accuracy") is not None,
-                "session_hours": f"{t['session_start_h']:02d}-{t['session_end_h']:02d} UTC",
+                "session_hours": f"{t['session_start_h']:02d}h-{t['session_end_h']:02d}h",
             }
             for t in engine.registered_targets
         ]
@@ -137,11 +171,11 @@ async def irai_overview(
 ):
     """Snapshot atual de TODOS os targets calibrados."""
     if session_date is None:
-        # Usar último dia útil com dados completos
+        # Usar último dia com dados (qualquer símbolo — inclui internacional no fim de semana)
         conn = get_connection()
         row = conn.execute("""
             SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
-            FROM market_bars WHERE timeframe='M5' AND symbol='WIN$N'
+            FROM market_bars WHERE timeframe='M5'
             ORDER BY d DESC LIMIT 1
         """).fetchone()
         conn.close()
@@ -149,6 +183,10 @@ async def irai_overview(
             session_date = row["d"]
         else:
             session_date = date.today().isoformat()
+
+    # Return cached overview if available for the same date
+    if overview_cache_data["date"] == session_date and overview_cache_data["result"]:
+        return overview_cache_data["result"]
 
     results = []
     for t in engine.registered_targets:
@@ -173,27 +211,42 @@ async def irai_overview(
             try:
                 slug = t["slug"]
                 m = engine.models.get(slug, {})
-                # Sigma do target como proxy (wdo sigma para WIN, etc.)
-                # Usar o sigma do fator com mesmo nome que o slug se existir,
-                # senão usar std empírico das últimas barras
-                target_sigmas = m.get("sigmas", {})
-                # Tentar sigma de "wdo" para WIN, "win" para WDO, etc.
-                proxy_sigma = (
-                    target_sigmas.get(slug) or          # ex: win_sigma_wdo
-                    target_sigmas.get("wdo") or         # WDO é o principal fator do WIN
-                    0.005  # fallback 0.5% session sigma
-                )
-                if proxy_sigma > 0 and last.t_frac > 0:
-                    import math
+                div_cfg = m.get("divergence_config", {"sigma": 0.005, "threshold": 0.5})
+                target_div_sigma = div_cfg.get("sigma", 0.005)
+                target_div_threshold = div_cfg.get("threshold", 0.5)
+                
+                if target_div_sigma > 0 and last.t_frac > 0:
                     # z-score do retorno atual do target
                     ret_frac = last.win_return / 100.0  # % → fração
-                    ret_z = ret_frac / (proxy_sigma * math.sqrt(last.t_frac))
+                    ret_z = ret_frac / (target_div_sigma * math.sqrt(last.t_frac))
                     price_diverge_z = round(ret_z, 2)
-                    # Diverge se IRAI > 55% e retorno z < -0.5, ou IRAI < 45% e z > +0.5
-                    if last.p_up > 55 and ret_z < -0.5:
+                    
+                    if last.p_up > 55 and ret_z < -target_div_threshold:
                         price_diverges = True
-                    elif last.p_up < 45 and ret_z > 0.5:
+                    elif last.p_up < 45 and ret_z > target_div_threshold:
                         price_diverges = True
+            except Exception:
+                pass
+
+            # NWE - calcula apenas para os dois últimos pontos O(N)
+            nwe_slope = 0.0
+            try:
+                if len(snapshots) >= 2:
+                    h = 8  # NWE_BW default
+                    n = len(snapshots)
+                    vals = [s.win_return for s in snapshots]
+                    def get_center(i_idx):
+                        sum_w = 0.0
+                        sum_y = 0.0
+                        for j in range(n):
+                            w = math.exp(-((i_idx - j) ** 2) / (2 * h * h))
+                            sum_w += w
+                            sum_y += w * vals[j]
+                        return sum_y / sum_w if sum_w > 0 else vals[i_idx]
+                    
+                    c_last = get_center(n - 1)
+                    c_prev = get_center(n - 2)
+                    nwe_slope = round(c_last - c_prev, 6)
             except Exception:
                 pass
                 
@@ -212,27 +265,43 @@ async def irai_overview(
                 "flow_confirms": flow_confirms,
                 "price_diverges": price_diverges,
                 "price_diverge_z": price_diverge_z,
+                "nwe_slope": nwe_slope,
+                "is_preview": getattr(last, "is_preview", False),
             })
         except Exception as e:
             print(f"Overview error for {t['target']}: {e}")
 
-    return {
+    result = {
         "session_date": session_date,
         "targets": results,
     }
+    overview_cache_data["date"] = session_date
+    overview_cache_data["result"] = result
+    return result
 
 
 @app.get("/api/irai/dates")
-async def irai_dates():
+async def irai_dates(
+    target: str = Query(None, description="Filtrar datas por target específico"),
+):
     """Datas com dados disponíveis."""
     conn = get_connection()
-    rows = conn.execute("""
-        SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
-        FROM market_bars
-        WHERE symbol = ? AND timeframe = 'M5'
-        ORDER BY d DESC
-        LIMIT 60
-    """, [TARGET]).fetchall()
+    if target:
+        rows = conn.execute("""
+            SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
+            FROM market_bars
+            WHERE symbol = ? AND timeframe = 'M5'
+            ORDER BY d DESC
+            LIMIT 60
+        """, [target]).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
+            FROM market_bars
+            WHERE timeframe = 'M5'
+            ORDER BY d DESC
+            LIMIT 60
+        """).fetchall()
     conn.close()
     return {"dates": [r["d"] for r in rows]}
 
@@ -246,6 +315,11 @@ async def irai_series(
     if session_date is None:
         session_date = date.today().isoformat()
 
+    # Check cache first
+    cache_key = (target, session_date)
+    if cache_key in series_cache:
+        return series_cache[cache_key]
+
     snapshots = engine.compute_from_db(session_date, target=target)
 
     if not snapshots:
@@ -256,7 +330,7 @@ async def irai_series(
 
     # Lookup display info
     target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
-    return {
+    result = {
         "session_date": session_date,
         "target": target,
         "display_name": target_info.get("display_name", target),
@@ -272,6 +346,9 @@ async def irai_series(
             "return": snapshots[-1].win_return,
         },
     }
+    # Cache result
+    series_cache[(target, session_date)] = result
+    return result
 
 
 @app.get("/api/irai/current")
@@ -338,6 +415,9 @@ def _snap_to_dict(snap) -> dict:
         "cum_delta": snap.cum_delta,
         "cum_delta_norm": snap.cum_delta_norm,
         "flow_confirms": snap.flow_confirms,
+        "price_diverges": snap.price_diverges,
+        "price_diverge_z": snap.price_diverge_z,
+        "is_preview": getattr(snap, "is_preview", False),
     }
 
 
@@ -351,19 +431,38 @@ def _bar_time(bar_idx: int) -> str:
 
 @app.websocket("/ws/irai")
 async def websocket_irai(ws: WebSocket):
-    """WebSocket push: envia série IRAI a cada 5s."""
+    """WebSocket push: envia série IRAI atualizada baseada no target."""
     await ws.accept()
-    ws_clients.add(ws)
+    ws_clients[ws] = {"target": "WIN$N"} # Default
     print(f"WS client connected ({len(ws_clients)} total)")
+    
+    # Enviar o estado atual imediatamente na conexão
+    try:
+        today = date.today().isoformat()
+        ov = await irai_overview(today)
+        se = await irai_series(today, "WIN$N")
+        if isinstance(se, JSONResponse): se = {"error": "Sem dados"}
+        await ws.send_text(json.dumps({"type": "update", "overview": ov, "series": se}))
+    except Exception as e:
+        print(f"Initial WS send error: {e}")
+        
     try:
         while True:
-            # Keep alive — espera por mensagens do client (ping/pong)
-            await ws.receive_text()
+            # Recebe mensagens de configuração (mudança de target)
+            data = await ws.receive_json()
+            if data and "target" in data:
+                ws_clients[ws]["target"] = data["target"]
+                # Força um envio imediato com o novo target
+                today = date.today().isoformat()
+                ov = await irai_overview(today)
+                se = await irai_series(today, data["target"])
+                if isinstance(se, JSONResponse): se = {"error": "Sem dados"}
+                await ws.send_text(json.dumps({"type": "update", "overview": ov, "series": se}))
     except WebSocketDisconnect:
-        ws_clients.discard(ws)
+        ws_clients.pop(ws, None)
         print(f"WS client disconnected ({len(ws_clients)} total)")
     except Exception:
-        ws_clients.discard(ws)
+        ws_clients.pop(ws, None)
 
 
 if __name__ == "__main__":

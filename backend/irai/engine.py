@@ -6,13 +6,15 @@ contribuições e probabilidade a cada barra M5.
 """
 
 import sqlite3
+import math
+import json
 import numpy as np
 from datetime import datetime, date, timezone, timedelta
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.db import get_connection, DB_PATH
 
 
@@ -64,6 +66,9 @@ class IRAISnapshot:
     cum_delta: float = 0.0
     cum_delta_norm: float = 0.0       # normalizado pelo volume médio
     flow_confirms: Optional[bool] = None  # True=confirma, False=diverge, None=neutro
+    price_diverges: bool = False
+    price_diverge_z: Optional[float] = None
+    is_preview: bool = False  # True = preview pré-abertura (sem dados do target)
 
 
 def sigmoid(x: float) -> float:
@@ -89,21 +94,19 @@ class IRAIEngine:
 
         self.session_opens: dict[str, float] = {}
         self.factor_states: dict[str, FactorState] = {}
-        # Active model's alpha/intercept (set during compute)
         self.alpha: float = 1.0
         self.intercept: float = 0.0
         self._load_params()
 
     def _load_params(self):
         """Carrega configs de asset_models + params de model_params."""
-        import json
         conn = get_connection(self.db_path)
 
         # 1) Carregar asset_models
         try:
             rows = conn.execute(
                 "SELECT target, slug, display_name, icon, factors, factor_labels, "
-                "session_start_h, session_end_h, data_proxy, accuracy, r_squared, active "
+                "session_start_h, session_end_h, data_proxy, accuracy, r_squared, active, divergence_config "
                 "FROM asset_models WHERE active=1"
             ).fetchall()
         except Exception:
@@ -114,6 +117,7 @@ class IRAIEngine:
             slug = row["slug"]
             factors = json.loads(row["factors"]) if row["factors"] else []
             factor_labels = json.loads(row["factor_labels"]) if row["factor_labels"] else {}
+            divergence_config = json.loads(row["divergence_config"]) if row["divergence_config"] else {"sigma": 0.005, "threshold": 0.5}
             
             self.target_slugs[target] = slug
             self.registered_targets.append({
@@ -124,6 +128,7 @@ class IRAIEngine:
                 "session_end_h": row["session_end_h"] or 24,
                 "data_proxy": row["data_proxy"],
                 "accuracy": row["accuracy"], "r_squared": row["r_squared"],
+                "divergence_config": divergence_config,
             })
 
             # Determinar prefixo dos params
@@ -171,6 +176,7 @@ class IRAIEngine:
                 "session_start_h": row["session_start_h"] or 0,
                 "session_end_h": row["session_end_h"] or 24,
                 "data_proxy": row["data_proxy"],
+                "divergence_config": divergence_config,
             }
 
         conn.close()
@@ -192,6 +198,7 @@ class IRAIEngine:
                 "session_start_h": m["session_start_h"],
                 "session_end_h": m["session_end_h"],
                 "data_proxy": m["data_proxy"],
+                "divergence_config": m["divergence_config"],
             }
         # Fallback WIN
         if "win" in self.models:
@@ -200,14 +207,16 @@ class IRAIEngine:
                 "factors": m["factors"], "labels": m["factor_labels"],
                 "param_prefix": "", "session_start_h": 12, "session_end_h": 21,
                 "data_proxy": None,
+                "divergence_config": m.get("divergence_config", {"sigma": 0.009, "threshold": 0.5}),
             }
         return {}, {}, 1.0, 0.0, {"factors": [], "labels": {}, "param_prefix": "",
-                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None}
+                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None, "divergence_config": {"sigma": 0.005, "threshold": 0.5}}
 
-    def set_session_opens(self, opens: dict[str, float]):
+    def set_session_opens(self, opens: dict[str, float], factor_states: dict = None):
         """Define preços de abertura da sessão."""
+        fs = factor_states if factor_states is not None else self.factor_states
         self.session_opens = opens
-        for label, state in self.factor_states.items():
+        for label, state in fs.items():
             # Resolver alias de símbolos (atualmente vazio — WDO$N tem barras próprias)
             db_sym = resolve_symbol(state.symbol)
             if db_sym in opens and opens[db_sym] > 0:
@@ -215,10 +224,11 @@ class IRAIEngine:
             elif state.symbol in opens and opens[state.symbol] > 0:
                 state.open_price = opens[state.symbol]
 
-    def update_price(self, symbol: str, price: float, timestamp: str = None):
+    def update_price(self, symbol: str, price: float, timestamp: str = None, factor_states: dict = None):
         """Atualiza o preço corrente de um fator."""
+        fs = factor_states if factor_states is not None else self.factor_states
         # Procurar nos factor_states pelo símbolo lógico
-        for label, state in self.factor_states.items():
+        for label, state in fs.items():
             if state.symbol == symbol:
                 state.current_price = price
                 state.last_update = timestamp or datetime.now().isoformat()
@@ -226,7 +236,9 @@ class IRAIEngine:
                 return
 
     def compute(self, bar_idx: int, win_current: float = 0, win_open: float = 0,
-                session_date: str = None, stale_threshold_sec: int = 600) -> IRAISnapshot:
+                session_date: str = None, stale_threshold_sec: int = 600,
+                bars_per_session: int = BARS_PER_SESSION, factor_states: dict = None,
+                alpha: float = None, intercept: float = None) -> IRAISnapshot:
         """
         Computa P_up(t) para a barra corrente.
 
@@ -236,8 +248,15 @@ class IRAIEngine:
             win_open: Preço de abertura do WIN
             session_date: Data da sessão (YYYY-MM-DD)
             stale_threshold_sec: Segundos para considerar um fator stale
+            bars_per_session: Quantidade de barras na sessão (default: 108)
+            factor_states: Dicionário local opcional de factor_states
+            alpha: Alpha local opcional
+            intercept: Intercept local opcional
         """
-        t_frac = max((bar_idx + 1) / BARS_PER_SESSION, 0.01)
+        t_frac = (bar_idx + 1) / bars_per_session
+        if t_frac > 1.0:
+            t_frac = 1.0
+        
         sqrt_t = np.sqrt(t_frac)
         now_str = datetime.now().isoformat()
         session_date = session_date or date.today().isoformat()
@@ -245,8 +264,12 @@ class IRAIEngine:
         # Computar z-scores e contribuições
         score = 0.0
         stale_factors = []
+        
+        fs = factor_states if factor_states is not None else self.factor_states
+        a = alpha if alpha is not None else self.alpha
+        i_cept = intercept if intercept is not None else self.intercept
 
-        for label, state in self.factor_states.items():
+        for label, state in fs.items():
             # Retorno desde open
             if state.open_price > 0 and state.current_price > 0:
                 state.ret = (state.current_price - state.open_price) / state.open_price
@@ -269,7 +292,7 @@ class IRAIEngine:
                 stale_factors.append(label)
 
         # P_up via sigmoid
-        p_up = sigmoid(self.alpha * score + self.intercept) * 100.0
+        p_up = sigmoid(a * score + i_cept) * 100.0
 
         # WIN return
         win_return = 0.0
@@ -308,7 +331,7 @@ class IRAIEngine:
                     "open_price": round(state.open_price, 4),
                     "stale": state.stale,
                 }
-                for label, state in self.factor_states.items()
+                for label, state in fs.items()
             },
             win_return=round(win_return, 4),
             win_open=win_open,
@@ -332,18 +355,17 @@ class IRAIEngine:
         active_labels = cfg["labels"]
 
         # Setup factor states para este target
-        self.factor_states = {}
+        local_factor_states = {}
         for symbol, label in active_labels.items():
-            self.factor_states[label] = FactorState(
+            local_factor_states[label] = FactorState(
                 symbol=symbol,
                 label=label,
                 weight=t_weights.get(f"w_{label}", 0.0),
                 sigma=t_sigmas.get(label, 0.01),
             )
-        # Temporariamente setar alpha/intercept para compute()
-        saved_alpha, saved_intercept = self.alpha, self.intercept
-        self.alpha = t_alpha
-        self.intercept = t_intercept
+        
+        local_alpha = t_alpha
+        local_intercept = t_intercept
 
         # Resolver aliases: símbolo lógico → símbolo no banco
         data_target = cfg.get("data_proxy") or resolve_symbol(target)
@@ -370,111 +392,178 @@ class IRAIEngine:
         end_dt = datetime.fromisoformat(session_date) + timedelta(days=1)
         end = end_dt.strftime("%Y-%m-%dT00:00:00Z")
 
-        import pandas as pd
-        df = pd.read_sql_query(query, conn, params=all_symbols + [start, end])
+        rows_raw = conn.execute(query, all_symbols + [start, end]).fetchall()
         conn.close()
 
-        if df.empty:
-            self.alpha, self.intercept = saved_alpha, saved_intercept
+        if not rows_raw:
             return []
 
-        df["timestamp"] = pd.to_datetime(df["timestamp_utc"])
-        df["hour"] = df["timestamp"].dt.hour
+        # Converter sqlite3.Row para dicts com timestamp parsed e hora extraída
+        rows = []
+        for r in rows_raw:
+            d = dict(r)
+            ts_str = d["timestamp_utc"]
+            d["timestamp"] = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            d["hour"] = d["timestamp"].hour
+            rows.append(d)
 
         # Detectar sessão via config do modelo
         session_start = cfg.get("session_start_h", 0)
         session_end = cfg.get("session_end_h", 24)
 
-        target_hours = df[df["symbol"] == data_target]["hour"].value_counts()
-        if target_hours.empty:
-            self.alpha, self.intercept = saved_alpha, saved_intercept
-            return []
+        duration_h = session_end - session_start
+        if duration_h <= 0:
+            duration_h += 24
+        
+        target_bars_per_session = int(duration_h * 12)
+        if target_bars_per_session <= 0:
+            target_bars_per_session = BARS_PER_SESSION
 
-        if session_end == 24 and session_start == 0:
-            # Ativo 24h — sem filtro de sessão
-            pass
-        else:
-            # Os timestamps no banco refletem a hora do servidor de cada corretora:
-            #   - BR (XP):      armazena em BRT  → session_start/end em BRT  (ex: 9-18)
-            #   - Tickmill:     armazena em EET  → session_start/end em EET
-            # Os valores em asset_models.session_start/end_h já correspondem
-            # às horas como aparecem no banco — usar diretamente, sem conversão.
-            session_mask = (df["hour"] >= session_start) & (df["hour"] <= session_end)
-            df = df[session_mask]
+        target_rows = [r for r in rows if r["symbol"] == data_target]
+        is_preview_mode = len(target_rows) == 0
+
+        if is_preview_mode:
+            # ── Preview pré-abertura ──────────────────────────────────────
+            conn2 = get_connection(self.db_path)
+            last_row = conn2.execute("""
+                SELECT close FROM market_bars
+                WHERE symbol = ? AND timeframe = 'M5'
+                ORDER BY timestamp_utc DESC LIMIT 1
+            """, (data_target,)).fetchone()
+            conn2.close()
+
+            if not last_row:
+                self.alpha, self.intercept = saved_alpha, saved_intercept
+                return []
+
+            target_last_close = float(last_row["close"])
+
+            factor_rows = [r for r in rows if r["symbol"] in db_factors]
+            if not factor_rows:
+                return []
+
+            all_timestamps = sorted(set(r["timestamp"] for r in factor_rows))
+
+            opens = {}
+            for sym in db_factors:
+                sym_bars = sorted([r for r in rows if r["symbol"] == sym], key=lambda r: r["timestamp"])
+                if sym_bars:
+                    opens[sym] = float(sym_bars[0]["open"])
+            opens[data_target] = target_last_close
+
+            self.set_session_opens(opens, factor_states=local_factor_states)
+
+            factor_prices = {}
+            for factor in active_factors:
+                db_sym = factor_to_db.get(factor, factor)
+                fb = sorted([r for r in rows if r["symbol"] == db_sym], key=lambda r: r["timestamp"])
+                factor_prices[factor] = [(r["timestamp"], float(r["close"])) for r in fb] if fb else []
+
+            factor_cursors = {f: 0 for f in active_factors}
+            snapshots = []
+
+            for bar_idx, ts in enumerate(all_timestamps):
+                for factor in active_factors:
+                    prices = factor_prices[factor]
+                    cursor = factor_cursors[factor]
+                    while cursor < len(prices) - 1 and prices[cursor + 1][0] <= ts:
+                        cursor += 1
+                    factor_cursors[factor] = cursor
+                    if cursor < len(prices) and prices[cursor][0] <= ts:
+                        self.update_price(factor, prices[cursor][1], ts.isoformat() if hasattr(ts, 'isoformat') else str(ts), factor_states=local_factor_states)
+
+                snap = self.compute(
+                    bar_idx=bar_idx,
+                    win_current=target_last_close,
+                    win_open=target_last_close,
+                    session_date=session_date,
+                    bars_per_session=target_bars_per_session,
+                    factor_states=local_factor_states,
+                    alpha=local_alpha,
+                    intercept=local_intercept,
+                )
+                snap.timestamp = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+                snap.is_preview = True
+                snap.flow_confirms = None
+                snapshots.append(snap)
+
+            return snapshots
+
+        # ── Modo normal (target tem barras) ───────────────────────────────
+        if not (session_end == 24 and session_start == 0):
+            rows = [r for r in rows if session_start <= r["hour"] <= session_end]
 
         # Opens = primeira barra de cada símbolo
         opens = {}
         for sym in all_symbols:
-            sym_bars = df[df["symbol"] == sym].sort_values("timestamp")
-            if len(sym_bars) > 0:
-                opens[sym] = float(sym_bars.iloc[0]["open"])
+            sym_bars = sorted([r for r in rows if r["symbol"] == sym], key=lambda r: r["timestamp"])
+            if sym_bars:
+                opens[sym] = float(sym_bars[0]["open"])
 
         if data_target not in opens:
-            self.alpha, self.intercept = saved_alpha, saved_intercept
             return []
 
-        self.set_session_opens(opens)
+        self.set_session_opens(opens, factor_states=local_factor_states)
 
         # Pré-indexar preços dos fatores por timestamp (O(n) em vez de O(n²))
         factor_prices = {}
         for factor in active_factors:
             db_sym = factor_to_db.get(factor, factor)
-            fb = df[df["symbol"] == db_sym].sort_values("timestamp")
-            if len(fb) > 0:
-                # Lista de (timestamp, close) ordenada
-                factor_prices[factor] = list(zip(fb["timestamp"], fb["close"].astype(float)))
-            else:
-                factor_prices[factor] = []
+            fb = sorted([r for r in rows if r["symbol"] == db_sym], key=lambda r: r["timestamp"])
+            factor_prices[factor] = [(r["timestamp"], float(r["close"])) for r in fb] if fb else []
 
         # Iterar sobre barras do target
-        target_bars = df[df["symbol"] == data_target].sort_values("timestamp")
+        target_bars = sorted([r for r in rows if r["symbol"] == data_target], key=lambda r: r["timestamp"])
         n_bars = len(target_bars)
         snapshots = []
         cum_delta = 0.0
         cum_real_vol = 0.0
 
-        # Cursor de posição para cada fator (evita busca repetida)
         factor_cursors = {f: 0 for f in active_factors}
 
-        for bar_idx, (_, row) in enumerate(target_bars.iterrows()):
+        div_cfg = cfg.get("divergence_config", {"sigma": 0.005, "threshold": 0.5})
+        target_div_sigma = div_cfg.get("sigma", 0.005)
+        target_div_threshold = div_cfg.get("threshold", 0.5)
+
+        for bar_idx, row in enumerate(target_bars):
             ts = row["timestamp"]
 
-            # Atualizar preços dos fatores via cursor (O(1) amortizado)
             for factor in active_factors:
                 prices = factor_prices[factor]
                 cursor = factor_cursors[factor]
-                # Avançar cursor até a última barra <= ts
                 while cursor < len(prices) - 1 and prices[cursor + 1][0] <= ts:
                     cursor += 1
                 factor_cursors[factor] = cursor
                 if cursor < len(prices) and prices[cursor][0] <= ts:
-                    self.update_price(factor, prices[cursor][1], ts.isoformat())
+                    self.update_price(factor, prices[cursor][1], ts.isoformat(), factor_states=local_factor_states)
 
             snap = self.compute(
                 bar_idx=bar_idx,
                 win_current=float(row["close"]),
                 win_open=opens[data_target],
                 session_date=session_date,
+                bars_per_session=target_bars_per_session,
+                factor_states=local_factor_states,
+                alpha=local_alpha,
+                intercept=local_intercept,
             )
             snap.timestamp = ts.isoformat()
 
             # Cumulative Delta
-            bar_d = float(row["delta"]) if "delta" in row.index and row["delta"] else 0.0
-            rv = float(row["real_volume"]) if "real_volume" in row.index and row["real_volume"] else 0.0
+            bar_d = float(row.get("delta") or 0)
+            rv = float(row.get("real_volume") or 0)
             cum_delta += bar_d
             cum_real_vol += rv
 
             snap.bar_delta = round(bar_d, 0)
             snap.cum_delta = round(cum_delta, 0)
 
-            # Normalizar: cum_delta / volume médio por barra
             avg_vol = cum_real_vol / (bar_idx + 1) if bar_idx >= 0 else 1
             if avg_vol > 0:
                 snap.cum_delta_norm = round(cum_delta / avg_vol, 3)
             else:
                 snap.cum_delta_norm = 0.0
 
-            # Flow confirms
             if snap.p_up > 55 and cum_delta > 0:
                 snap.flow_confirms = True
             elif snap.p_up < 45 and cum_delta < 0:
@@ -486,10 +575,17 @@ class IRAIEngine:
             else:
                 snap.flow_confirms = None
 
-            snapshots.append(snap)
+            # Price Divergence
+            if target_div_sigma > 0 and snap.t_frac > 0:
+                ret_frac = snap.win_return / 100.0
+                ret_z = ret_frac / (target_div_sigma * math.sqrt(snap.t_frac))
+                snap.price_diverge_z = round(ret_z, 2)
+                if snap.p_up > 55 and ret_z < -target_div_threshold:
+                    snap.price_diverges = True
+                elif snap.p_up < 45 and ret_z > target_div_threshold:
+                    snap.price_diverges = True
 
-        # Restaurar alpha/intercept default (WIN)
-        self.alpha, self.intercept = saved_alpha, saved_intercept
+            snapshots.append(snap)
 
         return snapshots
 
@@ -504,7 +600,6 @@ if __name__ == "__main__":
     print(f"  Intercept: {engine.intercept}")
 
     # Testar com última sessão do banco
-    import pandas as pd
     conn = get_connection()
     last_date = conn.execute("""
         SELECT DISTINCT substr(timestamp_utc, 1, 10) as d

@@ -11,17 +11,21 @@ set PYTHONPATH=%ROOT%
 set PYTHONIOENCODING=utf-8
 
 :: Backend API
-echo [1/3] Iniciando FastAPI (porta 8888)...
+echo [1/4] Iniciando FastAPI (porta 8888)...
 start "IRAI-API" cmd /c "cd /d %ROOT% && python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8888"
 timeout /t 3 /nobreak > nul
 
 :: Worker Collector
-echo [2/3] Iniciando Collector (intervalo 60s)...
+echo [2/4] Iniciando Collector (intervalo 60s)...
 start "IRAI-Collector" cmd /c "cd /d %ROOT% && python backend\workers\collector.py --interval 60 --force"
 
 :: Frontend
-echo [3/3] Iniciando Frontend (porta 5175)...
+echo [3/4] Iniciando Frontend (porta 5175)...
 start "IRAI-Frontend" cmd /c "cd /d %ROOT%\frontend && npm run dev"
+
+:: Firebase Sync
+echo [4/4] Iniciando Firebase Sync...
+start "IRAI-FirebaseSync" cmd /c "cd /d %ROOT% && python scripts\firebase_sync.py"
 
 timeout /t 3 /nobreak > nul
 echo.

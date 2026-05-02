@@ -1,17 +1,17 @@
 # PRD — IRAI (Intraday Risk Appetite Index)
 
-**Versão:** 1.0 (Produção)
+**Versão:** 3.0 (Pós-Calibração Universal)
 **Status:** Operacional
 **Owner:** Miqueias
-**Última atualização:** 2026-04-24
+**Última atualização:** 2026-04-30
 
 ---
 
 ## 1. Visão
 
-Construir um indicador intraday que mostra, em tempo real, a **probabilidade de o IBOV fechar o dia em alta**, inferida a partir do comportamento de ativos cross-asset que historicamente lideram ou confirmam o movimento do índice brasileiro — sem olhar para o próprio IBOV como fonte primária de sinal.
+Construir um indicador intraday que mostra, em tempo real, a **probabilidade de cada ativo global fechar o dia em alta**, inferida a partir do comportamento de ativos cross-asset que historicamente lideram ou confirmam o movimento do índice alvo — sem olhar para o próprio ativo como fonte primária de sinal.
 
-O objetivo é responder, a cada 5 minutos e de forma visual, à pergunta: *"Neste momento do pregão, o resto do mundo está dizendo que o IBOV deveria estar subindo ou caindo?"*
+O objetivo é responder, a cada minuto e de forma visual, à pergunta: *"Neste momento do pregão, o resto do mundo está dizendo que este ativo deveria estar subindo ou caindo?"*
 
 ---
 
@@ -51,11 +51,13 @@ Problemas concretos:
 
 ### 4.1 Objetivos (MVP)
 
-1. **O1.** ✅ Calcular e exibir `P_up(t)` ∈ [0, 100]% a cada 30s durante o pregão B3 (10:00–17:55 BRT), com reset no open.
-2. **O2.** ✅ Decompor visualmente a contribuição de cada fator (DOL, DI, DXY, BRENT, CHINA50, USDMXN) — cards ordenados por peso absoluto.
-3. **O3.** ✅ Validar o modelo em tempo real mostrando o WIN real sobreposto à trajetória P(↑) do IRAI.
-4. **O4.** ✅ Operar com dois terminais MT5 sequenciais (XP + Tickmill) com tolerância a falha individual.
-5. **O5.** ✅ Pesos calibrados via `calibrate_m5.py` com relatório automatizado e validação de sinais esperados.
+1. **O1.** ✅ Calcular e exibir `P_up(t)` ∈ [0, 100]% a cada 60s durante a sessão do ativo (24h globais, 09h–18h B3), com reset no open.
+2. **O2.** ✅ Decompor visualmente a contribuição de cada fator — cards ordenados por peso absoluto.
+3. **O3.** ✅ Validar o modelo em tempo real mostrando o retorno real sobreposto à trajetória P(↑) do IRAI.
+4. **O4.** ✅ Operar com três terminais MT5 sequenciais (XP + Tickmill + Axi) com tolerância a falha individual.
+5. **O5.** ✅ Pesos calibrados via `calibrate_universal.py` com Regressão Ridge, filtros anti-multicolinearidade, e 31 fatores candidatos (incluindo DE40, 7 cross-pairs Forex, e 6 iShares Axi). Mínimo 6 fatores por cesta.
+6. **O6.** ✅ Gráfico NWE (Nadaraya-Watson Envelope) com cor dinâmica por inclinação e bandas tracejadas.
+7. **O7.** ✅ Dashboard acessível remotamente via Firebase Hosting (zero custo).
 
 ### 4.2 Não-objetivos (MVP)
 
@@ -91,9 +93,9 @@ Problemas concretos:
 
 ### 6.1 Coleta de dados
 
-- **RF-01.** ✅ Sistema coleta barras M5 de 7 símbolos: WIN$N, DOL$N, DI1$N (XP); DXY, BRENT, CHINA50, USDMXN (Tickmill).
-- **RF-02.** ✅ Collector unificado conecta sequencialmente aos 2 terminais MT5 a cada ciclo.
-- **RF-03.** ✅ Coleta roda a cada 30s com `--interval 30`, dentro do pregão B3.
+- **RF-01.** ✅ Sistema coleta barras M5 de 34 símbolos: WIN$N, DOL$N, DI1$N, WDO$N (XP); US500, US30, USTEC, DE40, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, XAUUSD, BTCUSD, VIX, DXY, BRENT, CHINA50, USDMXN, AUDNZD, CADCHF, EURGBP, EURCHF, EURJPY, GBPJPY, EURAUD (Tickmill); iSharesBrazil+, iSharesTreasury20+, iSharesTreasury10-20+, iSharesTreasury1-3+, iSharesUSEmerging+, iSharesCurrencyBond+ (Axi — fatores de calibração apenas).
+- **RF-02.** ✅ Collector unificado conecta sequencialmente aos 3 terminais MT5 (XP → Tickmill → Axi) a cada ciclo.
+- **RF-03.** ✅ Coleta roda a cada 60s, 24h para ativos globais, 09h–18h para B3.
 - **RF-04.** ✅ Timestamps armazenados em UTC; conversão BRT apenas na apresentação.
 
 ### 6.2 Cálculo do IRAI
@@ -112,10 +114,10 @@ Problemas concretos:
 
 ### 6.4 Apresentação
 
-- **RF-13.** Dashboard React exibe: linha principal P_up(t), stacked area de contribuições, z-scores atuais, IBOV real sobreposto, timestamp da última atualização.
-- **RF-14.** Banda de indecisão (40–60%) visualmente marcada.
-- **RF-15.** Rotulagem textual do regime: RISK-ON (>65%), RISK-OFF (<35%), COMPRADOR/VENDEDOR leve, INDECISO.
-- **RF-16.** Dashboard faz polling do backend a cada 30 segundos OU recebe push via WebSocket.
+- **RF-13.** ✅ Dashboard React exibe: linha principal P_up(t), gráfico NWE (preço + média + envelope), Z-score de divergência, timestamp da última atualização.
+- **RF-14.** ✅ Banda de indecisão (40–60%) visualmente marcada com limiares compra/venda.
+- **RF-15.** ✅ Badge de convicção: forte/moderada/fraca com cores dinâmicas na overview.
+- **RF-16.** ✅ Dashboard faz polling HTTP a cada 60 segundos (local). Firebase SSE para modo nuvem.
 
 ### 6.5 Calibração
 
@@ -140,9 +142,9 @@ Problemas concretos:
 | RNF-01 | Latência        | P_up(t) deve estar disponível na API em ≤ 5 segundos após o fechamento da barra   |
 | RNF-02 | Disponibilidade | 99% durante pregão (um outage curto de 1 min por semana é aceitável no MVP)       |
 | RNF-03 | Reprodutibilidade | Dado o mesmo conjunto de barras, P_up e componentes devem ser determinísticos    |
-| RNF-04 | Simplicidade    | Stack deve rodar em um único notebook Windows sem containerização                 |
+| RNF-04 | Simplicidade    | Stack local invisível no Windows via NSSM, interface web remota servida via nuvem |
 | RNF-05 | Observabilidade | Qualquer discrepância entre valor esperado e calculado rastreável via logs        |
-| RNF-06 | Custos          | Zero custo mensal de infra; apenas contas demo dos dois brokers                   |
+| RNF-06 | Custos          | Zero custo mensal de infra; frontend e banco remoto via Firebase Free Tier        |
 
 ---
 
@@ -150,7 +152,7 @@ Problemas concretos:
 
 ### 8.1 Métricas técnicas
 
-- **Taxa de barras entregues no prazo:** ≥ 98% ✅ (collector 30s com 2 terminais).
+- **Taxa de barras entregues no prazo:** ≥ 98% ✅ (collector 60s com 2 terminais).
 - **Uptime do agregado:** ≥ 99% ✅ (operacional desde 2026-04-23).
 - **Latência p95:** < 1 segundo ✅ (SQLite local, sem rede).
 
@@ -158,11 +160,13 @@ Problemas concretos:
 
 | Métrica | Target | **Resultado** | Status |
 |---------|--------|--------------|--------|
-| R² (OLS) | > 0.35 | **0.4630** | ✅ |
-| Acurácia direcional | > 60% | **71.0%** | ✅ |
+| R² (OLS) | > 0.35 | **0.5801** (WIN) / **0.5844** (WDO) | ✅ |
+| Acurácia direcional (WIN) | > 60% | **85.1%** | ✅ |
+| Acurácia direcional (WDO) | > 60% | **84.2%** | ✅ |
+| Acurácia média (20 ativos) | > 70% | **86.5%** | ✅ |
+| R² top-3 (EURJPY, GBPJPY, EURGBP) | > 0.90 | **0.96–0.98** | ✅ |
 | Reliability P_up 0-25% | ~20% real alta | **19.1%** | ✅ |
 | Reliability P_up 75-100% | ~80% real alta | **84.6%** | ✅ |
-| α (logístico) | > 1.0 | **1.31** | ✅ |
 
 ### 8.3 Métricas de uso (pessoais)
 
@@ -186,17 +190,29 @@ Problemas concretos:
 - ✅ Velocímetro P(↑) com sinal visual COMPRA/VENDA/NEUTRO.
 - ✅ Navegação por sessões históricas (date picker).
 
-### 9.2 V2 (próximos passos)
+### 9.2 V2 (concluídos ✅)
 
-- ✅ Painel Central Multi-Ativo com Divergência de Preço e Confirmação de Fluxo.
+- ✅ Painel Central Multi-Ativo com Divergência de Preço e NWE.
+- ✅ Multi-target: expansão para 20 ativos globais e BR (CADCHF + AUDNZD + cross-pairs adicionados).
+- ✅ **Espelhamento Cloud Híbrido:** Firebase Hosting e Sync para acesso remoto sem abrir a rede local.
+- ✅ Execução em background invisível via Windows Services (NSSM).
+- ✅ Sessão 24h para ativos globais (00:00–24:00 UTC).
+- ✅ NWE (Nadaraya-Watson Envelope) com cor dinâmica por inclinação (bw=8, mult=3).
+- ✅ Cache server-side por (target, date) com invalidação no collector.
+- ✅ Polling HTTP 60s (WebSocket revertido por estabilidade).
+- ✅ **Refinamentos UI/UX:** Navegação profunda com `Brush` (Zoom/Pan) nos gráficos e iconografia padronizada em códigos de 2 letras substituindo emojis.
+- ✅ **iShares Axi:** 6 ETFs (EWZ, TLT, TLH, SHY, EMB, LEMB) integrados como fatores de calibração via 3º terminal MT5 (Axi). Filtro anti-multicolinearidade (max 1 Treasury + 1 EM Bond por cesta). 12/20 modelos melhorados.
+
+### 9.3 V3 (próximos passos)
+
 - [ ] Integração IRAI × Regime Supervisor (ajuste de exposição dos EAs por P_up).
 - [ ] Walk-forward validation automática na calibração.
 - [ ] Backtester de estratégias baseadas em thresholds de P_up.
-- [ ] WebSocket push em vez de polling.
-- [ ] Alertas desktop/som ao cruzar thresholds.
-- ✅ Multi-target: expansão para 13 ativos globais e BR.
+- [ ] Otimização NWE: migrar cálculo para backend (Python/NumPy).
+- [ ] Alertas desktop/Telegram ao cruzar thresholds.
+- [ ] NWE Filter toggle (supressão visual de sinais contra a tendência).
 
-### 9.3 Fora de escopo
+### 9.4 Fora de escopo
 
 - Execução de ordens.
 - Versão mobile / app nativo.
@@ -220,7 +236,7 @@ Problemas concretos:
 
 ## 11. Dependências
 
-- **Externas:** dois terminais MetaTrader 5 funcionais com contas (demo OK), cada um de broker apropriado para sua jurisdição de dados.
+- **Externas:** três terminais MetaTrader 5 funcionais com contas (demo OK): XP (BR), Tickmill (INTL), Axi (iShares ETFs).
 - **Técnicas:** Python 3.11+, `MetaTrader5` package, FastAPI, SQLite, Node 18+, React/Vite.
 - **Infra:** máquina Windows (MT5 não roda nativo em Linux/Mac sem Wine); pode ser VPS Windows ou desktop local.
 
@@ -246,4 +262,15 @@ Problemas concretos:
 | 2026-04-24 | **Remover VIX e IV ATM** dos fatores                           | Brute-force mostrou que reduzem acurácia direcional (67.2% → 66.2%) |
 | 2026-04-24 | **Adicionar CHINA50 e USDMXN**                                | Brute-force: combo dol+di+dxy+brent+china+mxn = **71% accuracy**     |
 | 2026-04-24 | **Remover DE40** após teste                                    | Correlação forte (+0.31) mas sinal invertido na OLS = ruído           |
-| 2026-04-24 | Pesos calibrados offline (252 sessões rolling)                 | Walk-forward automático planejado para V2                             |
+| 2026-04-24 | Pesos calibrados offline (252 sessões rolling)                 | Walk-forward automático planejado para V3                             |
+| 2026-04-27 | **Sessão 24h para ativos globais**                             | Forex/Crypto operam fora do B3; 09–18h descartava dados              |
+| 2026-04-27 | **CADCHF + AUDNZD adicionados** (15 alvos)                    | Diversificação de cross-hedging fora do DXY                          |
+| 2026-04-29 | **EURGBP, EURCHF, EURJPY, GBPJPY, EURAUD** (20 alvos)         | Expansão para mais pares Forex globais cross-currency                |
+| 2026-04-28 | **NWE substituiu Cumulative Delta**                            | Delta era ruidoso; NWE dá leitura direcional limpa com envelope       |
+| 2026-04-28 | **Polling HTTP 60s em vez de WebSocket**                       | WS causava flickering e race conditions de data                       |
+| 2026-04-28 | **Cache server-side por (target, date)**                       | Evita recomputar a cada request; invalidado no notify_update          |
+| 2026-04-28 | **iShares Axi como fatores macro**                            | 6 ETFs (EWZ, TLT, TLH, SHY, EMB, LEMB) via 3º terminal Axi; filtros anti-multicolinearidade (max 1 Treasury + 1 EM Bond por cesta). 12/20 modelos selecionaram iShares. |
+| 2026-04-28 | **3 terminais MT5 sequenciais**                                | Axi adicionado exclusivamente para iShares ETFs (16h–23h UTC); não adiciona ativos ao painel |
+| 2026-04-30 | **Reverter exclusão DE40 — reincluir na pool global**          | Calibração universal com min 6 fatores demonstrou que DE40 é estrutural (integrou 8/20 cestas). ACC média subiu 5pp vs. calibração anterior. |
+| 2026-04-30 | **Mínimo 6 fatores por cesta (constraint)**                    | Cestas com 4 fatores tinham R² baixo e overfitting em cross-pairs. 6-8 fatores = equilíbrio robustez × complexidade. |
+| 2026-04-30 | **Calibração Universal (4 ondas, 20 ativos)**                  | Brute-force completo com 31 candidatos × 20 alvos. Ganhos: EURGBP R²=0.96, GBPJPY ACC=96.5%, WIN ACC 74.8→85.1%, WDO ACC 76→84.2%. ADR-001 documenta. |

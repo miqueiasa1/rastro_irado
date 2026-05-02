@@ -34,3 +34,23 @@ package-lock.json
 
 # Misc
 *.zip
+
+# Logs
+*.log
+logs/
+
+# DB
+*.sqlite
+backend/*.db
+
+# Firebase
+.firebase/
+.firebaserc
+frontend/.firebase/
+
+# GSD / Agents
+.gemini/
+.agent/
+.claude/
+query
+start

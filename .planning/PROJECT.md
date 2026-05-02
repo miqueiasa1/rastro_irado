@@ -2,11 +2,11 @@
 
 ## What This Is
 
-Dashboard cross-asset em tempo real que estima a probabilidade de o IBOV fechar o dia em alta, inferida a partir do comportamento de ativos que historicamente lideram ou confirmam o movimento do índice brasileiro — sem olhar para o próprio IBOV como fonte primária de sinal. Ferramenta pessoal de suporte à decisão para trading algorítmico e discricionário.
+Dashboard cross-asset em tempo real que estima a probabilidade direcional (alta/baixa) para **20 ativos globais** (Índices, Moedas, Commodities e Crypto), inferida a partir do comportamento estrutural do mercado usando Regressão Ridge. Ferramenta pessoal de suporte à decisão para trading algorítmico e discricionário.
 
 ## Core Value
 
-Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste momento do pregão, o resto do mundo está dizendo que o IBOV deveria estar subindo ou caindo?"* — sintetizando 7 fatores em um único número (P_up ∈ 0–100%).
+Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste momento do pregão, o resto do mundo está dizendo que este ativo deveria estar subindo ou caindo?"* — sintetizando até 8 fatores de forte correlação estrutural em um único número (P_up ∈ 0–100%) para cada alvo operado.
 
 ## Requirements
 
@@ -16,13 +16,22 @@ Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste
 
 ### Active
 
-- [ ] Calibrar pesos dos 7 fatores cross-asset sobre 1 ano de dados históricos
-- [ ] Coletar barras M5 de 3 terminais MT5 (XP, Tickmill) em tempo real
-- [ ] Calcular P_up(t) a cada barra de 5 min durante pregão B3
-- [ ] Dashboard React exibindo P_up, contribuições por fator, z-scores, regime
-- [ ] Validação visual: IBOV real sobreposto à trajetória do IRAI
-- [ ] Tolerância a falha: se um terminal cai, sistema continua com stale flags
-- [ ] Calibração recalibrável via script offline semanal
+- [x] Calibrar pesos dos fatores cross-asset sobre 1 ano de dados históricos (Motor V2 Multi-Asset)
+- [x] Coletar barras M5 de 3 terminais MT5 (XP, Tickmill, Axi) em tempo real
+- [x] Calcular P_up(t) a cada barra de 5 min durante a sessão
+- [x] Dashboard React exibindo P_up, Z-Score de Divergência de Preço e NWE
+- [x] Validação visual e sinais de oportunidade (Verde/Vermelho)
+- [x] Interatividade avançada: componente Brush para navegação Zoom/Pan no histórico diário e iconografia de mercado (2-letter codes)
+- [x] Tolerância a falha: se um terminal cai, sistema continua com stale flags
+- [x] Calibração recalibrável via brute-force automático com Regressão Ridge (`calibrate_v2.py`)
+- [x] Hospedagem Zero-Custo na nuvem via Firebase Hosting com sincronização periódica (Acesso Mobile)
+- [x] Orquestração em background via Windows Services (NSSM)
+- [x] Monitoramento 24h para ativos globais (00:00–24:00 UTC); B3 mantém 09:00–18:00
+- [x] NWE (Nadaraya-Watson Envelope) com cor dinâmica por inclinação e bandas tracejadas (bw=8, mult=3)
+- [x] Cobertura expandida: CADCHF, AUDNZD, EURGBP, EURCHF, EURJPY, GBPJPY e EURAUD adicionados ao modelo (20 alvos totais)
+- [x] Cache server-side para respostas da API (invalidado por notify_update)
+- [x] Convicção badge (forte/moderada/fraca) na overview
+- [x] iShares Axi: 6 ETFs (EWZ, TLT, TLH, SHY, EMB, LEMB) como fatores de calibracao via 3o terminal. Filtros anti-multicolinearidade. 12/20 modelos melhorados.
 
 ### Out of Scope
 
@@ -36,48 +45,62 @@ Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste
 
 ### Infraestrutura existente
 
-- **MT5 BR (XP):** `C:\Program Files\MetaTrader 5 Terminal\terminal64.exe` — WIN$N, DOL$N, DI1$N
-- **Tickmill:** `C:\Program Files\Tickmill MT5 Terminal\terminal64.exe` — VIX, DXY, BRENT, US500, BTCUSD
-- **IC Trading:** `C:\Program Files\IC Trading (MU) MT5 Terminal\terminal64.exe` — NÃO conecta via Python MT5 lib (IPC timeout); descartado no MVP
+- **MT5 BR (XP):** `C:\Program Files\MetaTrader 5 Terminal\terminal64.exe` — WIN$N, DOL$N, DI1$N, WDO$N
+- **Tickmill:** `C:\Program Files\Tickmill MT5 Terminal\terminal64.exe` — VIX, DXY, BRENT, US500, US30, USTEC, XAUUSD, BTCUSD, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, USDMXN, CHINA50
+- **Axi:** `C:\Program Files\Axi MetaTrader 5 Terminal\terminal64.exe` — iSharesBrazil+, iSharesTreasury20+, iSharesTreasury10-20+, iSharesTreasury1-3+, iSharesUSEmerging+, iSharesCurrencyBond+ (fatores de calibracao, nao alvos)
+- **IC Trading:** `C:\Program Files\IC Trading (MU) MT5 Terminal\terminal64.exe` — NAO conecta via Python MT5 lib (IPC timeout); descartado no MVP
 
-### Fatores do modelo (5 fatores + 1 alvo)
+### Alvos e Fatores do Modelo (V2)
 
-| # | Fator | Símbolo | Terminal | Papel | Peso M5 | Sinal |
-|---|-------|---------|----------|-------|---------|-------|
-| 1 | **WIN** (alvo) | `WIN$N` | BR (XP) | Retorno IBOV — variável dependente | — | — |
-| 2 | **DOL** | `DOL$N` | BR (XP) | Câmbio BRL/USD | **−0.423** | − ✓ |
-| 3 | **DI** | `DI1$N` | BR (XP) | Juros futuros BR | **−0.272** | − ✓ |
-| 4 | **VIX** | `VIX` | Tickmill | Vol implícita S&P 500 | **−0.136** | − ✓ |
-| 5 | **DXY** | `DXY` | Tickmill | Índice dólar global | −0.026 | − ✓ |
-| 6 | **BRENT** | `BRENT` | Tickmill | Petróleo Brent | +0.015 | + ✓ |
+O sistema analisa **20 alvos globais** simultâneos, cada um calibrado contra uma cesta dinâmica de fatores.
 
-**Calibração M5 (2026-04-24):** R²=0.46 | α=1.4154 | Acurácia=67.5%
-**Removidos:** US500 e BTCUSD (sinal invertido na calibração D1; baixo poder explicativo)
+**Ativos Globais (Tickmill — sessão 24h):** US500, USTEC, US30, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, XAUUSD, BTCUSD, AUDNZD, CADCHF, EURGBP, EURCHF, EURJPY, GBPJPY, EURAUD
+**Ativos Locais (BR/XP — sessão 09h–18h):** WIN$N (Mini Índice), WDO$N (Mini Dólar)
+
+**Calibracao V2 (Ridge Regularization + DE40 + iShares):**
+O modelo utiliza Regressao Ridge com **31 fatores candidatos** (24 tradicionais + 6 iShares Axi ETFs + DE40). O algoritmo de força bruta testa combinações impondo um **mínimo de 6 fatores** por cesta para mitigar overfitting. O índice alemão DE40 tornou-se estrutural para índices americanos e pares de moedas.
+Ver `.planning/docs/FACTOR_MAP.md` para a tabela completa de pesos, R2 e Acuracia por ativo.
 
 ### Profundidade de dados disponível (M5)
 
 | Símbolo | Barras M5 | Desde | Até | Dias |
 |---------|-----------|-------|-----|------|
-| WIN$N | 75.000 | 2023-08-17 | 2026-04-24 | 980 |
-| DOL$N | 75.000 | 2023-08-25 | 2026-04-24 | 972 |
-| DI1$N | 75.000 | 2023-07-06 | 2026-04-24 | 1023 |
-| VIX | 75.000 | 2024-08-19 | 2026-04-24 | 613 |
-| DXY | 75.000 | 2025-02-26 | 2026-04-24 | 422 |
-| BRENT | 75.000 | 2025-02-25 | 2026-04-24 | 423 |
-| US500 | 75.000 | 2025-04-02 | 2026-04-24 | 387 |
-| BTCUSD | 75.000 | 2025-07-30 | 2026-04-24 | 267 |
+| WIN$N | 100.171 | 2022-09-16 | 2026-04-27 | 1319 |
+| WDO$N | 100.171 | 2022-09-28 | 2026-04-27 | 1307 |
+| DI1$N | 100.159 | 2022-07-19 | 2026-04-27 | 1378 |
+| VIX | 100.199 | 2023-11-01 | 2026-04-28 | 908 |
+| DXY | 100.315 | 2024-10-07 | 2026-04-28 | 567 |
+| BRENT | 100.314 | 2024-10-04 | 2026-04-28 | 570 |
+| US500 | 100.355 | 2024-11-21 | 2026-04-28 | 522 |
+| US30 | 100.304 | 2024-11-21 | 2026-04-28 | 522 |
+| USTEC | 100.304 | 2024-11-21 | 2026-04-28 | 522 |
+| XAUUSD | 100.304 | 2024-11-22 | 2026-04-28 | 521 |
+| BTCUSD | 100.921 | 2025-05-08 | 2026-04-28 | 354 |
+| EURUSD | 100.327 | 2024-12-19 | 2026-04-28 | 494 |
+| GBPUSD | 100.327 | 2024-12-19 | 2026-04-28 | 494 |
+| USDJPY | 100.327 | 2024-12-19 | 2026-04-28 | 495 |
+| AUDUSD | 100.327 | 2024-12-19 | 2026-04-28 | 494 |
+| USDCAD | 100.327 | 2024-12-18 | 2026-04-28 | 495 |
+| USDCHF | 100.327 | 2024-12-19 | 2026-04-28 | 495 |
+| USDMXN | 100.319 | 2024-12-16 | 2026-04-28 | 498 |
+| CHINA50 | 100.304 | 2024-11-26 | 2026-04-28 | 517 |
+| AUDNZD | 80.057 | 2025-03-31 | 2026-04-28 | 392 |
+| CADCHF | 80.057 | 2025-03-31 | 2026-04-28 | 392 |
 
-**Janela útil M5 (interseção):** ~267 dias (limitada pelo BTCUSD).
-**Janela útil D1:** 500 barras (~2 anos) para todos.
+> **Nota (Motor V2):** A profundidade média foi ampliada para ~100.000 barras na maioria dos ativos globais, garantindo histórico suficiente para extração de retornos de sessão.
+
+**Janela útil M5 (interseção):** ~354 dias (limitada pelo BTCUSD).
+**Janela útil D1:** 500+ barras (~2 anos) para todos.
 
 ### Stack escolhida
 
 - Python 3.11+ (MetaTrader5 lib 5.0.5640)
-- FastAPI + Uvicorn (API REST)
+- FastAPI + Uvicorn (API REST + cache server-side)
 - SQLite WAL mode (zero infra)
-- React + Vite + Recharts (dashboard — protótipo existente)
-- APScheduler (cron de coleta)
+- React + Vite + Recharts (dashboard com NWE overlay)
+- APScheduler (cron de coleta a cada 60s)
 - statsmodels / scikit-learn (calibração)
+- NSSM (Windows Services para API, Collector, Firebase Sync)
 
 ### Experiência do operador
 
@@ -88,22 +111,30 @@ Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste
 
 ## Constraints
 
-- **Plataforma:** Windows (MT5 não roda nativo Linux)
+- **Plataforma:** Windows (MT5 nao roda nativo Linux)
 - **Custo:** Zero — apenas contas demo/existentes dos brokers
-- **MT5 Python lib:** Uma conexão por processo — workers separados
-- **IC Trading:** Terminal não conecta via Python lib (IPC timeout) — descartado, EWZ substituído por US500 + BTCUSD
-- **Horário:** Pregão B3 10:00–17:55 BRT; fatores INTL podem abrir antes ou depois
+- **MT5 Python lib:** Uma conexao por processo — collector com shutdown/reinit sequencial
+- **IC Trading:** Terminal nao conecta via Python lib (IPC timeout) — descartado, EWZ substituido pelo iSharesBrazil+ da Axi
+- **Horario:** Pregao B3 09:00–18:00 BRT; ativos globais rodam 24h; iShares Axi 16:00–23:00 UTC
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 3 terminais → 2 terminais (XP + Tickmill) | IC Trading não conecta via Python MT5 lib (IPC timeout persistente) | — Pending |
-| EWZ substituído por US500 + BTCUSD | Proxy de apetite global a risco + crypto como risk-on asset | — Pending |
-| DI1$N como fator de juros | Substitui US10Y (não disponível nos brokers); juros BR é mais direto para IBOV | — Pending |
-| BRENT adicionado como fator | Petróleo é relevante para Brasil (Petrobras = 15% do IBOV) | — Pending |
-| 1 ano de dados para calibração (D1) | Janela mais longa que os 60d originais do SPEC; M5 limitada a ~267d pelo BTCUSD | — Pending |
-| Calibração antes de infra real-time | Validar que o modelo tem poder preditivo antes de investir em pipeline | — Pending |
+| 3 terminais → 2 terminais (XP + Tickmill) | IC Trading não conecta via Python MT5 lib (IPC timeout persistente) | Resolved |
+| Transição para Multi-Asset (20 alvos) | O modelo provou ter alta eficácia para B3, então foi expandido globalmente com novos cross-pairs | Validated |
+| Visualização de Divergência | Adicionado gráfico de barras (Z-Score) mostrando divergência de preço vs IRAI para gatilhos operacionais | Validated |
+| Calibração V2 (Ridge + Filtro de 30%) | OLS puro gerava overfitting; o Ridge e os filtros limparam os modelos cortando fatores não-causais pela metade | Validated |
+| Foco Intraday de Fechamento de Sessão | O treinamento é feito com as barras M5 exatas que compõem o horário operacional | Validated |
+| Hospedagem Híbrida via Firebase | Solução engenhosa para expor a UI em dispositivos mobile (custo $0) sem precisar abrir porta do roteador. Um script (firebase_sync.py) escreve no Firebase RTDB a cada 30s. | Validated |
+| Windows Services (NSSM) | Garantir que a API e o sync reiniciem junto com o PC sem janelas cmd poluindo o ambiente de trading. | Validated |
+| Sessão 24h para ativos globais | Ativos Tickmill (Forex, Índices US, Crypto) operam fora do horário B3; restringir a 9-18h descartava dados valiosos | Validated |
+| NWE no lugar de Cumulative Delta | Cumulative Delta era ruidoso e sem valor visual; NWE prove leitura direcional limpa com envelope de volatilidade | Validated |
+| Polling HTTP ao inves de WebSocket | WebSocket causava flickering, race conditions de data, e overhead de recomputacao no broadcast; polling 60s com cache e mais estavel | Validated |
+| Cache server-side por (target, date) | Evita recomputar compute_from_db() a cada request; invalidado apenas no notify_update do collector | Validated |
+| iShares Axi como fatores macro | 6 ETFs (EWZ, TLT, TLH, SHY, EMB, LEMB) via 3o terminal (Axi). Filtros anti-multicolinearidade. 12/20 modelos melhorados. | Validated |
+| 3 terminais MT5 sequenciais | Axi adicionado para iShares; collector faz shutdown/reinit sequencial (XP->Tickmill->Axi) | Validated |
+| Calibração Universal (Mínimo 6 fatores + DE40) | R² fracos em ativos cruzados e sobreajuste (overfitting) em alguns alvos exigiram cestas maiores. DE40 supriu a macroeconomia europeia faltante. | Validated |
 
 ## Evolution
 
@@ -122,5 +153,10 @@ This document evolves at phase transitions and milestone boundaries.
 3. Audit Out of Scope — reasons still valid?
 4. Update Context with current state
 
+## Next Steps / Roadmap
+
+Para propostas futuras, novos ativos, integrações avançadas (como o NWE Filter) e o projeto de acoplamento direto com o Regime Supervisor, consulte o backlog de evolução:
+📄 **[ROADMAP.md](file:///c:/Users/ryzen/Downloads/Antigravity/rastro_irado/.planning/ROADMAP.md)**
+
 ---
-*Last updated: 2026-04-24 after initialization*
+*Last updated: 2026-04-28 after iShares Axi integration (3 terminals, 27 factors, multicollinearity filters)*
