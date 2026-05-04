@@ -87,8 +87,16 @@ CREATE TABLE IF NOT EXISTS asset_models (
     calibrated_at   TEXT,                     -- timestamp última calibração
     active          INTEGER DEFAULT 1         -- 1=ativo, 0=inativo
 );
+-- Estado Dinâmico (Kalman Filter & Johansen)
+CREATE TABLE IF NOT EXISTS kalman_state (
+    slug             TEXT PRIMARY KEY,
+    state_mean       TEXT NOT NULL,         -- JSON array
+    state_covariance TEXT NOT NULL,         -- JSON 2D array
+    johansen_p_value REAL,
+    is_cointegrated  INTEGER DEFAULT 1,     -- 1=sim, 0=não
+    timestamp_utc    TEXT NOT NULL
+);
 """
-
 
 def get_connection(db_path=None):
     """Retorna conexão SQLite com WAL mode."""
@@ -127,5 +135,67 @@ def migrate_delta(db_path=None):
     conn.close()
 
 
+def migrate_kalman_state(db_path=None):
+    """Adiciona a tabela kalman_state se não existir (migração Fase 6)."""
+    conn = get_connection(db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS kalman_state (
+            slug             TEXT PRIMARY KEY,
+            state_mean       TEXT NOT NULL,
+            state_covariance TEXT NOT NULL,
+            johansen_p_value REAL,
+            is_cointegrated  INTEGER DEFAULT 1,
+            timestamp_utc    TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    print("  + tabela kalman_state garantida")
+    conn.close()
+
+
+def save_kalman_state(conn, slug: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str):
+    """Salva o estado atual do filtro de Kalman e teste de Johansen."""
+    import json
+    import numpy as np
+    
+    # Converter numpy arrays para listas para serialização JSON
+    if isinstance(state_mean, np.ndarray):
+        state_mean = state_mean.tolist()
+    if isinstance(state_covariance, np.ndarray):
+        state_covariance = state_covariance.tolist()
+        
+    conn.execute("""
+        INSERT OR REPLACE INTO kalman_state 
+        (slug, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (slug, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
+    conn.commit()
+
+
+def load_kalman_state(conn, slug: str):
+    """Carrega o último estado do filtro de Kalman para o ativo."""
+    import json
+    import numpy as np
+    
+    row = conn.execute("""
+        SELECT state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc
+        FROM kalman_state
+        WHERE slug = ?
+    """, (slug,)).fetchone()
+    
+    if not row:
+        return None
+        
+    return {
+        "state_mean": np.array(json.loads(row["state_mean"])),
+        "state_covariance": np.array(json.loads(row["state_covariance"])),
+        "johansen_p_value": row["johansen_p_value"],
+        "is_cointegrated": bool(row["is_cointegrated"]),
+        "timestamp_utc": row["timestamp_utc"]
+    }
+
+
 if __name__ == "__main__":
     init_db()
+    migrate_delta()
+    migrate_kalman_state()

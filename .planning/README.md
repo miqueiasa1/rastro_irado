@@ -174,6 +174,8 @@ rastro_irado/
 - [x] Filtros Dinâmicos de Correlação Cross-Asset
 - [x] Dashboard dinâmico exibindo Divergência de Preço (Z-Score) e NWE
 - [x] Refinamentos UI/UX: Interatividade profunda com Zoom/Pan nos gráficos e iconografia com 2-letter codes.
+- [x] **Hierarquia Visual de Alertas**: Adição de micro-badges D-P-Z-E (Divergência, Pullback, Z-Score, Exaustão) locais, reservando o "blink" global da UI apenas para Divergência de Retorno Direcional.
+- [x] **UX Simplificada**: Remoção de sparklines da tela de Overview para focar em legibilidade mobile.
 - [x] **Arquitetura Cloud Híbrida**: Firebase Realtime DB + Hosting para acesso mobile.
 - [x] **Deploy Invisível**: Instalação automatizada via NSSM Services (`install_nssm_services.ps1`).
 

@@ -201,6 +201,9 @@ Problemas concretos:
 - ✅ Cache server-side por (target, date) com invalidação no collector.
 - ✅ Polling HTTP 60s (WebSocket revertido por estabilidade).
 - ✅ **Refinamentos UI/UX:** Navegação profunda com `Brush` (Zoom/Pan) nos gráficos e iconografia padronizada em códigos de 2 letras substituindo emojis.
+- ✅ **Hierarquia Visual de Alertas (Global vs Local):** Restrição do blink global da placa (AssetCard) apenas para cenários críticos (Divergência de Retorno). Adição de 4 micro-badges locais (D-P-Z-E) para status secundários (Divergence, Pullback, Z-Score, Exhaustion).
+- ✅ **Design Minimalista Mobile:** Remoção do sparkline (gráfico P_up pequeno) na Overview para reduzir a carga cognitiva, priorizando a legibilidade dos sinais D-P-Z-E e valores absolutos.
+- ✅ **Cálculo de Retorno Intradiário vs Brokers:** Retorno (win_return) indexado à abertura da sessão (ignorando Gaps de fechamento anterior), diferente do MT5. (Documentado em `IRAI_RETURN_VS_MT5.md`).
 - ✅ **iShares Axi:** 6 ETFs (EWZ, TLT, TLH, SHY, EMB, LEMB) integrados como fatores de calibração via 3º terminal MT5 (Axi). Filtro anti-multicolinearidade (max 1 Treasury + 1 EM Bond por cesta). 12/20 modelos melhorados.
 
 ### 9.3 V3 (próximos passos)

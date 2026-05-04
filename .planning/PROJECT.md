@@ -12,7 +12,7 @@ Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste
 
 ### Validated
 
-(None yet — ship to validate)
+- [x] Otimização Motor Z-Score Dinâmico (Kalman Filter + Johansen Cointegration) validado via Backtest de Spread PnL Real M5 (90 dias).
 
 ### Active
 
@@ -22,6 +22,8 @@ Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste
 - [x] Dashboard React exibindo P_up, Z-Score de Divergência de Preço e NWE
 - [x] Validação visual e sinais de oportunidade (Verde/Vermelho)
 - [x] Interatividade avançada: componente Brush para navegação Zoom/Pan no histórico diário e iconografia de mercado (2-letter codes)
+- [x] Hierarquia Visual de Alertas (Global vs Local) com painel D-P-Z-E (Divergência, Pullback, Z-Score, Exaustão).
+- [x] UI Simplificada Mobile-first: Remoção do Sparkline e textos neutros enxutos para reduzir carga cognitiva.
 - [x] Tolerância a falha: se um terminal cai, sistema continua com stale flags
 - [x] Calibração recalibrável via brute-force automático com Regressão Ridge (`calibrate_v2.py`)
 - [x] Hospedagem Zero-Custo na nuvem via Firebase Hosting com sincronização periódica (Acesso Mobile)
@@ -135,6 +137,8 @@ Ver `.planning/docs/FACTOR_MAP.md` para a tabela completa de pesos, R2 e Acuraci
 | iShares Axi como fatores macro | 6 ETFs (EWZ, TLT, TLH, SHY, EMB, LEMB) via 3o terminal (Axi). Filtros anti-multicolinearidade. 12/20 modelos melhorados. | Validated |
 | 3 terminais MT5 sequenciais | Axi adicionado para iShares; collector faz shutdown/reinit sequencial (XP->Tickmill->Axi) | Validated |
 | Calibração Universal (Mínimo 6 fatores + DE40) | R² fracos em ativos cruzados e sobreajuste (overfitting) em alguns alvos exigiram cestas maiores. DE40 supriu a macroeconomia europeia faltante. | Validated |
+| Z-Score: PnL Real e Filtro in_trade | A V2 usa Spread `Y - X*beta` real, trava múltiplas reentradas e avalia métricas Forward 5B. Revelou assimetria de scalp no WIN$N e necessidade de Hold (z-exit) no WDO$N. | Validated |
+| Arquitetura Híbrida (Ablation Johansen) | O filtro rígido de Cointegração destruía o PnL de ativos de Momentum (WIN$N, BTCUSD), mas salvava ativos Mean Reversion. Implementamos flag `use_johansen` por ativo no banco. | Validated |
 
 ## Evolution
 
@@ -159,4 +163,4 @@ Para propostas futuras, novos ativos, integrações avançadas (como o NWE Filte
 📄 **[ROADMAP.md](file:///c:/Users/ryzen/Downloads/Antigravity/rastro_irado/.planning/ROADMAP.md)**
 
 ---
-*Last updated: 2026-04-28 after iShares Axi integration (3 terminals, 27 factors, multicollinearity filters)*
+*Last updated: 2026-05-02 after Z-Score V2 Optimization (Kalman Filter + Johansen Cointegration com avaliação de PnL Real).*

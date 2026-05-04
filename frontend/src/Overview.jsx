@@ -12,6 +12,13 @@ const OVERVIEW_STYLES = `
   .card-alert-green { animation: borderGlowGreen 2s infinite ease-in-out; }
   .card-alert-red { animation: borderGlowRed 2s infinite ease-in-out; }
 
+  @keyframes badgeBlink {
+    0% { opacity: 1; }
+    50% { opacity: 0.3; }
+    100% { opacity: 1; }
+  }
+  .badge-blink { animation: badgeBlink 1.5s infinite ease-in-out; }
+
   /* Mobile Responsive Overrides */
   .overview-container { padding: 24px 32px; max-width: 1400px; margin: 0 auto; font-family: var(--font-sans); color: #C8C8D4; }
   .overview-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 24px; }
@@ -32,31 +39,49 @@ const OVERVIEW_STYLES = `
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
 const API = FIREBASE_URL ? null : 'http://localhost:8888'
 
-function Sparkline({ data, width = '100%', height = 24 }) {
-  if (!data || data.length < 2) return null
-  const min = Math.min(...data)
-  const max = Math.max(...data)
+function Sparkline({ dataV1, dataV2, width = '100%', height = 24 }) {
+  const allData = [...(dataV1 || []), ...(dataV2 || [])]
+  if (allData.length < 2) return null
+  const min = Math.min(...allData)
+  const max = Math.max(...allData)
   const range = max - min || 1
   const viewBoxWidth = 185
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * viewBoxWidth
-    const y = height - ((v - min) / range) * (height - 4) - 2
-    return `${x},${y}`
-  }).join(' ')
 
-  const last = data[data.length - 1]
-  const color = last >= 60 ? '#4ADE80' : last <= 40 ? '#F87171' : '#94A3B8'
+  const makePoints = (data) => {
+    if (!data || data.length < 2) return ''
+    return data.map((v, i) => {
+      const x = (i / (data.length - 1)) * viewBoxWidth
+      const y = height - ((v - min) / range) * (height - 4) - 2
+      return `${x},${y}`
+    }).join(' ')
+  }
+
+  const pointsV1 = makePoints(dataV1)
+  const pointsV2 = makePoints(dataV2)
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${viewBoxWidth} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-      <polyline
-        fill="none"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        points={points}
-      />
+      {pointsV1 && (
+        <polyline
+          fill="none"
+          stroke="#D4A84C"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray="4 2"
+          points={pointsV1}
+        />
+      )}
+      {pointsV2 && (
+        <polyline
+          fill="none"
+          stroke="#60A5FA"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={pointsV2}
+        />
+      )}
     </svg>
   )
 }
@@ -78,7 +103,7 @@ export default function Overview({ onSelectTarget }) {
         } else {
           const [tRes, oRes] = await Promise.all([
             fetch(`${API}/api/irai/targets`),
-            fetch(`${API}/api/irai/overview`),
+            fetch(`${API}/api/irai/overview?version=both`),
           ])
           const tData = await tRes.json()
           const oData = await oRes.json()
@@ -114,7 +139,7 @@ export default function Overview({ onSelectTarget }) {
         if (!mounted) return
         try {
           const [oRes] = await Promise.all([
-            fetch(`${API}/api/irai/overview`),
+            fetch(`${API}/api/irai/overview?version=both`),
           ])
           const oData = await oRes.json()
           setOverview(oData.targets || [])
@@ -169,15 +194,17 @@ export default function Overview({ onSelectTarget }) {
             INTRADAY RISK APPETITE INDEX · {calibrated.length} MODELOS ATIVOS
           </div>
         </div>
-        <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 10,
-          color: '#4ADE80', display: 'flex', alignItems: 'center', gap: 6,
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{
-            width: 6, height: 6, borderRadius: '50%', background: '#4ADE80',
-            animation: 'pulse 2s infinite',
-          }} />
-          LIVE
+            fontFamily: 'var(--font-mono)', fontSize: 10,
+            color: '#4ADE80', display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%', background: '#4ADE80',
+              animation: 'pulse 2s infinite',
+            }} />
+            LIVE
+          </div>
         </div>
       </header>
 
@@ -240,7 +267,7 @@ export default function Overview({ onSelectTarget }) {
 
 
 function AssetCard({ card, onClick }) {
-  const pUp = card.p_up || 50
+  const pUp = card.p_up_v1 != null ? card.p_up_v1 : (card.p_up || 50)
   const accuracy = card.accuracy || 80
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
@@ -254,18 +281,36 @@ function AssetCard({ card, onClick }) {
   const isNweDivergentBuy = isBuy && nweUp === false;
   const isNweDivergentSell = isSell && nweUp === true;
   
-  const hasAlert = card.price_diverges || isNweDivergentBuy || isNweDivergentSell;
+  const isReturnDivergentBuy = isBuy && card.win_return < 0;
+  const isReturnDivergentSell = isSell && card.win_return > 0;
+  
+  const isNweExhaustionDown = card.nwe_upper !== undefined && card.win_return > card.nwe_upper;
+  const isNweExhaustionUp = card.nwe_lower !== undefined && card.win_return < card.nwe_lower;
+
+  const hasAlert = isReturnDivergentBuy || isReturnDivergentSell;
   const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
 
   // Convicção calibrada por Shrinkage (mesmo algoritmo do SignalGauge)
   const acc = Math.min(Math.max(accuracy, 50), 100)
   const shrinkFactor = (2 * acc / 100) - 1
-  const pShrunk = 50 + (pUp - 50) * shrinkFactor
-  const conviction = Math.round(Math.abs(pShrunk - 50) * 2)
+  
+  // V1 Conviction
+  const pUpV1 = card.p_up_v1 != null ? card.p_up_v1 : pUp
+  const pShrunkV1 = 50 + (pUpV1 - 50) * shrinkFactor
+  const convictionV1 = Math.round(Math.abs(pShrunkV1 - 50) * 2)
   const maxConviction = Math.round((acc - 50) * 2)
-  const convRatio = maxConviction > 0 ? conviction / maxConviction : 0
-  const convLabel = card.is_preview ? 'pré-mercado' : (convRatio >= 0.55 ? 'forte' : convRatio >= 0.25 ? 'moderada' : 'fraca')
-  const convColor = card.is_preview ? '#EAB308' : (convRatio >= 0.55 ? signalColor : convRatio >= 0.25 ? '#C9A227' : '#334155')
+  const convRatioV1 = maxConviction > 0 ? convictionV1 / maxConviction : 0
+  const convLabelV1 = card.is_preview ? 'pré-mercado' : (convRatioV1 >= 0.55 ? 'forte' : convRatioV1 >= 0.25 ? 'moderada' : 'fraca')
+  
+  // V2 Conviction
+  const hasV2 = card.p_up_v2 != null
+  const pUpV2 = card.p_up_v2
+  const pShrunkV2 = hasV2 ? 50 + (pUpV2 - 50) * shrinkFactor : 50
+  const convictionV2 = hasV2 ? Math.round(Math.abs(pShrunkV2 - 50) * 2) : 0
+  const convRatioV2 = maxConviction > 0 ? convictionV2 / maxConviction : 0
+  const convLabelV2 = card.is_preview ? 'pré-mercado' : (convRatioV2 >= 0.55 ? 'forte' : convRatioV2 >= 0.25 ? 'moderada' : 'fraca')
+
+  const convColor = card.is_preview ? '#EAB308' : (convRatioV1 >= 0.55 ? signalColor : convRatioV1 >= 0.25 ? '#C9A227' : '#334155')
 
   const ret = card.win_return || 0
 
@@ -312,7 +357,7 @@ function AssetCard({ card, onClick }) {
           background: `${convColor}18`,
           border: `1px solid ${convColor}33`,
         }}>
-          {convLabel}
+          {convLabelV1}
         </div>
       </div>
 
@@ -328,66 +373,69 @@ function AssetCard({ card, onClick }) {
             color: signalColor, fontWeight: 400, lineHeight: 1,
           }}>{directionText}</div>
           {/* Conviction % */}
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: convColor, marginTop: 4, fontWeight: 600,
-          }}>
-            convicção {conviction}%
-          </div>
-          {/* Raw P(↑) — small, secondary */}
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 8,
-            color: '#2A2A36', marginTop: 2,
-          }}>P(↑) {pUp.toFixed(0)}%</div>
-        </div>
-
-        {/* Indicators Column */}
-        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-          {/* Z-SCORE SIGNAL */}
-          <div style={{
-            background: card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
-            color: card.price_diverges ? (isBuy ? '#4ADE80' : '#F87171') : '#64748B',
-            padding: '2px 6px', borderRadius: 4, fontSize: 8,
-            fontFamily: 'var(--font-mono)', border: `1px solid ${card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`
-          }}>
-            {card.price_diverges ? (isBuy ? '🟢 Z-SCORE' : '🔴 Z-SCORE') : '✓ Z-SCORE'}
-          </div>
-
-          {/* NWE SIGNAL */}
-          {(() => {
-            if (card.nwe_slope === undefined) return null;
-            const nweUp = card.nwe_slope >= 0;
-            const isDivergentBuy = isBuy && !nweUp;
-            const isDivergentSell = isSell && nweUp;
-            
-            let bg = 'rgba(148,163,184,0.08)';
-            let color = '#64748B';
-            let border = 'rgba(148,163,184,0.1)';
-            let text = '✓ NWE';
-            
-            if (isDivergentBuy) {
-              bg = 'rgba(74,222,128,0.12)'; color = '#4ADE80'; border = 'rgba(74,222,128,0.2)'; text = '🟢 NWE COMPRA';
-            } else if (isDivergentSell) {
-              bg = 'rgba(248,113,113,0.12)'; color = '#F87171'; border = 'rgba(248,113,113,0.2)'; text = '🔴 NWE VENDA';
-            }
-
-            return (
-              <div style={{
-                background: bg, color: color,
-                padding: '2px 6px', borderRadius: 4, fontSize: 8,
-                fontFamily: 'var(--font-mono)', border: `1px solid ${border}`
-              }}>
-                {text}
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: convColor, marginTop: 4, fontWeight: 600 }}>
+                v1 conv. {convictionV1}%
               </div>
-            );
-          })()}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#2A2A36', marginTop: 2 }}>
+                P(↑) {pUpV1.toFixed(0)}%
+              </div>
+            </div>
+            {hasV2 && (
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#60A5FA', marginTop: 4, fontWeight: 600 }}>
+                  v2 conv. {convictionV2}%
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#2A2A36', marginTop: 2 }}>
+                  P(↑) {pUpV2.toFixed(0)}%
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Indicators Column (D P Z E) */}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {/* D: Divergência de Retorno (Cor fixa, sem blink local) */}
+          <div title="Divergência de Retorno %" style={{
+            width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
+            background: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
+            color: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '#4ADE80' : '#F87171') : '#475569',
+            border: `1px solid ${(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`
+          }}>D</div>
+
+          {/* P: Pullback / NWE Divergence (Blink) */}
+          <div title="Pullback / Divergência NWE" className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
+            width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
+            background: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
+            color: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '#4ADE80' : '#F87171') : '#475569',
+            border: `1px solid ${(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`
+          }}>P</div>
+
+          {/* Z: Z-Score (Blink) */}
+          <div title="Z-Score" className={card.price_diverges ? 'badge-blink' : ''} style={{
+            width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
+            background: card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
+            color: card.price_diverges ? (isBuy ? '#4ADE80' : '#F87171') : '#475569',
+            border: `1px solid ${card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`
+          }}>Z</div>
+
+          {/* E: Exaustão NWE (Blink) */}
+          <div title="Exaustão NWE" className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
+            width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
+            background: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
+            color: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? '#4ADE80' : '#F87171') : '#475569',
+            border: `1px solid ${(isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`
+          }}>E</div>
         </div>
       </div>
 
-      {/* Sparkline */}
-      <div className="sparkline-wrapper">
-        <Sparkline data={card.sparkline} width="100%" height={24} />
-      </div>
+
 
       {/* Footer: acc + bars */}
       <div style={{

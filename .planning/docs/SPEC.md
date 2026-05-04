@@ -147,7 +147,8 @@ A estratégia de calibração de Machine Learning, features e métricas de erro 
 **Responsabilidade:** Apresentar a UI interativa e limpa.
 - **Modo Cloud (Firebase):** Quando configurado com `VITE_FIREBASE_URL`, consome o JSON hospedado via Firebase SSE (Server-Sent Events).
 - **Modo Local:** HTTP polling a cada 60s em `localhost:8888` (WebSocket removido por estabilidade).
-- **VisualizaÃ§Ãµes:** P_up com limiares compra/venda, grÃ¡fico NWE separado (preÃ§o + mÃ©dia + envelope com cor por inclinaÃ§Ã£o), Z-Score de divergÃªncia de preÃ§o.
+- **Visualizações:** P_up (V1) como probabilidade primária. Gráfico NWE interativo (preço + média + envelope com cor por inclinação).
+- **Hierarquia Visual:** Alerta Global na borda do AssetCard apenas para Divergência de Retorno % (P_up vs fluxo intradiário). Status secundários monitorados via 4 micro-badges locais: `D` (Divergência), `P` (Pullback NWE), `Z` (Z-Score), `E` (Exaustão NWE). Os badges piscam isoladamente conforme o disparo do sinal correspondente, preservando a interface de poluição visual.
 
 ### 2.6 `firebase_sync.py`
 

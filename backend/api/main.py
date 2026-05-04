@@ -33,8 +33,8 @@ ws_clients: dict = {}
 data_updated_event = asyncio.Event()
 
 # ── Cache de resultados computados ─────────────────────
-series_cache: dict = {}   # (target, date) → result dict
-overview_cache_data = {"date": None, "result": None}
+series_cache: dict = {}   # (target, date, version) → result dict
+overview_cache_data: dict = {} # (date, version) → result dict
 
 
 async def ws_broadcast_loop():
@@ -63,22 +63,25 @@ async def ws_broadcast_loop():
             for ws, config in ws_clients.copy().items():
                 try:
                     target = config.get("target", "WIN$N")
+                    version = config.get("version", "v1")
                     
-                    if overview_cache is None:
-                        overview_cache = await irai_overview(session_date)
+                    ov_key = (session_date, version)
+                    if ov_key not in overview_cache_data:
+                        await irai_overview(session_date, version) # Isso vai popular o cache
                         
-                    if target not in series_cache:
-                        res = await irai_series(session_date, target)
+                    se_key = (target, session_date, version)
+                    if se_key not in series_cache:
+                        res = await irai_series(session_date, target, version)
                         if isinstance(res, JSONResponse):
-                            series_cache[target] = {"error": "Sem dados"}
+                            series_cache[se_key] = {"error": "Sem dados"}
                         else:
-                            series_cache[target] = res
+                            series_cache[se_key] = res
                             
                     payload = json.dumps({
                         "type": "update",
                         "session_date": session_date,
-                        "overview": overview_cache,
-                        "series": series_cache[target]
+                        "overview": overview_cache_data[ov_key],
+                        "series": series_cache[se_key]
                     })
                     await ws.send_text(payload)
                 except Exception:
@@ -121,8 +124,7 @@ app.add_middleware(
 async def notify_update():
     """Chamado pelo collector.py após inserir novas barras."""
     series_cache.clear()
-    overview_cache_data["date"] = None
-    overview_cache_data["result"] = None
+    overview_cache_data.clear()
     data_updated_event.set()
     return {"status": "ok"}
 
@@ -168,6 +170,7 @@ async def irai_targets():
 @app.get("/api/irai/overview")
 async def irai_overview(
     session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)"),
+    version: str = Query("both", description="Versão do motor (v1=estático, v2=dinâmico, both=ambos)"),
 ):
     """Snapshot atual de TODOS os targets calibrados."""
     if session_date is None:
@@ -185,8 +188,9 @@ async def irai_overview(
             session_date = date.today().isoformat()
 
     # Return cached overview if available for the same date
-    if overview_cache_data["date"] == session_date and overview_cache_data["result"]:
-        return overview_cache_data["result"]
+    cache_key = (session_date, version)
+    if cache_key in overview_cache_data:
+        return overview_cache_data[cache_key]
 
     results = []
     for t in engine.registered_targets:
@@ -194,18 +198,25 @@ async def irai_overview(
             continue  # Skip não-calibrados
 
         try:
-            snapshots = engine.compute_from_db(session_date, target=t["target"])
-            if not snapshots:
-                continue
-            last = snapshots[-1]
-            # Sparkline: P_up de cada barra
-            sparkline = [round(s.p_up, 1) for s in snapshots[-24:]]  # últimas 2h
-            # Flow confirms (already present in snap)
-            flow_confirms = getattr(last, "flow_confirms", None)
+            versions_to_run = ["v1", "v2"] if version == "both" else [version]
+            snaps_v1 = engine.compute_from_db(session_date, target=t["target"], version="v1") if "v1" in versions_to_run else None
+            snaps_v2 = engine.compute_from_db(session_date, target=t["target"], version="v2") if "v2" in versions_to_run else None
             
-            # Price diverges — baseado em z-score do retorno do target
-            # Lógica: IRAI sinaliza direção X mas o preço se move
-            # significativamente na direção oposta (z-score > limiar)
+            primary = snaps_v1 if snaps_v1 else snaps_v2
+            if not primary:
+                continue
+                
+            last_v1 = snaps_v1[-1] if snaps_v1 else None
+            last_v2 = snaps_v2[-1] if snaps_v2 else None
+            last = primary[-1]
+
+            # Sparklines
+            spark_v1 = [round(s.p_up, 1) for s in snaps_v1[-24:]] if snaps_v1 else []
+            spark_v2 = [round(s.p_up, 1) for s in snaps_v2[-24:]] if snaps_v2 else []
+
+            flow_confirms = getattr(last_v1 if last_v1 else last_v2, "flow_confirms", None)
+            
+            # Price diverges
             price_diverges = False
             price_diverge_z = None
             try:
@@ -216,8 +227,7 @@ async def irai_overview(
                 target_div_threshold = div_cfg.get("threshold", 0.5)
                 
                 if target_div_sigma > 0 and last.t_frac > 0:
-                    # z-score do retorno atual do target
-                    ret_frac = last.win_return / 100.0  # % → fração
+                    ret_frac = last.win_return / 100.0
                     ret_z = ret_frac / (target_div_sigma * math.sqrt(last.t_frac))
                     price_diverge_z = round(ret_z, 2)
                     
@@ -228,13 +238,13 @@ async def irai_overview(
             except Exception:
                 pass
 
-            # NWE - calcula apenas para os dois últimos pontos O(N)
+            # NWE
             nwe_slope = 0.0
             try:
-                if len(snapshots) >= 2:
-                    h = 8  # NWE_BW default
-                    n = len(snapshots)
-                    vals = [s.win_return for s in snapshots]
+                if len(primary) >= 2:
+                    h = 8
+                    n = len(primary)
+                    vals = [s.win_return for s in primary]
                     def get_center(i_idx):
                         sum_w = 0.0
                         sum_y = 0.0
@@ -250,33 +260,51 @@ async def irai_overview(
             except Exception:
                 pass
                 
-            results.append({
+            res_obj = {
                 "target": t["target"],
                 "slug": t["slug"],
                 "display_name": t["display_name"],
                 "icon": t["icon"],
-                "p_up": round(last.p_up, 1),
-                "score": round(last.score, 4),
-                "verdict": last.verdict,
                 "win_return": round(last.win_return, 4),
-                "bars": len(snapshots),
+                "bars": len(primary),
                 "accuracy": t.get("accuracy"),
-                "sparkline": sparkline,
                 "flow_confirms": flow_confirms,
                 "price_diverges": price_diverges,
                 "price_diverge_z": price_diverge_z,
                 "nwe_slope": nwe_slope,
                 "is_preview": getattr(last, "is_preview", False),
-            })
+            }
+
+            if version == "both":
+                res_obj.update({
+                    "p_up_v1": round(last_v1.p_up, 1) if last_v1 else None,
+                    "score_v1": round(last_v1.score, 4) if last_v1 else None,
+                    "verdict_v1": last_v1.verdict if last_v1 else None,
+                    "sparkline_v1": spark_v1,
+                    
+                    "p_up_v2": round(last_v2.p_up, 1) if last_v2 else None,
+                    "score_v2": round(last_v2.score, 4) if last_v2 else None,
+                    "verdict_v2": last_v2.verdict if last_v2 else None,
+                    "sparkline_v2": spark_v2,
+                })
+            else:
+                res_obj.update({
+                    "p_up": round(last.p_up, 1),
+                    "score": round(last.score, 4),
+                    "verdict": last.verdict,
+                    "sparkline": spark_v1 if version == "v1" else spark_v2,
+                })
+
+            results.append(res_obj)
         except Exception as e:
             print(f"Overview error for {t['target']}: {e}")
 
     result = {
         "session_date": session_date,
+        "version": version,
         "targets": results,
     }
-    overview_cache_data["date"] = session_date
-    overview_cache_data["result"] = result
+    overview_cache_data[cache_key] = result
     return result
 
 
@@ -310,53 +338,120 @@ async def irai_dates(
 async def irai_series(
     session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)"),
     target: str = Query("WIN$N", description="Target: WIN$N ou WDO$N"),
+    version: str = Query("both", description="Versão do motor (v1=estático, v2=dinâmico, both=ambos)"),
 ):
     """Série IRAI completa para uma sessão. Suporta multi-target."""
     if session_date is None:
         session_date = date.today().isoformat()
 
     # Check cache first
-    cache_key = (target, session_date)
+    cache_key = (target, session_date, version)
     if cache_key in series_cache:
         return series_cache[cache_key]
 
-    snapshots = engine.compute_from_db(session_date, target=target)
+    if version == "both":
+        snaps_v1 = engine.compute_from_db(session_date, target=target, version="v1")
+        snaps_v2 = engine.compute_from_db(session_date, target=target, version="v2")
+        
+        primary = snaps_v1 if snaps_v1 else snaps_v2
+        if not primary:
+            return JSONResponse(status_code=404, content={"error": f"Sem dados para sessão {session_date}"})
 
-    if not snapshots:
-        return JSONResponse(
-            status_code=404,
-            content={"error": f"Sem dados para sessão {session_date}"}
-        )
+        # Merge series by timestamp/bar_idx
+        v2_map = {s.bar_idx: s for s in snaps_v2}
+        merged_series = []
+        for s1 in snaps_v1:
+            s2 = v2_map.get(s1.bar_idx)
+            d1 = _snap_to_dict(s1)
+            # inject v1 specific fields
+            out = d1.copy()
+            out["p_up_v1"] = out.pop("p_up")
+            out["score_v1"] = out.pop("score")
+            out["verdict_v1"] = out.pop("verdict")
+            out["factors_v1"] = out.pop("factors")
+            out["price_diverges_v1"] = out.pop("price_diverges")
+            out["price_diverge_z_v1"] = out.pop("price_diverge_z")
+            # inject v2 fields
+            if s2:
+                d2 = _snap_to_dict(s2)
+                out["p_up_v2"] = d2["p_up"]
+                out["score_v2"] = d2["score"]
+                out["verdict_v2"] = d2["verdict"]
+                out["factors_v2"] = d2["factors"]
+                out["price_diverges_v2"] = d2["price_diverges"]
+                out["price_diverge_z_v2"] = d2["price_diverge_z"]
+            else:
+                out["p_up_v2"] = None
+                out["score_v2"] = None
+                out["verdict_v2"] = None
+                out["factors_v2"] = {}
+                out["price_diverges_v2"] = False
+                out["price_diverge_z_v2"] = 0.0
+            merged_series.append(out)
 
-    # Lookup display info
-    target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
-    result = {
-        "session_date": session_date,
-        "target": target,
-        "display_name": target_info.get("display_name", target),
-        "icon": target_info.get("icon", "📊"),
-        "bars": len(snapshots),
-        "series": [_snap_to_dict(s) for s in snapshots],
-        "summary": {
-            "p_up_min": min(s.p_up for s in snapshots),
-            "p_up_max": max(s.p_up for s in snapshots),
-            "p_up_final": snapshots[-1].p_up,
-            "score_final": snapshots[-1].score,
-            "verdict": snapshots[-1].verdict,
-            "return": snapshots[-1].win_return,
-        },
-    }
-    # Cache result
-    series_cache[(target, session_date)] = result
+        last_v1 = snaps_v1[-1]
+        last_v2 = snaps_v2[-1] if snaps_v2 else last_v1
+        
+        target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
+        result = {
+            "session_date": session_date,
+            "target": target,
+            "display_name": target_info.get("display_name", target),
+            "icon": target_info.get("icon", "📊"),
+            "bars": len(snaps_v1),
+            "series": merged_series,
+            "summary": {
+                "p_up_min_v1": min(s.p_up for s in snaps_v1),
+                "p_up_max_v1": max(s.p_up for s in snaps_v1),
+                "p_up_final_v1": last_v1.p_up,
+                "score_final_v1": last_v1.score,
+                "verdict_v1": last_v1.verdict,
+
+                "p_up_min_v2": min(s.p_up for s in snaps_v2) if snaps_v2 else 0,
+                "p_up_max_v2": max(s.p_up for s in snaps_v2) if snaps_v2 else 0,
+                "p_up_final_v2": last_v2.p_up,
+                "score_final_v2": last_v2.score,
+                "verdict_v2": last_v2.verdict,
+
+                "win_return": last_v1.win_return,
+                "timestamp": last_v1.timestamp,
+                "accuracy": target_info.get("accuracy"),
+            }
+        }
+    else:
+        snapshots = engine.compute_from_db(session_date, target=target, version=version)
+        if not snapshots:
+            return JSONResponse(status_code=404, content={"error": f"Sem dados para sessão {session_date}"})
+
+        target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
+        result = {
+            "session_date": session_date,
+            "target": target,
+            "display_name": target_info.get("display_name", target),
+            "icon": target_info.get("icon", "📊"),
+            "bars": len(snapshots),
+            "series": [_snap_to_dict(s) for s in snapshots],
+            "summary": {
+                "p_up_min": min(s.p_up for s in snapshots),
+                "p_up_max": max(s.p_up for s in snapshots),
+                "p_up_final": snapshots[-1].p_up,
+                "score_final": snapshots[-1].score,
+                "verdict": snapshots[-1].verdict,
+                "win_return": snapshots[-1].win_return,
+                "timestamp": snapshots[-1].timestamp,
+                "accuracy": target_info.get("accuracy"),
+            }
+        }
+    series_cache[(target, session_date, version)] = result
     return result
 
 
 @app.get("/api/irai/current")
-async def irai_current():
+async def irai_current(version: str = Query("v1")):
     """Snapshot mais recente (última barra processada)."""
     # Tentar sessão de hoje, senão último dia disponível
     today = date.today().isoformat()
-    snapshots = engine.compute_from_db(today)
+    snapshots = engine.compute_from_db(today, version=version)
 
     if not snapshots:
         # Pegar último dia com dados
@@ -370,7 +465,7 @@ async def irai_current():
         conn.close()
 
         if row:
-            snapshots = engine.compute_from_db(row["d"])
+            snapshots = engine.compute_from_db(row["d"], version=version)
 
     if not snapshots:
         return JSONResponse(status_code=404, content={"error": "Sem dados"})
@@ -433,14 +528,14 @@ def _bar_time(bar_idx: int) -> str:
 async def websocket_irai(ws: WebSocket):
     """WebSocket push: envia série IRAI atualizada baseada no target."""
     await ws.accept()
-    ws_clients[ws] = {"target": "WIN$N"} # Default
+    ws_clients[ws] = {"target": "WIN$N", "version": "both"} # Default
     print(f"WS client connected ({len(ws_clients)} total)")
     
     # Enviar o estado atual imediatamente na conexão
     try:
         today = date.today().isoformat()
-        ov = await irai_overview(today)
-        se = await irai_series(today, "WIN$N")
+        ov = await irai_overview(today, "both")
+        se = await irai_series(today, "WIN$N", "both")
         if isinstance(se, JSONResponse): se = {"error": "Sem dados"}
         await ws.send_text(json.dumps({"type": "update", "overview": ov, "series": se}))
     except Exception as e:
@@ -450,12 +545,18 @@ async def websocket_irai(ws: WebSocket):
         while True:
             # Recebe mensagens de configuração (mudança de target)
             data = await ws.receive_json()
-            if data and "target" in data:
-                ws_clients[ws]["target"] = data["target"]
-                # Força um envio imediato com o novo target
+            if data:
+                if "target" in data:
+                    ws_clients[ws]["target"] = data["target"]
+                if "version" in data:
+                    ws_clients[ws]["version"] = data["version"]
+                
+                # Força um envio imediato com as novas configurações
                 today = date.today().isoformat()
-                ov = await irai_overview(today)
-                se = await irai_series(today, data["target"])
+                t = ws_clients[ws]["target"]
+                v = ws_clients[ws]["version"]
+                ov = await irai_overview(today, v)
+                se = await irai_series(today, t, v)
                 if isinstance(se, JSONResponse): se = {"error": "Sem dados"}
                 await ws.send_text(json.dumps({"type": "update", "overview": ov, "series": se}))
     except WebSocketDisconnect:

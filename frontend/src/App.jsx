@@ -4,6 +4,7 @@ import {
   ReferenceArea, ReferenceLine, Area, ComposedChart,
   ResponsiveContainer, Bar, Cell, Brush
 } from 'recharts'
+import { useSwipeable } from 'react-swipeable'
 import Overview from './Overview'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
@@ -37,7 +38,7 @@ function getFactorMeta(fkey) {
 
 
 /* ── Big Gauge ────────────────────────────────────── */
-function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, isPreview }) {
+function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview }) {
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
 
@@ -116,8 +117,19 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
   // ── Gauge needle ──────────────────────────────────────────────────
   const angleRad = Math.PI * (1 - pUp / 100)
 
+  const isReturnDivergentBuy = isBuy && winReturn < 0;
+  const isReturnDivergentSell = isSell && winReturn > 0;
+  const isNweExhaustionDown = nweUpper !== undefined && winReturn > nweUpper;
+  const isNweExhaustionUp = nweLower !== undefined && winReturn < nweLower;
+  const isNweDivergentBuy = isBuy && nweUp === false;
+  const isNweDivergentSell = isSell && nweUp === true;
+
+  const hasAlert = isReturnDivergentBuy || isReturnDivergentSell;
+
+  const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
+
   return (
-    <div className="gauge-container" style={{
+    <div className={`gauge-container ${alertClass}`} style={{
       background: signalBg,
       border: `1px solid ${signalColor}22`,
       padding: '14px 28px',
@@ -143,6 +155,9 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
 
       {/* Signal text */}
       <div className="gauge-left">
+        {title && <div style={{
+          fontSize: 10, fontFamily: 'var(--font-serif)', color: '#C9A227', marginBottom: 6, fontStyle: 'italic'
+        }}>{title}</div>}
         <div style={{
           fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em',
           color: '#64748B', textTransform: 'uppercase', marginBottom: 4,
@@ -199,43 +214,49 @@ function SignalGauge({ pUp, verdict, score, winReturn, flowConfirms, cumDeltaNor
           fontFamily: 'var(--font-serif)', fontSize: 28, lineHeight: 1,
           color: winReturn >= 0 ? '#4ADE80' : '#F87171',
         }}>{winReturn >= 0 ? '+' : ''}{winReturn.toFixed(2)}%</div>
-        {/* Z-SCORE SIGNAL */}
+        {/* D: DIVERGÊNCIA DE RETORNO */}
         <div style={{
           marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 9,
-          padding: '2px 6px', borderRadius: 4, display: 'inline-block',
+          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          background: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
+          color: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '#4ADE80' : '#F87171') : '#64748B',
+          border: `1px solid ${(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
+        }}>
+          {(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '🟢 DIVERGÊNCIA %' : '🔴 DIVERGÊNCIA %') : '✓ DIVERGÊNCIA %'}
+        </div>
+
+        {/* P: PULLBACK / NWE DIVERGENCE */}
+        <div className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
+          marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
+          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          background: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
+          color: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '#4ADE80' : '#F87171') : '#64748B',
+          border: `1px solid ${(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
+        }}>
+          {(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '🟢 PULLBACK NWE' : '🔴 PULLBACK NWE') : '✓ PULLBACK NWE'}
+        </div>
+
+        {/* Z: Z-SCORE SIGNAL */}
+        <div className={priceDiverges ? 'badge-blink' : ''} style={{
+          marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
+          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
           background: priceDiverges ? (isBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
           color: priceDiverges ? (isBuy ? '#4ADE80' : '#F87171') : '#64748B',
           border: `1px solid ${priceDiverges ? (isBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
         }}>
-          {priceDiverges ? (isBuy ? '🟢 COMPRA Z-SCORE' : '🔴 VENDA Z-SCORE') : '✓ Z-SCORE ALINHADO'}
+          {priceDiverges ? (isBuy ? '🟢 Z-SCORE COMPRA' : '🔴 Z-SCORE VENDA') : '✓ Z-SCORE'}
         </div>
 
-        {/* NWE SIGNAL */}
-        {(() => {
-          const isDivergentBuy = isBuy && !nweUp;
-          const isDivergentSell = isSell && nweUp;
-          
-          let bg = 'rgba(148,163,184,0.08)';
-          let color = '#64748B';
-          let border = 'rgba(148,163,184,0.1)';
-          let text = '✓ NWE';
-          
-          if (isDivergentBuy) {
-            bg = 'rgba(74,222,128,0.12)'; color = '#4ADE80'; border = 'rgba(74,222,128,0.2)'; text = '🟢 NWE COMPRA';
-          } else if (isDivergentSell) {
-            bg = 'rgba(248,113,113,0.12)'; color = '#F87171'; border = 'rgba(248,113,113,0.2)'; text = '🔴 NWE VENDA';
-          }
-          
-          return (
-            <div style={{
-              marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
-              padding: '2px 6px', borderRadius: 4, display: 'inline-block',
-              background: bg, color: color, border: `1px solid ${border}`,
-            }}>
-              {text}
-            </div>
-          );
-        })()}
+        {/* E: EXAUSTÃO NWE */}
+        <div className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
+          marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
+          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          background: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
+          color: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? '#4ADE80' : '#F87171') : '#64748B',
+          border: `1px solid ${(isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`,
+        }}>
+          {(isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? '🟢 EXAUSTÃO NWE' : '🔴 EXAUSTÃO NWE') : '✓ EXAUSTÃO NWE'}
+        </div>
       </div>
     </div>
   )
@@ -314,10 +335,13 @@ function FactorSignal({ fkey, data }) {
 /* ── Custom tooltip ──────────────────────────────── */
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null
-  const pUp = payload.find(p => p.dataKey === 'p_up')?.value
-  const winRet = payload.find(p => p.dataKey === 'win_return')?.value
+  const d = payload[0].payload;
+  const pUp = d.p_up_v1 != null ? d.p_up_v1 : d.p_up;
+  const pUpV2 = d.p_up_v2;
+  const winRet = d.win_return;
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
+  
   return (
     <div style={{
       background: '#0F172A', border: '1px solid #1E293B', borderRadius: 4,
@@ -325,11 +349,19 @@ function CustomTooltip({ active, payload, label }) {
     }}>
       <div style={{ color: '#94A3B8', marginBottom: 6 }}>{label}</div>
       <div style={{ color: isBuy ? '#4ADE80' : isSell ? '#F87171' : '#CBD5E1', fontWeight: 600 }}>
-        P(↑) = {pUp?.toFixed(1)}%
+        V1: {pUp?.toFixed(1)}%
         <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 400 }}>
           {isBuy ? '▲ COMPRA' : isSell ? '▼ VENDA' : '— NEUTRO'}
         </span>
       </div>
+      {pUpV2 !== undefined && (
+        <div style={{ color: pUpV2 >= 60 ? '#4ADE80' : pUpV2 <= 40 ? '#F87171' : '#CBD5E1', fontWeight: 600, marginTop: 2 }}>
+          V2: {pUpV2?.toFixed(1)}%
+          <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 400 }}>
+            {pUpV2 >= 60 ? '▲ COMPRA' : pUpV2 <= 40 ? '▼ VENDA' : '— NEUTRO'}
+          </span>
+        </div>
+      )}
       {winRet != null && (
         <div style={{ color: winRet >= 0 ? '#4ADE80' : '#F87171', marginTop: 2 }}>
           Retorno: {winRet >= 0 ? '+' : ''}{winRet.toFixed(3)}%
@@ -342,41 +374,47 @@ function CustomTooltip({ active, payload, label }) {
 /* ── NWE (Nadaraya-Watson Envelope) ──────────────── */
 const NWE_BW = 8;    // bandwidth (kernel width)
 const NWE_MULT = 3;  // envelope multiplier
+const NWE_LOOKBACK = 95; // janela retroativa
 
 function computeNWE(data) {
   if (!data || data.length < 3) return data;
   const n = data.length;
-  const h = NWE_BW;
   const vals = data.map(d => d.win_return || 0);
 
-  // 1) Kernel regression (center line)
-  const center = [];
-  const WINDOW = 3 * h;  // Beyond 3σ the kernel weight is < 1% — safe to skip
-  for (let i = 0; i < n; i++) {
+  // 1) Kernel regression (center line) - CAUSAL (Lookback only)
+  const center = new Array(n).fill(0);
+  for (let t = 0; t < n; t++) {
     let sumW = 0, sumY = 0;
-    const jStart = Math.max(0, i - WINDOW);
-    const jEnd = Math.min(n, i + WINDOW + 1);
-    for (let j = jStart; j < jEnd; j++) {
-      const w = Math.exp(-Math.pow(i - j, 2) / (2 * h * h));
+    const lookbackLimit = Math.min(t, NWE_LOOKBACK - 1);
+    
+    for (let i = 0; i <= lookbackLimit; i++) {
+      const w = Math.exp(-Math.pow(i, 2) / (2 * NWE_BW * NWE_BW));
       sumW += w;
-      sumY += w * vals[j];
+      sumY += w * vals[t - i];
     }
-    center.push(sumY / sumW);
+    center[t] = sumY / sumW;
   }
 
-  // 2) Envelope width from MAD of residuals × mult
-  const resSorted = vals.map((v, i) => Math.abs(v - center[i])).sort((a, b) => a - b);
-  const mad = resSorted[Math.floor(resSorted.length * 0.5)] || 0.001;
-  const envWidth = mad * NWE_MULT;
+  // 2) Envelope width from rolling MAE (Mean Absolute Error)
+  const envWidth = new Array(n).fill(0);
+  for (let t = 0; t < n; t++) {
+    let sumErr = 0;
+    const lookbackLimit = Math.min(t, NWE_LOOKBACK - 1);
+    const count = lookbackLimit + 1;
+    
+    for (let i = 0; i <= lookbackLimit; i++) {
+      sumErr += Math.abs(vals[t - i] - center[t - i]);
+    }
+    
+    const mae = sumErr / count;
+    envWidth[t] = mae * NWE_MULT;
+  }
 
   // 3) Build enriched data with per-bar slope coloring
-  //    nwe_up = center value when slope >= 0 (green segments)
-  //    nwe_down = center value when slope < 0 (red segments)
-  //    At transition points, both are set so lines connect
   return data.map((d, i) => {
     const nwe_center = center[i];
-    const nwe_upper = center[i] + envWidth;
-    const nwe_lower = center[i] - envWidth;
+    const nwe_upper = center[i] + envWidth[i];
+    const nwe_lower = center[i] - envWidth[i];
     const nwe_slope = i > 0 ? center[i] - center[i - 1] : 0;
     const isUp = nwe_slope >= 0;
 
@@ -416,9 +454,37 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
+  const [rastroView, setRastroView] = useState('both') // 'v1', 'v2', 'both'
   
   // The effective date: LIVE = today (from backend), or manually selected
   const effectiveDate = liveMode ? (dates.length > 0 ? dates[0] : selectedDate) : selectedDate
+
+  // Swipe Handlers
+  const handleNextTarget = useCallback(() => {
+    if (targetsMeta.length === 0) return;
+    const currentIndex = targetsMeta.findIndex(t => t.target === selectedTarget);
+    if (currentIndex < targetsMeta.length - 1) {
+      setSelectedTarget(targetsMeta[currentIndex + 1].target);
+    } else {
+      setSelectedTarget(targetsMeta[0].target);
+    }
+  }, [targetsMeta, selectedTarget]);
+
+  const handlePrevTarget = useCallback(() => {
+    if (targetsMeta.length === 0) return;
+    const currentIndex = targetsMeta.findIndex(t => t.target === selectedTarget);
+    if (currentIndex > 0) {
+      setSelectedTarget(targetsMeta[currentIndex - 1].target);
+    } else {
+      setSelectedTarget(targetsMeta[targetsMeta.length - 1].target);
+    }
+  }, [targetsMeta, selectedTarget]);
+
+  const targetSwipeHandlers = useSwipeable({
+    onSwipedLeft: handleNextTarget,
+    onSwipedRight: handlePrevTarget,
+    trackMouse: false
+  });
 
   // Fetch dates + targets list once (and poll every 60s in live mode to detect new sessions)
   useEffect(() => {
@@ -430,15 +496,16 @@ export default function App() {
           .then(data => {
             const d = data?.dates?.dates || []
             setDates(d)
-            if (d.length > 0 && !selectedDate) setSelectedDate(d[0])
+            if (d.length > 0) setSelectedDate(prev => prev || d[0])
           })
           .catch(e => setError(e.message))
       } else {
         fetch(`${API}/api/irai/dates`)
           .then(r => r.json())
           .then(data => {
-            setDates(data.dates || [])
-            if (data.dates?.length > 0 && !selectedDate) setSelectedDate(data.dates[0])
+            const d = data.dates || []
+            setDates(d)
+            if (d.length > 0) setSelectedDate(prev => prev || d[0])
           })
           .catch(e => setError(e.message))
       }
@@ -498,7 +565,7 @@ export default function App() {
         })
         .catch(e => { setError(e.message); setLoading(false) })
     } else {
-      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}`)
+      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=both`)
         .then(r => r.json())
         .then(data => {
           if (data.error) { setError(data.error); setLoading(false); return }
@@ -566,12 +633,17 @@ export default function App() {
   const seriesWithNWE = useMemo(() => {
     const rawNwe = computeNWE(series);
     return rawNwe.map(entry => {
-      let z_compra = 0, z_venda = 0, z_neutro = entry.price_diverge_z || 0;
-      if (entry.price_diverges) {
-        if (entry.p_up > 55) { z_compra = entry.price_diverge_z; z_neutro = 0; }
-        else if (entry.p_up < 45) { z_venda = entry.price_diverge_z; z_neutro = 0; }
+      let z_compra_v1 = 0, z_venda_v1 = 0, z_neutro_v1 = entry.price_diverge_z_v1 || 0;
+      if (entry.price_diverges_v1) {
+        if (entry.p_up_v1 > 55) { z_compra_v1 = entry.price_diverge_z_v1; z_neutro_v1 = 0; }
+        else if (entry.p_up_v1 < 45) { z_venda_v1 = entry.price_diverge_z_v1; z_neutro_v1 = 0; }
       }
-      return { ...entry, z_compra, z_venda, z_neutro };
+      let z_compra_v2 = 0, z_venda_v2 = 0, z_neutro_v2 = entry.price_diverge_z_v2 || 0;
+      if (entry.price_diverges_v2) {
+        if (entry.p_up_v2 > 55) { z_compra_v2 = entry.price_diverge_z_v2; z_neutro_v2 = 0; }
+        else if (entry.p_up_v2 < 45) { z_venda_v2 = entry.price_diverge_z_v2; z_neutro_v2 = 0; }
+      }
+      return { ...entry, z_compra_v1, z_venda_v1, z_neutro_v1, z_compra_v2, z_venda_v2, z_neutro_v2 };
     });
   }, [series]);
   const nweNow = seriesWithNWE.length > 0 ? seriesWithNWE[seriesWithNWE.length - 1] : null;
@@ -579,6 +651,19 @@ export default function App() {
   return (
     <>
       <style>{`
+        @keyframes borderGlowGreen {
+          0% { box-shadow: 0 0 5px rgba(74,222,128,0.2); border-color: rgba(74,222,128,0.3); }
+          50% { box-shadow: 0 0 15px rgba(74,222,128,0.6), inset 0 0 10px rgba(74,222,128,0.1); border-color: rgba(74,222,128,0.8); }
+          100% { box-shadow: 0 0 5px rgba(74,222,128,0.2); border-color: rgba(74,222,128,0.3); }
+        }
+        @keyframes borderGlowRed {
+          0% { box-shadow: 0 0 5px rgba(248,113,113,0.2); border-color: rgba(248,113,113,0.3); }
+          50% { box-shadow: 0 0 15px rgba(248,113,113,0.6), inset 0 0 10px rgba(248,113,113,0.1); border-color: rgba(248,113,113,0.8); }
+          100% { box-shadow: 0 0 5px rgba(248,113,113,0.2); border-color: rgba(248,113,113,0.3); }
+        }
+        .card-alert-green { animation: borderGlowGreen 2s infinite ease-in-out; }
+        .card-alert-red { animation: borderGlowRed 2s infinite ease-in-out; }
+
         @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
         :root {
           --font-serif: 'Instrument Serif', Georgia, serif;
@@ -621,12 +706,14 @@ export default function App() {
         }
       `}</style>
       {page === 'overview' ? (
-        <Overview onSelectTarget={(target) => {
-          setSelectedTarget(target)
-          setPage('detail')
-        }} />
+        <Overview 
+          onSelectTarget={(target) => {
+            setSelectedTarget(target)
+            setPage('detail')
+          }} 
+        />
       ) : (
-      <div className="app-container">
+      <div className="app-container" {...targetSwipeHandlers}>
         {/* Header */}
         <header className="app-header">
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
@@ -674,7 +761,6 @@ export default function App() {
                 LIVE (60s)
               </div>
             )}
-            {/* Target selector */}
             <select
               value={selectedTarget}
               onChange={e => setSelectedTarget(e.target.value)}
@@ -749,6 +835,7 @@ export default function App() {
           </div>
         </header>
 
+        <main>
         {loading && (
           <div style={{ textAlign: 'center', padding: 60, color: '#64748B', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
             carregando sessão...
@@ -762,29 +849,56 @@ export default function App() {
               {isOffline ? 'Backend offline' : error}
             </div>
             <div style={{ fontSize: 12, color: '#64748B', marginTop: 12 }}>
-              Aguardando o início do pregão ou os primeiros dados da sessão...
+              {liveMode 
+                ? "Dica: O pregão pode estar fechado (fim de semana/feriado). Desative o LIVE 🟢 para visualizar dias anteriores."
+                : "Aguardando o início do pregão ou os primeiros dados da sessão..."}
             </div>
           </div>
         )}
 
         {now && !loading && (
           <>
-            {/* ── SIGNAL GAUGE ── */}
-            <SignalGauge
-              pUp={now.p_up}
-              verdict={now.verdict}
-              score={now.score}
-              winReturn={now.win_return}
-              flowConfirms={now.flow_confirms}
-              cumDeltaNorm={now.cum_delta_norm}
-              targetLabel={seriesInfo.display_name || selectedTarget}
-              hasFlow={hasFlow}
-              accuracy={seriesInfo.accuracy ?? 80}
-              recentPUp={series.slice(-8).map(b => b.p_up).filter(v => v != null)}
-              priceDiverges={now.price_diverges}
-              nweUp={(nweNow?.nwe_slope || 0) >= 0}
-              isPreview={now.is_preview}
-            />
+            {/* ── SIGNAL GAUGES ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              <SignalGauge
+                title="V1 — LONGO PRAZO"
+                pUp={now.p_up_v1 || now.p_up}
+                verdict={now.verdict_v1 || now.verdict}
+                score={now.score_v1 || now.score}
+                winReturn={now.win_return}
+                flowConfirms={now.flow_confirms}
+                cumDeltaNorm={now.cum_delta_norm}
+                targetLabel={seriesInfo.display_name || selectedTarget}
+                hasFlow={hasFlow}
+                accuracy={seriesInfo.accuracy ?? 80}
+                recentPUp={series.slice(-8).map(b => b.p_up_v1 || b.p_up).filter(v => v != null)}
+                priceDiverges={now.price_diverges_v1 !== undefined ? now.price_diverges_v1 : now.price_diverges}
+                nweUp={(nweNow?.nwe_slope || 0) >= 0}
+                nweUpper={nweNow?.nwe_upper}
+                nweLower={nweNow?.nwe_lower}
+                isPreview={now.is_preview}
+              />
+              {now.p_up_v2 != null && (
+                <SignalGauge
+                  title="V2 — CURTO PRAZO"
+                  pUp={now.p_up_v2}
+                  verdict={now.verdict_v2}
+                  score={now.score_v2}
+                  winReturn={now.win_return}
+                  flowConfirms={now.flow_confirms}
+                  cumDeltaNorm={now.cum_delta_norm}
+                  targetLabel={seriesInfo.display_name || selectedTarget}
+                  hasFlow={hasFlow}
+                  accuracy={seriesInfo.accuracy ?? 80}
+                  recentPUp={series.slice(-8).map(b => b.p_up_v2).filter(v => v != null)}
+                  priceDiverges={now.price_diverges_v2}
+                  nweUp={(nweNow?.nwe_slope || 0) >= 0}
+                  nweUpper={nweNow?.nwe_upper}
+                  nweLower={nweNow?.nwe_lower}
+                  isPreview={now.is_preview}
+                />
+              )}
+            </div>
 
             {/* ── STACKED CHARTS: same X axis ── */}
             <div className="chart-container">
@@ -806,9 +920,32 @@ export default function App() {
                     <div style={{ width: 12, height: 2, background: '#E2E8F0' }} />
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>{seriesInfo.display_name || selectedTarget}</span>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <div style={{ width: 12, height: 2, background: '#D4A84C', borderTop: '1px dashed #D4A84C' }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>P(↑)</span>
+                  <div style={{ display: 'flex', border: '1px solid #1E293B', borderRadius: 4, overflow: 'hidden' }}>
+                    <button
+                      onClick={() => setRastroView(rastroView === 'v1' ? 'both' : 'v1')}
+                      style={{
+                        background: rastroView === 'v1' || rastroView === 'both' ? 'rgba(212,168,76,0.1)' : 'transparent',
+                        border: 'none', padding: '4px 8px', cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                        borderRight: '1px solid #1E293B',
+                      }}
+                    >
+                      <div style={{ width: 12, height: 2, background: rastroView === 'v1' || rastroView === 'both' ? '#D4A84C' : '#475569', borderTop: `1px dashed ${rastroView === 'v1' || rastroView === 'both' ? '#D4A84C' : '#475569'}` }} />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: rastroView === 'v1' || rastroView === 'both' ? '#D4A84C' : '#64748B' }}>P(↑) V1</span>
+                    </button>
+                    {now.p_up_v2 !== undefined && (
+                      <button
+                        onClick={() => setRastroView(rastroView === 'v2' ? 'both' : 'v2')}
+                        style={{
+                          background: rastroView === 'v2' || rastroView === 'both' ? 'rgba(96,165,250,0.1)' : 'transparent',
+                          border: 'none', padding: '4px 8px', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', gap: 4,
+                        }}
+                      >
+                        <div style={{ width: 12, height: 2, background: rastroView === 'v2' || rastroView === 'both' ? '#60A5FA' : '#475569', borderTop: `1px dashed ${rastroView === 'v2' || rastroView === 'both' ? '#60A5FA' : '#475569'}` }} />
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: rastroView === 'v2' || rastroView === 'both' ? '#60A5FA' : '#64748B' }}>P(↑) V2</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -842,7 +979,12 @@ export default function App() {
                   <ReferenceLine yAxisId="win" y={0} stroke="#334155" strokeDasharray="2 2" />
                   <Tooltip content={<CustomTooltip />} />
                   <Line yAxisId="win" type="monotone" dataKey="win_return" stroke="#E2E8F0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Line yAxisId="pup" type="monotone" dataKey="p_up" stroke="#D4A84C" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
+                  {(rastroView === 'v1' || rastroView === 'both') && (
+                    <Line yAxisId="pup" type="monotone" dataKey={d => d.p_up_v1 !== undefined ? d.p_up_v1 : d.p_up} stroke="#D4A84C" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
+                  )}
+                  {now.p_up_v2 !== undefined && (rastroView === 'v2' || rastroView === 'both') && (
+                    <Line yAxisId="pup" type="monotone" dataKey="p_up_v2" stroke="#60A5FA" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
+                  )}
                 </ComposedChart>
               </ResponsiveContainer>
 
@@ -917,65 +1059,96 @@ export default function App() {
 
               
               {/* BOTTOM: Divergence Z-Score */}
-              <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                    letterSpacing: '0.1em', textTransform: 'uppercase',
-                  }}>
-                    divergência de preço · z-score
+              <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                      letterSpacing: '0.1em', textTransform: 'uppercase',
+                    }}>
+                      z-score · longo prazo (v1)
+                    </div>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                      color: (now.price_diverges_v1 || now.price_diverges) ? ((now.p_up_v1 || now.p_up) > 55 ? '#4ADE80' : '#F87171') : '#64748B',
+                    }}>
+                      {(now.price_diverges_v1 || now.price_diverges) ? ((now.p_up_v1 || now.p_up) > 55 ? '🟢 COMPRA' : '🔴 VENDA') : '✓ ALINHADO'}
+                      <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
+                        z={(now.price_diverge_z_v1 || now.price_diverge_z) >= 0 ? '+' : ''}{(now.price_diverge_z_v1 || now.price_diverge_z)?.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                    color: now.price_diverges ? (now.p_up > 55 ? '#4ADE80' : '#F87171') : '#64748B',
-                  }}>
-                    {now.price_diverges ? (now.p_up > 55 ? '🟢 OPORTUNIDADE COMPRA' : '🔴 OPORTUNIDADE VENDA') : '✓ Z-SCORE ALINHADO'}
-                    <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                      z={now.price_diverge_z >= 0 ? '+' : ''}{now.price_diverge_z?.toFixed(2)}
-                    </span>
-                  </div>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
+                      <CartesianGrid stroke="var(--grid)" vertical={false} />
+                      <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
+                      <YAxis yAxisId="z" orientation="left" width={45} domain={[-2.5, 2.5]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
+                      <ReferenceLine yAxisId="z" y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                      <ReferenceLine yAxisId="z" y={0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
+                      <ReferenceLine yAxisId="z" y={-0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
+                      <Tooltip
+                        formatter={(v, name, props) => {
+                           let div = "✓ Alinhado";
+                           if (props.payload.price_diverges_v1 || props.payload.price_diverges) {
+                               div = (props.payload.p_up_v1 || props.payload.p_up) > 55 ? "Compra" : "Venda";
+                           }
+                           return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score V1']
+                        }}
+                        contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                        labelStyle={{ color: '#6A6A7A' }}
+                      />
+                      <Bar yAxisId="z" dataKey={d => d.z_neutro_v1 !== undefined ? d.z_neutro_v1 : d.z_neutro} stackId="z" fill="#334155" isAnimationActive={false} />
+                      <Bar yAxisId="z" dataKey={d => d.z_compra_v1 !== undefined ? d.z_compra_v1 : d.z_compra} stackId="z" fill="#4ADE80" isAnimationActive={false} />
+                      <Bar yAxisId="z" dataKey={d => d.z_venda_v1 !== undefined ? d.z_venda_v1 : d.z_venda} stackId="z" fill="#F87171" isAnimationActive={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 </div>
-                <ResponsiveContainer width="100%" height={120}>
-                  <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
-                    <CartesianGrid stroke="var(--grid)" vertical={false} />
-                    <XAxis
-                      dataKey="time"
-                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                      stroke="#1E293B" interval={11}
-                    />
-                    <YAxis
-                      yAxisId="z" orientation="left" width={45}
-                      domain={[-2.5, 2.5]}
-                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                      stroke="#1E293B"
-                    />
-                    <YAxis yAxisId="spacer" orientation="right" width={35} tick={false} stroke="transparent" />
-                    <ReferenceLine yAxisId="z" y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
-                    <ReferenceLine yAxisId="z" y={0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
-                    <ReferenceLine yAxisId="z" y={-0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
-                    <Tooltip
-                      formatter={(v, name, props) => {
-                         let div = "✓ Alinhado";
-                         if (props.payload.price_diverges) {
-                             div = props.payload.p_up > 55 ? "Compra" : "Venda";
-                         }
-                         return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score']
-                      }}
-                      contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                      labelStyle={{ color: '#6A6A7A' }}
-                    />
-                    <Bar yAxisId="z" dataKey="z_neutro" stackId="z" fill="#334155" isAnimationActive={false} />
-                    <Bar yAxisId="z" dataKey="z_compra" stackId="z" fill="#4ADE80" isAnimationActive={false} />
-                    <Bar yAxisId="z" dataKey="z_venda" stackId="z" fill="#F87171" isAnimationActive={false} />
-                    <Brush 
-                      dataKey="time" 
-                      height={20} 
-                      stroke="#475569"
-                      fill="#0E0E11"
-                      travellerWidth={8}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                
+                {now.p_up_v2 != null && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                      <div style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                        letterSpacing: '0.1em', textTransform: 'uppercase',
+                      }}>
+                        z-score · curto prazo (v2)
+                      </div>
+                      <div style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                        color: now.price_diverges_v2 ? (now.p_up_v2 > 55 ? '#4ADE80' : '#F87171') : '#64748B',
+                      }}>
+                        {now.price_diverges_v2 ? (now.p_up_v2 > 55 ? '🟢 COMPRA' : '🔴 VENDA') : '✓ ALINHADO'}
+                        <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
+                          z={now.price_diverge_z_v2 >= 0 ? '+' : ''}{now.price_diverge_z_v2?.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
+                        <CartesianGrid stroke="var(--grid)" vertical={false} />
+                        <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
+                        <YAxis yAxisId="z" orientation="left" width={45} domain={[-2.5, 2.5]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
+                        <ReferenceLine yAxisId="z" y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                        <ReferenceLine yAxisId="z" y={0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
+                        <ReferenceLine yAxisId="z" y={-0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
+                        <Tooltip
+                          formatter={(v, name, props) => {
+                             let div = "✓ Alinhado";
+                             if (props.payload.price_diverges_v2) {
+                                 div = props.payload.p_up_v2 > 55 ? "Compra" : "Venda";
+                             }
+                             return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score V2']
+                          }}
+                          contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                          labelStyle={{ color: '#6A6A7A' }}
+                        />
+                        <Bar yAxisId="z" dataKey="z_neutro_v2" stackId="z" fill="#334155" isAnimationActive={false} />
+                        <Bar yAxisId="z" dataKey="z_compra_v2" stackId="z" fill="#4ADE80" isAnimationActive={false} />
+                        <Bar yAxisId="z" dataKey="z_venda_v2" stackId="z" fill="#F87171" isAnimationActive={false} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1035,8 +1208,8 @@ export default function App() {
                 }}>score</div>
                 <div style={{
                   fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600,
-                  color: now.score > 0 ? '#4ADE80' : now.score < 0 ? '#F87171' : '#94A3B8',
-                }}>{now.score >= 0 ? '+' : ''}{now.score.toFixed(2)}</div>
+                  color: (now.score_v1 || now.score || 0) > 0 ? '#4ADE80' : (now.score_v1 || now.score || 0) < 0 ? '#F87171' : '#94A3B8',
+                }}>{(now.score_v1 || now.score || 0) >= 0 ? '+' : ''}{(now.score_v1 || now.score || 0).toFixed(2)}</div>
               </div>
             </div>
 
@@ -1054,6 +1227,7 @@ export default function App() {
             </div>
           </>
         )}
+        </main>
       </div>
       )}
     </>

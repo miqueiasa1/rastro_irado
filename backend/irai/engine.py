@@ -14,8 +14,11 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional
 
 import sys, os
+import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from backend.db import get_connection, DB_PATH
+from backend.db import get_connection, DB_PATH, load_kalman_state, save_kalman_state
+from backend.irai.kalman import KalmanFilterWrapper
+from backend.irai.johansen import check_cointegration
 
 
 # ── Alias de símbolos ─────────────────────────────────────
@@ -69,6 +72,8 @@ class IRAISnapshot:
     price_diverges: bool = False
     price_diverge_z: Optional[float] = None
     is_preview: bool = False  # True = preview pré-abertura (sem dados do target)
+    johansen_p_value: float = 1.0
+    is_cointegrated: bool = True
 
 
 def sigmoid(x: float) -> float:
@@ -97,6 +102,30 @@ class IRAIEngine:
         self.alpha: float = 1.0
         self.intercept: float = 0.0
         self._load_params()
+
+    def compute_from_db(self, target: str, version: str = "v1", is_preview_mode: bool = False, **kwargs):
+        # Em modo v2, salva o último estado no db se aplicável
+        if version == "v2" and len(snapshots) > 0 and kf is not None and not is_preview_mode:
+            last_snap_dt = datetime.fromisoformat(snapshots[-1].timestamp)
+            current_dt = datetime.utcnow()
+            
+            last_snap_utc = last_snap_dt.astimezone(timezone.utc).replace(tzinfo=None)
+            
+            # Save only if it's recent enough to not overwrite a potentially newer state
+            # and if we have a valid Kalman filter running.
+            current_state_mean, current_state_cov = kf.get_state()
+            try:
+                conn3 = get_connection(self.db_path)
+                save_kalman_state(
+                    conn3,
+                    slug,
+                    current_state_mean,
+                    current_state_cov,
+                    last_snap_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+                )
+                conn3.close()
+            except Exception as e:
+                print(f"Warning: Failed to save kalman state: {e}")
 
     def _load_params(self):
         """Carrega configs de asset_models + params de model_params."""
@@ -199,6 +228,7 @@ class IRAIEngine:
                 "session_end_h": m["session_end_h"],
                 "data_proxy": m["data_proxy"],
                 "divergence_config": m["divergence_config"],
+                "use_johansen": m["divergence_config"].get("use_johansen", True),
             }
         # Fallback WIN
         if "win" in self.models:
@@ -208,9 +238,10 @@ class IRAIEngine:
                 "param_prefix": "", "session_start_h": 12, "session_end_h": 21,
                 "data_proxy": None,
                 "divergence_config": m.get("divergence_config", {"sigma": 0.009, "threshold": 0.5}),
+                "use_johansen": m.get("divergence_config", {}).get("use_johansen", True),
             }
         return {}, {}, 1.0, 0.0, {"factors": [], "labels": {}, "param_prefix": "",
-                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None, "divergence_config": {"sigma": 0.005, "threshold": 0.5}}
+                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None, "divergence_config": {"sigma": 0.005, "threshold": 0.5}, "use_johansen": True}
 
     def set_session_opens(self, opens: dict[str, float], factor_states: dict = None):
         """Define preços de abertura da sessão."""
@@ -238,7 +269,8 @@ class IRAIEngine:
     def compute(self, bar_idx: int, win_current: float = 0, win_open: float = 0,
                 session_date: str = None, stale_threshold_sec: int = 600,
                 bars_per_session: int = BARS_PER_SESSION, factor_states: dict = None,
-                alpha: float = None, intercept: float = None) -> IRAISnapshot:
+                alpha: float = None, intercept: float = None,
+                is_cointegrated: bool = True, johansen_p_value: float = 1.0) -> IRAISnapshot:
         """
         Computa P_up(t) para a barra corrente.
 
@@ -311,6 +343,12 @@ class IRAIEngine:
         else:
             verdict, verdict_color = "indeciso", "#7A7F8A"
 
+        # Guardrail Johansen
+        if not is_cointegrated:
+            # Em vez de forçar p_up = 50.0 (o que causa quedas verticais agressivas no gráfico),
+            # apenas marcamos o veredito como indeciso, mas deixamos o P(↑) fluir matematicamente.
+            verdict, verdict_color = "indeciso (Sem Coint)", "#7A7F8A"
+
         return IRAISnapshot(
             timestamp=now_str,
             session_date=session_date,
@@ -320,6 +358,9 @@ class IRAIEngine:
             score=round(score, 4),
             verdict=verdict,
             verdict_color=verdict_color,
+            johansen_p_value=round(johansen_p_value, 4),
+            is_cointegrated=is_cointegrated,
+
             factors={
                 label: {
                     "symbol": state.symbol,
@@ -339,12 +380,13 @@ class IRAIEngine:
             stale_factors=stale_factors,
         )
 
-    def compute_from_db(self, session_date: str = None, target: str = None) -> list[IRAISnapshot]:
+    def compute_from_db(self, session_date: str = None, target: str = None, version: str = "v1") -> list[IRAISnapshot]:
         """Computa série IRAI completa para uma sessão a partir do banco.
         
         Args:
             session_date: Data YYYY-MM-DD
             target: Símbolo alvo (WIN$N, WDO$N). Default: WIN$N
+            version: 'v1' para regressão estática, 'v2' para Kalman dinâmico
         """
         session_date = session_date or date.today().isoformat()
         target = target or TARGET
@@ -393,6 +435,11 @@ class IRAIEngine:
         end = end_dt.strftime("%Y-%m-%dT00:00:00Z")
 
         rows_raw = conn.execute(query, all_symbols + [start, end]).fetchall()
+        
+        # Load previous Kalman state if valid
+        slug = cfg.get("slug", self.target_slugs.get(target, "win"))
+        saved_state = load_kalman_state(conn, slug)
+        
         conn.close()
 
         if not rows_raw:
@@ -433,7 +480,6 @@ class IRAIEngine:
             conn2.close()
 
             if not last_row:
-                self.alpha, self.intercept = saved_alpha, saved_intercept
                 return []
 
             target_last_close = float(last_row["close"])
@@ -518,10 +564,42 @@ class IRAIEngine:
         snapshots = []
         cum_delta = 0.0
         cum_real_vol = 0.0
+        
+        # --- Kalman Filter Setup ---
+        kf = None
+        if version == "v2":
+            n_dim_state = 1 + len(active_factors) # Intercept + Factors
+            initial_state_mean = np.zeros(n_dim_state)
+            initial_state_mean[0] = local_intercept
+            for i, factor in enumerate(active_factors):
+                label = active_labels.get(factor, factor)
+                initial_state_mean[i+1] = t_weights.get(f"w_{label}", 0.0)
+                
+            trans_cov = float(t_sigmas.get("kalman_trans_cov", 1e-5))
+            obs_cov = float(t_sigmas.get("kalman_obs_cov", 1e-3))
+            
+            kf = KalmanFilterWrapper(
+                n_dim_state=n_dim_state,
+                n_dim_obs=1,
+                transition_covariance=trans_cov,
+                observation_covariance=obs_cov,
+                initial_state_mean=initial_state_mean
+            )
+            
+            if saved_state:
+                state_ts = datetime.fromisoformat(saved_state["timestamp_utc"].replace("Z", "+00:00"))
+                session_start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                if state_ts < session_start_dt:
+                    kf.set_state(saved_state["state_mean"], saved_state["state_covariance"])
+        
+        # --- Johansen Setup ---
+        johansen_lookback = int(t_sigmas.get("johansen_lookback", 50))
+        price_history = []
 
         factor_cursors = {f: 0 for f in active_factors}
 
         div_cfg = cfg.get("divergence_config", {"sigma": 0.005, "threshold": 0.5})
+        use_johansen = cfg.get("use_johansen", True)
         target_div_sigma = div_cfg.get("sigma", 0.005)
         target_div_threshold = div_cfg.get("threshold", 0.5)
 
@@ -537,6 +615,52 @@ class IRAIEngine:
                 if cursor < len(prices) and prices[cursor][0] <= ts:
                     self.update_price(factor, prices[cursor][1], ts.isoformat(), factor_states=local_factor_states)
 
+            is_coint = True
+            p_val = 0.01
+
+            if version == "v2":
+                # Preparar dados para Johansen (Preços)
+                if use_johansen:
+                    basket_prices = {"target": float(row["close"])}
+                    for factor in active_factors:
+                        label = active_labels.get(factor, factor)
+                        basket_prices[label] = local_factor_states[label].current_price
+                    price_history.append(basket_prices)
+                    
+                    if len(price_history) > johansen_lookback:
+                        price_history.pop(0)
+                        
+                    if len(price_history) >= 20:
+                        df_basket = pd.DataFrame(price_history)
+                        p_val, is_coint = check_cointegration(df_basket)
+                
+                # Preparar dados para Kalman (Retornos)
+                win_ret = 0.0
+                if opens[data_target] > 0:
+                    win_ret = (float(row["close"]) - opens[data_target]) / opens[data_target]
+                
+                obs_matrix = [1.0] # Intercept
+                for factor in active_factors:
+                    label = active_labels.get(factor, factor)
+                    state = local_factor_states[label]
+                    f_ret = 0.0
+                    if state.open_price > 0 and state.current_price > 0:
+                        f_ret = (state.current_price - state.open_price) / state.open_price
+                    obs_matrix.append(f_ret)
+                    
+                # Update Kalman
+                kf.update(observation=win_ret, observation_matrix=np.array([obs_matrix]))
+                current_betas, _ = kf.get_state()
+                
+                # Update local weights based on Kalman
+                local_intercept = current_betas[0]
+                for i, factor in enumerate(active_factors):
+                    label = active_labels.get(factor, factor)
+                    local_factor_states[label].weight = current_betas[i+1]
+            else:
+                # V1: Garantir que os pesos sejam os estáticos (default setup at the start)
+                pass
+
             snap = self.compute(
                 bar_idx=bar_idx,
                 win_current=float(row["close"]),
@@ -546,6 +670,8 @@ class IRAIEngine:
                 factor_states=local_factor_states,
                 alpha=local_alpha,
                 intercept=local_intercept,
+                is_cointegrated=is_coint,
+                johansen_p_value=p_val
             )
             snap.timestamp = ts.isoformat()
 
@@ -586,6 +712,16 @@ class IRAIEngine:
                     snap.price_diverges = True
 
             snapshots.append(snap)
+            
+        # Salvar o último estado do Kalman no banco
+        if snapshots and version == "v2" and kf is not None:
+            last_ts = snapshots[-1].timestamp
+            last_p = snapshots[-1].johansen_p_value
+            last_coint = snapshots[-1].is_cointegrated
+            s_mean, s_cov = kf.get_state()
+            conn2 = get_connection(self.db_path)
+            save_kalman_state(conn2, slug, s_mean, s_cov, last_p, last_coint, last_ts)
+            conn2.close()
 
         return snapshots
 

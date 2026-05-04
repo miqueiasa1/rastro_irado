@@ -44,8 +44,8 @@ def sync():
     
     current_date = dates_data['dates'][0]
     
-    # 2. Puxar Overview para dados em tempo real dos cards
-    overview_data = fetch_json(f"{LOCAL_API}/api/irai/overview")
+    # 2. Puxar Overview para dados em tempo real dos cards (usando V2)
+    overview_data = fetch_json(f"{LOCAL_API}/api/irai/overview?version=v2")
     
     # 3. Puxar lista de targets
     targets_data = fetch_json(f"{LOCAL_API}/api/irai/targets")
@@ -62,7 +62,8 @@ def sync():
             
         import urllib.parse
         target_encoded = urllib.parse.quote(target)
-        series_data = fetch_json(f"{LOCAL_API}/api/irai/series?session_date={current_date}&target={target_encoded}")
+        # Sincroniza a V2 (versão dinâmica) para o Firebase
+        series_data = fetch_json(f"{LOCAL_API}/api/irai/series?session_date={current_date}&target={target_encoded}&version=v2")
         if series_data:
             series_map[safe_target] = series_data.get("series", [])
             summaries_map[safe_target] = series_data.get("summary", {})

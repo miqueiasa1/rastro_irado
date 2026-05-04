@@ -40,6 +40,18 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 * EWZ excluído para ativos BR (tautologia com mesma bolsa).
 * **Resultado:** 12/20 modelos selecionaram iShares. WIN$N subiu de 74.8% para 84.5% (+10pp). US500 subiu de 82.3% para 87.4% (+5pp).
 
+### Evolução Z-Score: Kalman Filter + Johansen Cointegration (Otimização V2)
+* **Objetivo:** Substituiu a regressão OLS estática diária por uma abordagem 100% dinâmica.
+* **Implementação:**
+  - **Johansen Cointegration:** Teste pré-calculado paralelamente para o cluster de fatores para garantir estacionariedade no regime atual (corte de ruído no sinal).
+  - **Kalman Filter:** Hedge Ratio dinâmico, atualizado a cada barra.
+* **Achados da Fase de Otimização (PnL Real Spread em 90 dias M5):**
+  - O antigo backtest cruzando zero era irreal. A V2 mede *Spread Financeiro Real* (`Y - X*beta`) travando o lock de trade (`in_trade`).
+  - **WIN$N** revelou uma assimetria estrondosa (Net PnL +3.656 pts) e excelente Win Rate para *Scalp* em curtos espaços de tempo (ex: 25 min).
+  - **WDO$N** fechou superavitário (Ret/DD 6.56, Net PnL +539 pts), mas exige o *Hold* até o gatilho de Z-Exit para extrair lucro. Scalps perdem consistência.
+  - O chamado **"Cemitério de Forex"** sangrou na conta, perdendo Ret/DD. A regressão e o Johansen em janelas curtas não protegem pares de moedas de grandes desvios macro.
+* **Ablation Test e Arquitetura Híbrida:** Um teste removendo a trava de Cointegração do Johansen provou que o mercado age de 2 formas. O Johansen **destrói** o PnL de ativos de Momentum direcional (WIN dobrou de lucro sem o filtro), mas **salva** do Drawdown ativos de Mean Reversion puro (Dólar, Ouro). Implementamos flag `use_johansen` nativa por ativo para ligar/desligar o teste.
+
 ---
 
 ## 🔜 Próximos Passos
@@ -59,16 +71,6 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 ### 4. NWE Filter Toggle
 * **Objetivo:** Checkbox no dashboard que, quando ativado, filtra/suprime sinais de consenso que colidem com a direção do NWE. Ex: se NWE mostra baixa, sinais de "compra" ficam visualmente atenuados.
 
-### 5. Backtest de Sinais IRAI
-* **Objetivo:** Usando os dados históricos acumulados (500+ dias de M5), construir um framework de backtest para medir: "Se eu seguisse o sinal IRAI com determinado threshold, qual seria o resultado?"
-* **Requisito:** Pode virar projeto separado.
-
-### 6. Evolução Z-Score: Kalman Filter + Johansen Cointegration
-* **Objetivo:** Substituir a regressão Ridge/OLS estática diária por uma abordagem mais dinâmica.
-* **Proposta:**
-  - **Johansen:** Rodar teste de cointegração para o cluster de fatores e garantir que a relação é estacionária no regime atual antes de "autorizar" sinais.
-  - **Kalman Filter:** Atualizar o Beta/Hedge Ratio a cada tick/barra para rastrear o "Fair Price" dinamicamente.
-  - **Sinal:** Usar o "Resíduo de Inovação" (Erro) do Kalman para gerar a divergência, normalizado por uma variância móvel de curto prazo. Sinal de stop acionado instantaneamente se o Johansen perder a significância (mudança de regime).
-
 ---
-*Last updated: 2026-04-28*
+---
+*Last updated: 2026-05-03*
