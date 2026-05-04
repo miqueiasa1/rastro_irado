@@ -1,60 +1,48 @@
-import os
-import re
+import sqlite3
 import json
+import os
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-temp_models_path = os.path.join(project_root, 'scripts', 'explorations', 'temp_models.txt')
+db_path = os.path.join(project_root, 'data', 'irai.db')
 out_md_path = os.path.join(project_root, '.planning', 'docs', 'FACTOR_MAP.md')
 
-if not os.path.exists(temp_models_path):
-    print(f"File not found: {temp_models_path}")
-    exit(1)
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
 
-with open(temp_models_path, 'r', encoding='utf-16') as f:
-    text = f.read()
-
-blocks = text.split('============================================================')[1:]
+# Get models
 models = []
-for block in blocks:
-    if not block.strip(): continue
-    lines = [l for l in block.split('\n') if l.strip()]
-    if len(lines) < 3: continue
+for row in conn.execute("SELECT * FROM asset_models WHERE active = 1"):
+    slug = row["slug"]
+    factors = json.loads(row["factors"])
+    factor_labels = json.loads(row["factor_labels"])
     
-    header = lines[0].strip()
-    match = re.match(r'(.*)\s+\((.*?)\)', header)
-    if not match: continue
-    display = match.group(1).strip()
-    target = match.group(2).strip()
-    
-    stats_line = lines[1].strip()
-    acc_m = re.search(r'ACC=([\d.]+)%', stats_line)
-    r2_m = re.search(r'R²=([\d.]+)', stats_line)
-    acc = acc_m.group(1) + '%' if acc_m else '0%'
-    r2 = r2_m.group(1) if r2_m else '0.0'
-    
-    factors_line = lines[2].strip()
-    n_factors_m = re.search(r'(\d+) fatores', factors_line)
-    n_factors = n_factors_m.group(1) if n_factors_m else '0'
-    
-    alpha_line = lines[3].strip()
-    alpha_m = re.search(r'α=([\d.-]+)', alpha_line)
-    alpha = alpha_m.group(1) if alpha_m else '0'
-    
+    # Get params
+    params = {}
+    for p_row in conn.execute("SELECT param_name, value FROM model_params WHERE param_name LIKE ?", (f"{slug}_%",)):
+        params[p_row["param_name"]] = p_row["value"]
+        
+    for p_row in conn.execute("SELECT param_name, value FROM model_params WHERE param_name LIKE 'sigma_%'"):
+        params[p_row["param_name"]] = p_row["value"]
+        
     weights = []
-    for line in lines[4:]:
-        w_m = re.search(r'\s+(\w+)\s+w=([+\-.\d]+)\s+σ=([.\d]+)\s+\((.*?)\)', line)
-        if w_m:
-            weights.append(w_m.groups())
-            
+    for f in factors:
+        label = factor_labels.get(f, f)
+        w = params.get(f"{slug}_w_{label}", 0.0)
+        s = params.get(f"sigma_{label}_daily", 0.0)
+        direction = "↑ COMPRA" if w > 0 else "↓ VENDA"
+        weights.append((f, w, s, direction))
+        
+    weights.sort(key=lambda x: abs(x[1]), reverse=True)
+    
     models.append({
-        'display': display,
-        'target': target,
-        'acc': acc,
-        'r2': r2,
-        'n_factors': n_factors,
-        'alpha': alpha,
+        'display': row["display_name"],
+        'target': row["target"],
+        'acc': f"{row['accuracy']:.1f}%" if row['accuracy'] else "0%",
+        'r2': f"{row['r_squared']:.4f}" if row['r_squared'] else "0.0",
+        'n_factors': len(factors),
+        'alpha': f"{params.get(f'{slug}_alpha', 0.0):.4f}",
         'weights': weights,
-        'acc_val': float(acc.replace('%', ''))
+        'acc_val': float(row['accuracy'] or 0)
     })
 
 models.sort(key=lambda x: x['acc_val'], reverse=True)
@@ -62,12 +50,12 @@ models.sort(key=lambda x: x['acc_val'], reverse=True)
 md = '''# IRAI Multi-Asset — Mapa de Fatores por Ativo
 
 > [!NOTE]
-> 13 modelos recalibrados. Regras aplicadas:
+> 20 modelos ativos extraídos diretamente do banco de dados (irai.db).
+> Regras aplicadas:
 > 1. Ativos internacionais **não** utilizam ativos BR (WIN, DOL, DI1).
 > 2. Índices americanos (US500, US30, USTEC) **não** utilizam outros índices americanos.
-> 3. Horários das Sessões respeitados (BR: 09h às 18h | Internacional: 03h às 22h).
-> 4. **Otimização (Score Misto):** Modelos classificados por 70% Acurácia + 30% R² para garantir robustez estrutural (ex: DI no Dólar).
-> Última calibração: 2026-04-25
+> 3. Horários das Sessões respeitados.
+> 4. **Otimização (Score Misto):** Modelos classificados por 70% Acurácia + 30% R² para garantir robustez estrutural.
 
 ---
 
@@ -80,12 +68,14 @@ md = '''# IRAI Multi-Asset — Mapa de Fatores por Ativo
 flags = {
     'EURUSD': '🇪🇺', 'GBPUSD': '🇬🇧', 'USDJPY': '🇯🇵', 'USDCHF': '🇨🇭',
     'AUDUSD': '🇦🇺', 'USTEC': '💻', 'USDCAD': '🇨🇦', 'US500': '🇺🇸',
-    'US30': '🏛️', 'WDO$N': '💵', 'WIN$N': '🇧🇷', 'XAUUSD': '🥇', 'BTCUSD': '₿'
+    'US30': '🏛️', 'WDO$N': '💵', 'WIN$N': '🇧🇷', 'XAUUSD': '🥇', 'BTCUSD': '₿',
+    'CADCHF': '🇨🇦🇨🇭', 'AUDNZD': '🇦🇺🇳🇿', 'EURGBP': '🇪🇺🇬🇧', 'EURCHF': '🇪🇺🇨🇭',
+    'EURJPY': '🇪🇺🇯🇵', 'GBPJPY': '🇬🇧🇯🇵', 'EURAUD': '🇪🇺🇦🇺'
 }
 
 for i, m in enumerate(models):
     flag = flags.get(m['target'], '')
-    main_f = f"{m['weights'][0][0].upper()} ({m['weights'][0][1]})" if m['weights'] else '-'
+    main_f = f"{m['weights'][0][0]} ({m['weights'][0][1]:.4f})" if m['weights'] else '-'
     md += f"| {i+1} | {flag} **{m['display']}** | **{m['acc']}** | **{m['r2']}** | {m['n_factors']} | {main_f} |\n"
 
 md += '''
@@ -97,14 +87,14 @@ md += '''
 
 for i, m in enumerate(models):
     flag = flags.get(m['target'], '')
-    session = '09h - 18h' if m['target'] in ('WIN$N', 'WDO$N') else '03h - 22h'
+    session = '09h - 18h' if m['target'] in ('WIN$N', 'WDO$N') else '00h - 24h'
     md += f"### {i+1}. {flag} {m['display']} ({m['target']}) — ACC {m['acc']} (Sessão: {session})\n"
     md += "```\n"
     md += f"α={m['alpha']}\n\n"
     md += "  Fator       Peso        σ         Direção\n"
     md += "  ──────────  ──────────  ────────  ─────────\n"
     for w in m['weights']:
-        md += f"  {w[0].upper():<10}  {w[1]:<10}  {w[2]:<8}  {w[3]}\n"
+        md += f"  {w[0]:<10}  {w[1]:<10.6f}  {w[2]:<8.5f}  {w[3]}\n"
     md += "```\n\n"
 
 with open(out_md_path, 'w', encoding='utf-8') as f:

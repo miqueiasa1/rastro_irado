@@ -1,12 +1,12 @@
 # IRAI Multi-Asset — Mapa de Fatores por Ativo
 
 > [!NOTE]
-> 13 modelos recalibrados. Regras aplicadas:
+> 20 modelos ativos extraídos diretamente do banco de dados (irai.db).
+> Regras aplicadas:
 > 1. Ativos internacionais **não** utilizam ativos BR (WIN, DOL, DI1).
 > 2. Índices americanos (US500, US30, USTEC) **não** utilizam outros índices americanos.
-> 3. Horários das Sessões respeitados (BR: 09h às 18h | Internacional: 03h às 22h).
-> 4. **Otimização (Score Misto):** Modelos classificados por 70% Acurácia + 30% R² para garantir robustez estrutural (ex: DI no Dólar).
-> Última calibração: 2026-04-25
+> 3. Horários das Sessões respeitados.
+> 4. **Otimização (Score Misto):** Modelos classificados por 70% Acurácia + 30% R² para garantir robustez estrutural.
 
 ---
 
@@ -14,225 +14,348 @@
 
 | # | Ativo | ACC | R² | Fatores | Fator Principal |
 |---|---|---|---|---|---|
-| 1 | 🇪🇺 **EUR/USD** | **99.2%** | **0.9936** | 8 | DXY (-1.521238) |
-| 2 | 🇬🇧 **GBP/USD** | **93.6%** | **0.9203** | 8 | DXY (-5.544002) |
-| 3 | 🇯🇵 **USD/JPY** | **91.2%** | **0.9353** | 6 | DXY (+6.770268) |
-| 4 | 🇨🇭 **USD/CHF** | **89.2%** | **0.8528** | 8 | DXY (+5.693010) |
-| 5 | 🇦🇺 **AUD/USD** | **88.0%** | **0.7324** | 8 | USDCAD (-0.620127) |
-| 6 | 💻 **Nasdaq 100** | **83.9%** | **0.7177** | 8 | USDCAD (-0.235021) |
-| 7 | 🇨🇦 **USD/CAD** | **83.9%** | **0.7660** | 8 | DXY (+5.279406) |
-| 8 | 🇺🇸 **S&P 500** | **82.3%** | **0.7806** | 8 | VIX (-0.165268) |
-| 9 | 🏛️ **Dow Jones** | **77.5%** | **0.6209** | 7 | VIX (-0.161183) |
-| 10 | 💵 **Mini Dólar** | **76.0%** | **0.4763** | 8 | DI1 (+0.382437) |
-| 11 | 🇧🇷 **Mini Índice** | **74.8%** | **0.4671** | 7 | DOL (-0.504052) |
-| 12 | 🥇 **Ouro** | **73.5%** | **0.2539** | 8 | AUDUSD (+1.057791) |
-| 13 | ₿ **Bitcoin** | **73.1%** | **0.3879** | 8 | USTEC (+1.970084) |
+| 1 | 🇪🇺🇬🇧 **EUR/GBP** | **92.1%** | **0.9611** | 8 | GBPJPY (-0.9879) |
+| 2 | 🇦🇺 **AUD/USD** | **91.1%** | **0.7605** | 8 | CADCHF (0.6693) |
+| 3 | 🇪🇺🇨🇭 **EUR/CHF** | **91.1%** | **0.8519** | 8 | USDCAD (0.9042) |
+| 4 | 🇨🇦🇨🇭 **CAD/CHF** | **90.1%** | **0.7448** | 8 | EURCHF (0.7038) |
+| 5 | 🇺🇸 **S&P 500** | **89.6%** | **0.8508** | 8 | iSharesUSEmerging+ (0.3320) |
+| 6 | 🇪🇺 **EUR/USD** | **89.1%** | **0.8059** | 8 | USDCAD (-0.6745) |
+| 7 | 🇨🇭 **USD/CHF** | **89.1%** | **0.7530** | 8 | USDJPY (0.8958) |
+| 8 | 💻 **Nasdaq 100** | **86.6%** | **0.7754** | 8 | USDCAD (-0.3927) |
+| 9 | 🇬🇧 **GBP/USD** | **85.6%** | **0.7272** | 8 | AUDUSD (0.5421) |
+| 10 | 🇧🇷 **Mini Índice** | **85.1%** | **0.5801** | 8 | US500 (1.1943) |
+| 11 | 💵 **Mini Dólar** | **84.2%** | **0.5844** | 8 | US500 (1.0302) |
+| 12 | 🏛️ **Dow Jones** | **84.2%** | **0.7412** | 8 | EURUSD (2.1776) |
+| 13 | 🇨🇦 **USD/CAD** | **84.2%** | **0.6066** | 8 | EURUSD (-0.4683) |
+| 14 | 🇪🇺🇦🇺 **EUR/AUD** | **81.7%** | **0.6186** | 8 | CADCHF (-0.5625) |
+| 15 | 🇯🇵 **USD/JPY** | **81.2%** | **0.5663** | 8 | USDCHF (0.9302) |
+| 16 | 🇦🇺🇳🇿 **AUD/NZD** | **80.7%** | **0.2577** | 8 | EURAUD (-0.3237) |
+| 17 | 🇬🇧🇯🇵 **GBP/JPY** | **75.7%** | **0.4363** | 8 | DXY (1.0783) |
+| 18 | ₿ **Bitcoin** | **75.2%** | **0.4358** | 8 | EURGBP (-5.4844) |
+| 19 | 🥇 **Ouro** | **73.3%** | **0.2852** | 8 | AUDNZD (0.9794) |
+| 20 | 🇪🇺🇯🇵 **EUR/JPY** | **72.3%** | **0.2433** | 8 | EURAUD (0.9532) |
 
 ---
 
 ## Detalhamento Completo por Ativo
 
-### 1. 🇪🇺 EUR/USD (EURUSD) — ACC 99.2% (Sessão: 03h - 22h)
+### 1. 🇪🇺🇬🇧 EUR/GBP (EURGBP) — ACC 92.1% (Sessão: 00h - 24h)
 ```
-α=19.4887
+α=7.5121
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  DXY         -1.521238   0.00375   ↓ VENDA
-  USDJPY      +0.195887   0.00514   ↑ COMPRA
-  GBPUSD      -0.191476   0.00404   ↓ VENDA
-  USDCAD      +0.158776   0.00272   ↑ COMPRA
-  US30        -0.008054   0.00738   ↓ VENDA
-  XAUUSD      -0.003564   0.01449   ↓ VENDA
-  USTEC       +0.002236   0.00953   ↑ COMPRA
-  BTCUSD      -0.000729   0.02340   ↓ VENDA
+  GBPJPY      -0.987854   0.00000   ↓ VENDA
+  EURJPY      0.974806    0.00000   ↑ COMPRA
+  US30        -0.020869   0.00000   ↓ VENDA
+  AUDNZD      0.020836    0.00000   ↑ COMPRA
+  DE40        0.014354    0.00000   ↑ COMPRA
+  CHINA50     0.007002    0.00000   ↑ COMPRA
+  BRENT       -0.003366   0.00000   ↓ VENDA
+  BTCUSD      -0.000785   0.00000   ↓ VENDA
 ```
 
-### 2. 🇬🇧 GBP/USD (GBPUSD) — ACC 93.6% (Sessão: 03h - 22h)
+### 2. 🇦🇺 AUD/USD (AUDUSD) — ACC 91.1% (Sessão: 00h - 24h)
 ```
-α=4.5540
-
-  Fator       Peso        σ         Direção
-  ──────────  ──────────  ────────  ─────────
-  DXY         -5.544002   0.00375   ↓ VENDA
-  EURUSD      -3.171417   0.00400   ↓ VENDA
-  USDJPY      +0.690437   0.00514   ↑ COMPRA
-  USDCAD      +0.518754   0.00272   ↑ COMPRA
-  USDCHF      +0.269883   0.00463   ↑ COMPRA
-  AUDUSD      +0.020085   0.00491   ↑ COMPRA
-  USDMXN      +0.012898   0.00461   ↑ COMPRA
-  XAUUSD      -0.009561   0.01449   ↓ VENDA
-```
-
-### 3. 🇯🇵 USD/JPY (USDJPY) — ACC 91.2% (Sessão: 03h - 22h)
-```
-α=3.9029
+α=4.1079
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  DXY         +6.770268   0.00375   ↑ COMPRA
-  EURUSD      +3.992904   0.00400   ↑ COMPRA
-  GBPUSD      +0.908062   0.00404   ↑ COMPRA
-  USDCAD      -0.646577   0.00272   ↓ VENDA
-  USDCHF      -0.300321   0.00463   ↓ VENDA
-  XAUUSD      +0.015583   0.01449   ↑ COMPRA
+  CADCHF      0.669348    0.00000   ↑ COMPRA
+  USDCHF      -0.639418   0.00000   ↓ VENDA
+  USDJPY      -0.317674   0.00000   ↓ VENDA
+  GBPJPY      0.230890    0.00000   ↑ COMPRA
+  USDMXN      -0.209704   0.00000   ↓ VENDA
+  XAUUSD      0.048682    0.00000   ↑ COMPRA
+  VIX         -0.044918   0.00000   ↓ VENDA
+  US500       -0.020257   0.00000   ↓ VENDA
 ```
 
-### 4. 🇨🇭 USD/CHF (USDCHF) — ACC 89.2% (Sessão: 03h - 22h)
+### 3. 🇪🇺🇨🇭 EUR/CHF (EURCHF) — ACC 91.1% (Sessão: 00h - 24h)
 ```
-α=2.7233
-
-  Fator       Peso        σ         Direção
-  ──────────  ──────────  ────────  ─────────
-  DXY         +5.693010   0.00375   ↑ COMPRA
-  EURUSD      +2.855907   0.00400   ↑ COMPRA
-  USDJPY      -0.681072   0.00514   ↓ VENDA
-  GBPUSD      +0.676751   0.00404   ↑ COMPRA
-  USDCAD      -0.336351   0.00272   ↓ VENDA
-  AUDUSD      +0.090694   0.00491   ↑ COMPRA
-  VIX         -0.015242   0.03259   ↓ VENDA
-  XAUUSD      -0.008145   0.01449   ↓ VENDA
-```
-
-### 5. 🇦🇺 AUD/USD (AUDUSD) — ACC 88.0% (Sessão: 03h - 22h)
-```
-α=2.7568
+α=2.4198
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  USDCAD      -0.620127   0.00272   ↓ VENDA
-  DXY         -0.479995   0.00375   ↓ VENDA
-  GBPUSD      +0.180889   0.00404   ↑ COMPRA
-  US500       +0.141873   0.00722   ↑ COMPRA
-  USDCHF      +0.140720   0.00463   ↑ COMPRA
-  US30        -0.097063   0.00738   ↓ VENDA
-  XAUUSD      +0.053932   0.01449   ↑ COMPRA
-  VIX         -0.038219   0.03259   ↓ VENDA
+  USDCAD      0.904151    0.00000   ↑ COMPRA
+  USDJPY      -0.876736   0.00000   ↓ VENDA
+  CADCHF      0.873897    0.00000   ↑ COMPRA
+  EURJPY      0.866244    0.00000   ↑ COMPRA
+  iSharesTreasury1-3+  -0.164514   0.00000   ↓ VENDA
+  CHINA50     0.022658    0.00000   ↑ COMPRA
+  iSharesBrazil+  0.016980    0.00000   ↑ COMPRA
+  VIX         0.003487    0.00000   ↑ COMPRA
 ```
 
-### 6. 💻 Nasdaq 100 (USTEC) — ACC 83.9% (Sessão: 03h - 22h)
+### 4. 🇨🇦🇨🇭 CAD/CHF (CADCHF) — ACC 90.1% (Sessão: 00h - 24h)
 ```
-α=4.6038
-
-  Fator       Peso        σ         Direção
-  ──────────  ──────────  ────────  ─────────
-  USDCAD      -0.235021   0.00272   ↓ VENDA
-  VIX         -0.203637   0.03259   ↓ VENDA
-  EURUSD      -0.179837   0.00400   ↓ VENDA
-  GBPUSD      +0.171541   0.00404   ↑ COMPRA
-  BTCUSD      +0.078266   0.02340   ↑ COMPRA
-  XAUUSD      +0.064305   0.01449   ↑ COMPRA
-  USDJPY      +0.031433   0.00514   ↑ COMPRA
-  BRENT       -0.002326   0.02265   ↓ VENDA
-```
-
-### 7. 🇨🇦 USD/CAD (USDCAD) — ACC 83.9% (Sessão: 03h - 22h)
-```
-α=2.2918
+α=3.0346
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  DXY         +5.279406   0.00375   ↑ COMPRA
-  EURUSD      +3.188058   0.00400   ↑ COMPRA
-  GBPUSD      +0.698719   0.00404   ↑ COMPRA
-  USDJPY      -0.671048   0.00514   ↓ VENDA
-  USDCHF      -0.178654   0.00463   ↓ VENDA
-  AUDUSD      -0.139877   0.00491   ↓ VENDA
-  US500       +0.053546   0.00722   ↑ COMPRA
-  CHINA50     +0.011684   0.00858   ↑ COMPRA
+  EURCHF      0.703797    0.00000   ↑ COMPRA
+  EURUSD      -0.496117   0.00000   ↓ VENDA
+  EURAUD      -0.300946   0.00000   ↓ VENDA
+  USTEC       0.069411    0.00000   ↑ COMPRA
+  iSharesTreasury20+  -0.050724   0.00000   ↓ VENDA
+  DE40        -0.044616   0.00000   ↓ VENDA
+  VIX         0.017502    0.00000   ↑ COMPRA
+  BTCUSD      -0.001735   0.00000   ↓ VENDA
 ```
 
-### 8. 🇺🇸 S&P 500 (US500) — ACC 82.3% (Sessão: 03h - 22h)
+### 5. 🇺🇸 S&P 500 (US500) — ACC 89.6% (Sessão: 00h - 24h)
 ```
-α=6.1502
-
-  Fator       Peso        σ         Direção
-  ──────────  ──────────  ────────  ─────────
-  VIX         -0.165268   0.03259   ↓ VENDA
-  EURUSD      -0.123561   0.00400   ↓ VENDA
-  AUDUSD      +0.121529   0.00491   ↑ COMPRA
-  DXY         -0.114036   0.00375   ↓ VENDA
-  GBPUSD      +0.091197   0.00404   ↑ COMPRA
-  USDCAD      -0.065354   0.00272   ↓ VENDA
-  BTCUSD      +0.043232   0.02340   ↑ COMPRA
-  USDCHF      +0.041257   0.00463   ↑ COMPRA
-```
-
-### 9. 🏛️ Dow Jones (US30) — ACC 77.5% (Sessão: 03h - 22h)
-```
-α=6.9163
+α=6.3754
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  VIX         -0.161183   0.03259   ↓ VENDA
-  GBPUSD      +0.115528   0.00404   ↑ COMPRA
-  EURUSD      -0.084145   0.00400   ↓ VENDA
-  USDMXN      -0.065152   0.00461   ↓ VENDA
-  USDJPY      -0.041426   0.00514   ↓ VENDA
-  BRENT       -0.034791   0.02265   ↓ VENDA
-  AUDUSD      -0.003756   0.00491   ↓ VENDA
+  iSharesUSEmerging+  0.331968    0.00000   ↑ COMPRA
+  CADCHF      0.241108    0.00000   ↑ COMPRA
+  AUDUSD      0.239462    0.00000   ↑ COMPRA
+  DE40        0.213314    0.00000   ↑ COMPRA
+  EURAUD      0.171631    0.00000   ↑ COMPRA
+  VIX         -0.128661   0.00000   ↓ VENDA
+  XAUUSD      0.027193    0.00000   ↑ COMPRA
+  iSharesBrazil+  0.003823    0.00000   ↑ COMPRA
 ```
 
-### 10. 💵 Mini Dólar (WDO$N) — ACC 76.0% (Sessão: 09h - 18h)
+### 6. 🇪🇺 EUR/USD (EURUSD) — ACC 89.1% (Sessão: 00h - 24h)
 ```
-α=2.1437
-
-  Fator       Peso        σ         Direção
-  ──────────  ──────────  ────────  ─────────
-  DI1         +0.382437   0.00712   ↑ COMPRA
-  USDCAD      +0.295066   0.00223   ↑ COMPRA
-  WIN         -0.226644   0.00991   ↓ VENDA
-  EURUSD      -0.221139   0.00323   ↓ VENDA
-  USDCHF      -0.144108   0.00384   ↓ VENDA
-  US30        +0.112370   0.00591   ↑ COMPRA
-  BTCUSD      -0.046567   0.01604   ↓ VENDA
-  BRENT       -0.030000   0.01748   ↓ VENDA
-```
-
-### 11. 🇧🇷 Mini Índice (WIN$N) — ACC 74.8% (Sessão: 09h - 18h)
-```
-α=1.3845
+α=3.7326
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  DOL         -0.504052   0.00668   ↓ VENDA
-  DI1         -0.481067   0.00712   ↓ VENDA
-  USDMXN      -0.245899   0.00398   ↓ VENDA
-  USDCAD      -0.195920   0.00223   ↓ VENDA
-  US30        +0.191812   0.00591   ↑ COMPRA
-  USDCHF      +0.149724   0.00384   ↑ COMPRA
-  GBPUSD      -0.027812   0.00328   ↓ VENDA
+  USDCAD      -0.674460   0.00000   ↓ VENDA
+  CADCHF      -0.573498   0.00000   ↓ VENDA
+  USDMXN      -0.195532   0.00000   ↓ VENDA
+  US500       0.090057    0.00000   ↑ COMPRA
+  DE40        -0.066232   0.00000   ↓ VENDA
+  US30        -0.046266   0.00000   ↓ VENDA
+  GBPJPY      -0.042832   0.00000   ↓ VENDA
+  BRENT       -0.036548   0.00000   ↓ VENDA
 ```
 
-### 12. 🥇 Ouro (XAUUSD) — ACC 73.5% (Sessão: 03h - 22h)
+### 7. 🇨🇭 USD/CHF (USDCHF) — ACC 89.1% (Sessão: 00h - 24h)
 ```
-α=0.5459
-
-  Fator       Peso        σ         Direção
-  ──────────  ──────────  ────────  ─────────
-  AUDUSD      +1.057791   0.00491   ↑ COMPRA
-  US500       -0.815213   0.00722   ↓ VENDA
-  USTEC       +0.710698   0.00953   ↑ COMPRA
-  USDMXN      -0.522826   0.00461   ↓ VENDA
-  US30        +0.404179   0.00738   ↑ COMPRA
-  VIX         +0.177545   0.03259   ↑ COMPRA
-  CHINA50     +0.079506   0.00858   ↑ COMPRA
-  BTCUSD      +0.023887   0.02340   ↑ COMPRA
-```
-
-### 13. ₿ Bitcoin (BTCUSD) — ACC 73.1% (Sessão: 03h - 22h)
-```
-α=0.6084
+α=2.7545
 
   Fator       Peso        σ         Direção
   ──────────  ──────────  ────────  ─────────
-  USTEC       +1.970084   0.00953   ↑ COMPRA
-  US500       -1.722516   0.00722   ↓ VENDA
-  GBPUSD      +0.987179   0.00404   ↑ COMPRA
-  USDMXN      -0.927982   0.00461   ↓ VENDA
-  US30        +0.724595   0.00738   ↑ COMPRA
-  USDJPY      +0.592452   0.00514   ↑ COMPRA
-  EURUSD      -0.540041   0.00400   ↓ VENDA
-  USDCHF      -0.321126   0.00463   ↓ VENDA
+  USDJPY      0.895776    0.00000   ↑ COMPRA
+  EURJPY      -0.834758   0.00000   ↓ VENDA
+  AUDUSD      -0.097391   0.00000   ↓ VENDA
+  US30        -0.083914   0.00000   ↓ VENDA
+  VIX         -0.036424   0.00000   ↓ VENDA
+  iSharesCurrencyBond+  -0.016587   0.00000   ↓ VENDA
+  USTEC       0.014880    0.00000   ↑ COMPRA
+  BTCUSD      -0.004031   0.00000   ↓ VENDA
+```
+
+### 8. 💻 Nasdaq 100 (USTEC) — ACC 86.6% (Sessão: 00h - 24h)
+```
+α=2.3919
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  USDCAD      -0.392714   0.00000   ↓ VENDA
+  DE40        0.282226    0.00000   ↑ COMPRA
+  CADCHF      0.268248    0.00000   ↑ COMPRA
+  VIX         -0.148015   0.00000   ↓ VENDA
+  EURUSD      0.124679    0.00000   ↑ COMPRA
+  EURAUD      -0.108168   0.00000   ↓ VENDA
+  BTCUSD      0.068173    0.00000   ↑ COMPRA
+  iSharesTreasury10-20+  -0.054078   0.00000   ↓ VENDA
+```
+
+### 9. 🇬🇧 GBP/USD (GBPUSD) — ACC 85.6% (Sessão: 00h - 24h)
+```
+α=3.5699
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  AUDUSD      0.542119    0.00000   ↑ COMPRA
+  EURAUD      0.302787    0.00000   ↑ COMPRA
+  USDCHF      -0.256739   0.00000   ↓ VENDA
+  AUDNZD      -0.250597   0.00000   ↓ VENDA
+  iSharesTreasury1-3+  0.229630    0.00000   ↑ COMPRA
+  EURCHF      0.215639    0.00000   ↑ COMPRA
+  EURJPY      -0.098968   0.00000   ↓ VENDA
+  BTCUSD      0.021716    0.00000   ↑ COMPRA
+```
+
+### 10. 🇧🇷 Mini Índice (WIN$N) — ACC 85.1% (Sessão: 09h - 18h)
+```
+α=1.1496
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  US500       1.194278    0.00000   ↑ COMPRA
+  USTEC       -0.834236   0.00000   ↓ VENDA
+  WDO$N       -0.769140   0.00000   ↓ VENDA
+  iSharesTreasury1-3+  -0.493084   0.00000   ↓ VENDA
+  USDCAD      0.329174    0.00000   ↑ COMPRA
+  DI1$N       -0.310747   0.00000   ↓ VENDA
+  iSharesCurrencyBond+  -0.084860   0.00000   ↓ VENDA
+  VIX         0.006319    0.00000   ↑ COMPRA
+```
+
+### 11. 💵 Mini Dólar (WDO$N) — ACC 84.2% (Sessão: 09h - 18h)
+```
+α=1.1708
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  US500       1.030170    0.00000   ↑ COMPRA
+  USDCAD      0.970785    0.00000   ↑ COMPRA
+  USTEC       -0.747573   0.00000   ↓ VENDA
+  WIN$N       -0.489016   0.00000   ↓ VENDA
+  USDCHF      -0.280307   0.00000   ↓ VENDA
+  XAUUSD      -0.089474   0.00000   ↓ VENDA
+  DE40        0.040124    0.00000   ↑ COMPRA
+  VIX         0.022795    0.00000   ↑ COMPRA
+```
+
+### 12. 🏛️ Dow Jones (US30) — ACC 84.2% (Sessão: 00h - 24h)
+```
+α=0.7276
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  EURUSD      2.177559    0.00000   ↑ COMPRA
+  GBPJPY      -2.117778   0.00000   ↓ VENDA
+  USDJPY      2.049438    0.00000   ↑ COMPRA
+  EURGBP      -2.040464   0.00000   ↓ VENDA
+  USDCAD      -0.315434   0.00000   ↓ VENDA
+  DE40        0.309352    0.00000   ↑ COMPRA
+  VIX         -0.112025   0.00000   ↓ VENDA
+  iSharesCurrencyBond+  0.028426    0.00000   ↑ COMPRA
+```
+
+### 13. 🇨🇦 USD/CAD (USDCAD) — ACC 84.2% (Sessão: 00h - 24h)
+```
+α=3.5231
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  EURUSD      -0.468285   0.00000   ↓ VENDA
+  EURAUD      0.291690    0.00000   ↑ COMPRA
+  EURCHF      0.212414    0.00000   ↑ COMPRA
+  US500       -0.088244   0.00000   ↓ VENDA
+  iSharesTreasury20+  0.058508    0.00000   ↑ COMPRA
+  iSharesCurrencyBond+  -0.040806   0.00000   ↓ VENDA
+  VIX         -0.030874   0.00000   ↓ VENDA
+  EURJPY      0.016553    0.00000   ↑ COMPRA
+```
+
+### 14. 🇪🇺🇦🇺 EUR/AUD (EURAUD) — ACC 81.7% (Sessão: 00h - 24h)
+```
+α=2.0943
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  CADCHF      -0.562517   0.00000   ↓ VENDA
+  EURCHF      0.470995    0.00000   ↑ COMPRA
+  AUDNZD      -0.408299   0.00000   ↓ VENDA
+  EURJPY      0.375959    0.00000   ↑ COMPRA
+  GBPJPY      -0.280607   0.00000   ↓ VENDA
+  USDMXN      0.242702    0.00000   ↑ COMPRA
+  USTEC       -0.076023   0.00000   ↓ VENDA
+  BTCUSD      -0.012722   0.00000   ↓ VENDA
+```
+
+### 15. 🇯🇵 USD/JPY (USDJPY) — ACC 81.2% (Sessão: 00h - 24h)
+```
+α=2.1023
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  USDCHF      0.930239    0.00000   ↑ COMPRA
+  EURCHF      -0.716065   0.00000   ↓ VENDA
+  iSharesTreasury10-20+  -0.195726   0.00000   ↓ VENDA
+  EURGBP      0.161761    0.00000   ↑ COMPRA
+  USDMXN      -0.141604   0.00000   ↓ VENDA
+  EURAUD      0.065219    0.00000   ↑ COMPRA
+  US30        0.038823    0.00000   ↑ COMPRA
+  BRENT       0.017218    0.00000   ↑ COMPRA
+```
+
+### 16. 🇦🇺🇳🇿 AUD/NZD (AUDNZD) — ACC 80.7% (Sessão: 00h - 24h)
+```
+α=2.3008
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  EURAUD      -0.323664   0.00000   ↓ VENDA
+  EURGBP      0.249708    0.00000   ↑ COMPRA
+  USDCAD      0.145878    0.00000   ↑ COMPRA
+  CHINA50     0.028811    0.00000   ↑ COMPRA
+  US30        -0.023658   0.00000   ↓ VENDA
+  XAUUSD      0.019366    0.00000   ↑ COMPRA
+  BTCUSD      0.002038    0.00000   ↑ COMPRA
+  VIX         -0.000874   0.00000   ↓ VENDA
+```
+
+### 17. 🇬🇧🇯🇵 GBP/JPY (GBPJPY) — ACC 75.7% (Sessão: 00h - 24h)
+```
+α=1.4608
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  DXY         1.078345    0.00000   ↑ COMPRA
+  EURUSD      1.040510    0.00000   ↑ COMPRA
+  EURGBP      -0.897446   0.00000   ↓ VENDA
+  AUDNZD      0.166706    0.00000   ↑ COMPRA
+  iSharesTreasury20+  -0.139522   0.00000   ↓ VENDA
+  USDMXN      -0.139205   0.00000   ↓ VENDA
+  AUDUSD      -0.052249   0.00000   ↓ VENDA
+  USTEC       0.027178    0.00000   ↑ COMPRA
+```
+
+### 18. ₿ Bitcoin (BTCUSD) — ACC 75.2% (Sessão: 00h - 24h)
+```
+α=0.2683
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  EURGBP      -5.484364   0.00000   ↓ VENDA
+  EURJPY      4.572824    0.00000   ↑ COMPRA
+  GBPJPY      -3.970316   0.00000   ↓ VENDA
+  USTEC       1.389608    0.00000   ↑ COMPRA
+  USDMXN      -0.819306   0.00000   ↓ VENDA
+  AUDNZD      0.433649    0.00000   ↑ COMPRA
+  AUDUSD      0.431543    0.00000   ↑ COMPRA
+  US500       -0.422680   0.00000   ↓ VENDA
+```
+
+### 19. 🥇 Ouro (XAUUSD) — ACC 73.3% (Sessão: 00h - 24h)
+```
+α=0.3205
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  AUDNZD      0.979383    0.00000   ↑ COMPRA
+  AUDUSD      0.932809    0.00000   ↑ COMPRA
+  USDMXN      -0.783235   0.00000   ↓ VENDA
+  USDCHF      -0.314539   0.00000   ↓ VENDA
+  EURGBP      -0.192727   0.00000   ↓ VENDA
+  VIX         0.126224    0.00000   ↑ COMPRA
+  CHINA50     0.102693    0.00000   ↑ COMPRA
+  BRENT       0.041678    0.00000   ↑ COMPRA
+```
+
+### 20. 🇪🇺🇯🇵 EUR/JPY (EURJPY) — ACC 72.3% (Sessão: 00h - 24h)
+```
+α=0.8970
+
+  Fator       Peso        σ         Direção
+  ──────────  ──────────  ────────  ─────────
+  EURAUD      0.953191    0.00000   ↑ COMPRA
+  DXY         0.909319    0.00000   ↑ COMPRA
+  AUDUSD      0.906924    0.00000   ↑ COMPRA
+  USDMXN      -0.166216   0.00000   ↓ VENDA
+  iSharesTreasury20+  -0.163755   0.00000   ↓ VENDA
+  AUDNZD      0.127697    0.00000   ↑ COMPRA
+  USDCHF      0.081861    0.00000   ↑ COMPRA
+  DE40        -0.025875   0.00000   ↓ VENDA
 ```
 
