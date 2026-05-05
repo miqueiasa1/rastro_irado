@@ -445,12 +445,23 @@ class IRAIEngine:
         if not rows_raw:
             return []
 
+        # Detectar sessão via config do modelo (antes de iterar rows)
+        session_start = cfg.get("session_start_h", 0)
+        is_b3 = session_start != 0
+
         # Converter sqlite3.Row para dicts com timestamp parsed e hora extraída
         rows = []
         for r in rows_raw:
             d = dict(r)
             ts_str = d["timestamp_utc"]
-            d["timestamp"] = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            
+            # Alinhar fuso horário: XP (BRT, UTC-3) para Tickmill (EEST, UTC+3) = +6 horas
+            if is_b3 and d["symbol"] == data_target:
+                ts_dt += timedelta(hours=6)
+                d["timestamp_utc"] = ts_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            d["timestamp"] = ts_dt
             d["hour"] = d["timestamp"].hour
             rows.append(d)
 
@@ -530,14 +541,14 @@ class IRAIEngine:
                 )
                 snap.timestamp = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
                 snap.is_preview = True
+                snap.is_ghost = True
                 snap.flow_confirms = None
                 snapshots.append(snap)
 
             return snapshots
 
         # ── Modo normal (target tem barras) ───────────────────────────────
-        if not (session_end == 24 and session_start == 0):
-            rows = [r for r in rows if session_start <= r["hour"] <= session_end]
+        # Filter by session removed to allow 24/7 continuous timeline
 
         # Opens = primeira barra de cada símbolo
         opens = {}
@@ -558,12 +569,14 @@ class IRAIEngine:
             fb = sorted([r for r in rows if r["symbol"] == db_sym], key=lambda r: r["timestamp"])
             factor_prices[factor] = [(r["timestamp"], float(r["close"])) for r in fb] if fb else []
 
-        # Iterar sobre barras do target
+        # Iterar sobre barras do target e alinhar com todas as timestamps para forward-fill
         target_bars = sorted([r for r in rows if r["symbol"] == data_target], key=lambda r: r["timestamp"])
-        n_bars = len(target_bars)
+        all_timestamps = sorted(set(r["timestamp"] for r in rows))
+        n_bars = len(all_timestamps)
         snapshots = []
         cum_delta = 0.0
         cum_real_vol = 0.0
+        target_cursor = 0
         
         # --- Kalman Filter Setup ---
         kf = None
@@ -603,8 +616,34 @@ class IRAIEngine:
         target_div_sigma = div_cfg.get("sigma", 0.005)
         target_div_threshold = div_cfg.get("threshold", 0.5)
 
-        for bar_idx, row in enumerate(target_bars):
-            ts = row["timestamp"]
+        # Set de timestamps reais do target para detecção precisa de ghost bars
+        target_ts_set = set(r["timestamp"] for r in target_bars)
+
+        # Buscar último close de ontem para ghost bars pré-mercado
+        conn_prev = get_connection(self.db_path)
+        prev_close_row = conn_prev.execute("""
+            SELECT close FROM market_bars
+            WHERE symbol = ? AND timeframe = 'M5' AND timestamp_utc < ?
+            ORDER BY timestamp_utc DESC LIMIT 1
+        """, (data_target, f"{session_date}T00:00:00Z")).fetchone()
+        conn_prev.close()
+        pre_market_close = float(prev_close_row["close"]) if prev_close_row else opens.get(data_target, 0)
+        pre_market_open = pre_market_close  # Open = last known close for ghost bars
+
+        for bar_idx, ts in enumerate(all_timestamps):
+            while target_cursor < len(target_bars) - 1 and target_bars[target_cursor + 1]["timestamp"] <= ts:
+                target_cursor += 1
+                
+            is_pre_market = (target_cursor < 0)
+            
+            if target_cursor < len(target_bars) and target_bars[target_cursor]["timestamp"] <= ts and not is_pre_market:
+                row = target_bars[target_cursor]
+                is_ghost_bar = (ts not in target_ts_set)
+            else:
+                # Pré-mercado: target ainda não tem barras para este timestamp
+                # Criar barra sintética com o último close conhecido
+                row = {"close": pre_market_close, "open": pre_market_open, "delta": 0, "real_volume": 0, "timestamp": ts}
+                is_ghost_bar = True
 
             for factor in active_factors:
                 prices = factor_prices[factor]
@@ -636,7 +675,7 @@ class IRAIEngine:
                 
                 # Preparar dados para Kalman (Retornos)
                 win_ret = 0.0
-                if opens[data_target] > 0:
+                if opens[data_target] > 0 and not is_pre_market:
                     win_ret = (float(row["close"]) - opens[data_target]) / opens[data_target]
                 
                 obs_matrix = [1.0] # Intercept
@@ -674,10 +713,14 @@ class IRAIEngine:
                 johansen_p_value=p_val
             )
             snap.timestamp = ts.isoformat()
+            snap.is_ghost = is_ghost_bar
+            
+            if is_pre_market:
+                snap.win_return = 0.0
 
             # Cumulative Delta
-            bar_d = float(row.get("delta") or 0)
-            rv = float(row.get("real_volume") or 0)
+            bar_d = 0.0 if is_ghost_bar else float(row.get("delta") or 0)
+            rv = 0.0 if is_ghost_bar else float(row.get("real_volume") or 0)
             cum_delta += bar_d
             cum_real_vol += rv
 

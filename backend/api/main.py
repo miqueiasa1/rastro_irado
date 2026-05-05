@@ -170,7 +170,7 @@ async def irai_targets():
 @app.get("/api/irai/overview")
 async def irai_overview(
     session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)"),
-    version: str = Query("both", description="Versão do motor (v1=estático, v2=dinâmico, both=ambos)"),
+    version: str = Query("v2", description="Versão do motor (v1=estático, v2=dinâmico)"),
 ):
     """Snapshot atual de TODOS os targets calibrados."""
     if session_date is None:
@@ -198,23 +198,16 @@ async def irai_overview(
             continue  # Skip não-calibrados
 
         try:
-            versions_to_run = ["v1", "v2"] if version == "both" else [version]
-            snaps_v1 = engine.compute_from_db(session_date, target=t["target"], version="v1") if "v1" in versions_to_run else None
-            snaps_v2 = engine.compute_from_db(session_date, target=t["target"], version="v2") if "v2" in versions_to_run else None
-            
-            primary = snaps_v1 if snaps_v1 else snaps_v2
+            primary = engine.compute_from_db(session_date, target=t["target"], version=version)
             if not primary:
                 continue
                 
-            last_v1 = snaps_v1[-1] if snaps_v1 else None
-            last_v2 = snaps_v2[-1] if snaps_v2 else None
             last = primary[-1]
 
             # Sparklines
-            spark_v1 = [round(s.p_up, 1) for s in snaps_v1[-24:]] if snaps_v1 else []
-            spark_v2 = [round(s.p_up, 1) for s in snaps_v2[-24:]] if snaps_v2 else []
+            sparkline = [round(s.p_up, 1) for s in primary[-24:]] if primary else []
 
-            flow_confirms = getattr(last_v1 if last_v1 else last_v2, "flow_confirms", None)
+            flow_confirms = getattr(last, "flow_confirms", None)
             
             # Price diverges
             price_diverges = False
@@ -275,25 +268,12 @@ async def irai_overview(
                 "is_preview": getattr(last, "is_preview", False),
             }
 
-            if version == "both":
-                res_obj.update({
-                    "p_up_v1": round(last_v1.p_up, 1) if last_v1 else None,
-                    "score_v1": round(last_v1.score, 4) if last_v1 else None,
-                    "verdict_v1": last_v1.verdict if last_v1 else None,
-                    "sparkline_v1": spark_v1,
-                    
-                    "p_up_v2": round(last_v2.p_up, 1) if last_v2 else None,
-                    "score_v2": round(last_v2.score, 4) if last_v2 else None,
-                    "verdict_v2": last_v2.verdict if last_v2 else None,
-                    "sparkline_v2": spark_v2,
-                })
-            else:
-                res_obj.update({
-                    "p_up": round(last.p_up, 1),
-                    "score": round(last.score, 4),
-                    "verdict": last.verdict,
-                    "sparkline": spark_v1 if version == "v1" else spark_v2,
-                })
+            res_obj.update({
+                "p_up": round(last.p_up, 1),
+                "score": round(last.score, 4),
+                "verdict": last.verdict,
+                "sparkline": sparkline,
+            })
 
             results.append(res_obj)
         except Exception as e:
@@ -338,7 +318,7 @@ async def irai_dates(
 async def irai_series(
     session_date: str = Query(None, description="Data YYYY-MM-DD (default: hoje)"),
     target: str = Query("WIN$N", description="Target: WIN$N ou WDO$N"),
-    version: str = Query("both", description="Versão do motor (v1=estático, v2=dinâmico, both=ambos)"),
+    version: str = Query("v2", description="Versão do motor (v1=estático, v2=dinâmico)"),
 ):
     """Série IRAI completa para uma sessão. Suporta multi-target."""
     if session_date is None:
@@ -349,99 +329,44 @@ async def irai_series(
     if cache_key in series_cache:
         return series_cache[cache_key]
 
-    if version == "both":
-        snaps_v1 = engine.compute_from_db(session_date, target=target, version="v1")
-        snaps_v2 = engine.compute_from_db(session_date, target=target, version="v2")
-        
-        primary = snaps_v1 if snaps_v1 else snaps_v2
-        if not primary:
-            return JSONResponse(status_code=404, content={"error": f"Sem dados para sessão {session_date}"})
+    conn = get_connection()
+    target_db = next((t["data_proxy"] for t in engine.registered_targets if t["target"] == target), target)
+    if not target_db: target_db = target
+    prev_rows = conn.execute("""
+        SELECT close FROM market_bars
+        WHERE symbol = ? AND timeframe = 'M5' AND timestamp_utc < ?
+        ORDER BY timestamp_utc DESC LIMIT 95
+    """, (target_db, f"{session_date}T00:00:00Z")).fetchall()
+    conn.close()
+    history_closes = [r["close"] for r in reversed(prev_rows)]
 
-        # Merge series by timestamp/bar_idx
-        v2_map = {s.bar_idx: s for s in snaps_v2}
-        merged_series = []
-        for s1 in snaps_v1:
-            s2 = v2_map.get(s1.bar_idx)
-            d1 = _snap_to_dict(s1)
-            # inject v1 specific fields
-            out = d1.copy()
-            out["p_up_v1"] = out.pop("p_up")
-            out["score_v1"] = out.pop("score")
-            out["verdict_v1"] = out.pop("verdict")
-            out["factors_v1"] = out.pop("factors")
-            out["price_diverges_v1"] = out.pop("price_diverges")
-            out["price_diverge_z_v1"] = out.pop("price_diverge_z")
-            # inject v2 fields
-            if s2:
-                d2 = _snap_to_dict(s2)
-                out["p_up_v2"] = d2["p_up"]
-                out["score_v2"] = d2["score"]
-                out["verdict_v2"] = d2["verdict"]
-                out["factors_v2"] = d2["factors"]
-                out["price_diverges_v2"] = d2["price_diverges"]
-                out["price_diverge_z_v2"] = d2["price_diverge_z"]
-            else:
-                out["p_up_v2"] = None
-                out["score_v2"] = None
-                out["verdict_v2"] = None
-                out["factors_v2"] = {}
-                out["price_diverges_v2"] = False
-                out["price_diverge_z_v2"] = 0.0
-            merged_series.append(out)
+    snapshots = engine.compute_from_db(session_date, target=target, version=version)
+    if not snapshots:
+        return JSONResponse(status_code=404, content={"error": f"Sem dados para sessão {session_date}"})
 
-        last_v1 = snaps_v1[-1]
-        last_v2 = snaps_v2[-1] if snaps_v2 else last_v1
-        
-        target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
-        result = {
-            "session_date": session_date,
-            "target": target,
-            "display_name": target_info.get("display_name", target),
-            "icon": target_info.get("icon", "📊"),
-            "bars": len(snaps_v1),
-            "series": merged_series,
-            "summary": {
-                "p_up_min_v1": min(s.p_up for s in snaps_v1),
-                "p_up_max_v1": max(s.p_up for s in snaps_v1),
-                "p_up_final_v1": last_v1.p_up,
-                "score_final_v1": last_v1.score,
-                "verdict_v1": last_v1.verdict,
-
-                "p_up_min_v2": min(s.p_up for s in snaps_v2) if snaps_v2 else 0,
-                "p_up_max_v2": max(s.p_up for s in snaps_v2) if snaps_v2 else 0,
-                "p_up_final_v2": last_v2.p_up,
-                "score_final_v2": last_v2.score,
-                "verdict_v2": last_v2.verdict,
-
-                "win_return": last_v1.win_return,
-                "timestamp": last_v1.timestamp,
-                "accuracy": target_info.get("accuracy"),
-            }
+    target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
+    # B3 assets (WIN$N, WDO$N) need BRT offset (UTC-3) for dual axis
+    is_b3 = target_info.get("session_start_h", 0) != 0
+    result = {
+        "session_date": session_date,
+        "target": target,
+        "display_name": target_info.get("display_name", target),
+        "icon": target_info.get("icon", "📊"),
+        "bars": len(snapshots),
+        "series": [_snap_to_dict(s) for s in snapshots],
+        "history_closes": history_closes,
+        "is_b3": is_b3,
+        "summary": {
+            "p_up_min": min(s.p_up for s in snapshots),
+            "p_up_max": max(s.p_up for s in snapshots),
+            "p_up_final": snapshots[-1].p_up,
+            "score_final": snapshots[-1].score,
+            "verdict": snapshots[-1].verdict,
+            "win_return": snapshots[-1].win_return,
+            "timestamp": snapshots[-1].timestamp,
+            "accuracy": target_info.get("accuracy"),
         }
-    else:
-        snapshots = engine.compute_from_db(session_date, target=target, version=version)
-        if not snapshots:
-            return JSONResponse(status_code=404, content={"error": f"Sem dados para sessão {session_date}"})
-
-        target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
-        result = {
-            "session_date": session_date,
-            "target": target,
-            "display_name": target_info.get("display_name", target),
-            "icon": target_info.get("icon", "📊"),
-            "bars": len(snapshots),
-            "series": [_snap_to_dict(s) for s in snapshots],
-            "summary": {
-                "p_up_min": min(s.p_up for s in snapshots),
-                "p_up_max": max(s.p_up for s in snapshots),
-                "p_up_final": snapshots[-1].p_up,
-                "score_final": snapshots[-1].score,
-                "verdict": snapshots[-1].verdict,
-                "win_return": snapshots[-1].win_return,
-                "timestamp": snapshots[-1].timestamp,
-                "accuracy": target_info.get("accuracy"),
-            }
-        }
+    }
     series_cache[(target, session_date, version)] = result
     return result
 
@@ -513,6 +438,7 @@ def _snap_to_dict(snap) -> dict:
         "price_diverges": snap.price_diverges,
         "price_diverge_z": snap.price_diverge_z,
         "is_preview": getattr(snap, "is_preview", False),
+        "is_ghost": getattr(snap, "is_ghost", False),
     }
 
 

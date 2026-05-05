@@ -35,7 +35,11 @@ function getFactorMeta(fkey) {
   return { label: fkey.toUpperCase(), icon: '📊', desc: fkey }
 }
 
-
+const FACTOR_COLORS = [
+  '#4ADE80', '#60A5FA', '#FBBF24', '#C084FC',
+  '#F87171', '#2DD4BF', '#F472B6', '#A3E635',
+  '#FCD34D', '#A78BFA', '#34D399', '#FB923C'
+];
 
 /* ── Big Gauge ────────────────────────────────────── */
 function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview }) {
@@ -44,7 +48,6 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
 
   const signalText = isBuy ? 'ALTA' : isSell ? 'BAIXA' : 'NEUTRO'
   const signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#94A3B8'
-  const signalBg = isBuy ? 'rgba(74,222,128,0.08)' : isSell ? 'rgba(248,113,113,0.08)' : 'rgba(148,163,184,0.05)'
 
   // ── Convicção calibrada por Shrinkage ──────────────────────────────
   // P_shrunk = 50 + (P_raw - 50) × (2×acc - 1)
@@ -130,9 +133,12 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
 
   return (
     <div className={`gauge-container ${alertClass}`} style={{
-      background: signalBg,
-      border: `1px solid ${signalColor}22`,
-      padding: '14px 28px',
+      flex: '1 1 350px',
+      display: 'flex', gap: 20, padding: 24, borderRadius: 12,
+      background: 'linear-gradient(180deg, #111116 0%, #09090B 100%)',
+      border: `1px solid ${signalColor}33`,
+      boxShadow: `0 4px 20px -10px ${signalColor}20`,
+      alignItems: 'center',
     }}>
       {/* SVG Gauge */}
       <div style={{ position: 'relative', width: 110, height: 62, flexShrink: 0 }}>
@@ -376,61 +382,116 @@ const NWE_BW = 8;    // bandwidth (kernel width)
 const NWE_MULT = 3;  // envelope multiplier
 const NWE_LOOKBACK = 95; // janela retroativa
 
-function computeNWE(data) {
-  if (!data || data.length < 3) return data;
-  const n = data.length;
-  const vals = data.map(d => d.win_return || 0);
-
+function computeNWE(data, history_closes = []) {
+  if (!data || data.length < 1) return data;
+  
+  // Only use valid prices for NWE calculation
+  const historyPrices = history_closes || [];
+  const validData = data.filter(d => d.win_current !== undefined && !d.is_ghost);
+  const currentPrices = validData.map(d => d.win_current);
+  const allPrices = [...historyPrices, ...currentPrices];
+  const nAll = allPrices.length;
+  if (nAll < 3) return data;
+  
   // 1) Kernel regression (center line) - CAUSAL (Lookback only)
-  const center = new Array(n).fill(0);
-  for (let t = 0; t < n; t++) {
+  const center = new Array(nAll).fill(0);
+  for (let t = 0; t < nAll; t++) {
     let sumW = 0, sumY = 0;
     const lookbackLimit = Math.min(t, NWE_LOOKBACK - 1);
     
     for (let i = 0; i <= lookbackLimit; i++) {
       const w = Math.exp(-Math.pow(i, 2) / (2 * NWE_BW * NWE_BW));
       sumW += w;
-      sumY += w * vals[t - i];
+      sumY += w * allPrices[t - i];
     }
     center[t] = sumY / sumW;
   }
 
   // 2) Envelope width from rolling MAE (Mean Absolute Error)
-  const envWidth = new Array(n).fill(0);
-  for (let t = 0; t < n; t++) {
+  const envWidth = new Array(nAll).fill(0);
+  for (let t = 0; t < nAll; t++) {
     let sumErr = 0;
     const lookbackLimit = Math.min(t, NWE_LOOKBACK - 1);
     const count = lookbackLimit + 1;
     
     for (let i = 0; i <= lookbackLimit; i++) {
-      sumErr += Math.abs(vals[t - i] - center[t - i]);
+      sumErr += Math.abs(allPrices[t - i] - center[t - i]);
     }
     
     const mae = sumErr / count;
     envWidth[t] = mae * NWE_MULT;
   }
 
+  // Slice to only keep the current data parts
+  const currentCenter = center.slice(historyPrices.length);
+  const currentEnvWidth = envWidth.slice(historyPrices.length);
+
+  // Initialize carry-forward NWE values from history (if any)
+  let lastNweCenter = null, lastNweUpper = null, lastNweLower = null, lastNweSlope = 0;
+
   // 3) Build enriched data with per-bar slope coloring
-  return data.map((d, i) => {
-    const nwe_center = center[i];
-    const nwe_upper = center[i] + envWidth[i];
-    const nwe_lower = center[i] - envWidth[i];
-    const nwe_slope = i > 0 ? center[i] - center[i - 1] : 0;
-    const isUp = nwe_slope >= 0;
+  let validIdx = 0;
+  return data.map((d) => {
+    // If it's a future padded bar without data, leave it blank so it doesn't plot.
+    if (d.win_current === undefined) return d;
+    
+    const open = d.win_open || 1; // avoid div by 0
+
+    // Set initial carry-forward values from history at the start of the mapping if needed
+    if (validIdx === 0 && historyPrices.length > 0 && lastNweCenter === null) {
+        lastNweCenter = ((center[historyPrices.length - 1] / open) - 1) * 100;
+        lastNweUpper = ((center[historyPrices.length - 1] + envWidth[historyPrices.length - 1]) / open - 1) * 100;
+        lastNweLower = ((center[historyPrices.length - 1] - envWidth[historyPrices.length - 1]) / open - 1) * 100;
+        const prevHistoricalCenter = historyPrices.length > 1 ? center[historyPrices.length - 2] : center[historyPrices.length - 1];
+        lastNweSlope = center[historyPrices.length - 1] - prevHistoricalCenter;
+    }
+
+    // If it's a ghost bar (overnight flat), just repeat the last known NWE so the bands stay flat
+    if (d.is_ghost) {
+      return {
+        ...d,
+        nwe_center: lastNweCenter !== null ? lastNweCenter : (((d.win_current / open) - 1) * 100),
+        nwe_upper: lastNweUpper !== null ? lastNweUpper : (((d.win_current / open) - 1) * 100),
+        nwe_lower: lastNweLower !== null ? lastNweLower : (((d.win_current / open) - 1) * 100),
+        nwe_slope: lastNweSlope >= 0,
+        nwe_is_transition: false,
+        nwe_was_transition: false
+      };
+    }
+    
+    // Real bar: consume the NWE computed values
+    const i = validIdx++;
+    
+    // Convert absolute price back to percentage return relative to open
+    const nwe_center = ((currentCenter[i] / open) - 1) * 100;
+    const nwe_upper = ((currentCenter[i] + currentEnvWidth[i]) / open - 1) * 100;
+    const nwe_lower = ((currentCenter[i] - currentEnvWidth[i]) / open - 1) * 100;
+    
+    const prevCenter = i > 0 ? currentCenter[i - 1] : (historyPrices.length > 0 ? center[historyPrices.length - 1] : currentCenter[0]);
+    const nwe_slope_price = currentCenter[i] - prevCenter;
+    const isUp = nwe_slope_price >= 0;
 
     // Check if next bar changes direction (transition point)
-    const nextSlope = i < n - 1 ? center[i + 1] - center[i] : nwe_slope;
-    const isTransition = (nwe_slope >= 0) !== (nextSlope >= 0);
+    const nextSlope = i < validData.length - 1 ? currentCenter[i + 1] - currentCenter[i] : nwe_slope_price;
+    const isTransition = (nwe_slope_price >= 0) !== (nextSlope >= 0);
+    
     // Check if previous bar was different direction
-    const prevSlope = i > 1 ? center[i - 1] - center[i - 2] : nwe_slope;
-    const wasTransition = i > 0 && ((prevSlope >= 0) !== (nwe_slope >= 0));
+    const prevPrevCenter = i > 1 ? currentCenter[i - 2] : (historyPrices.length > 1 ? center[historyPrices.length - 2] : prevCenter);
+    const prevSlopePrice = prevCenter - prevPrevCenter;
+    const wasTransition = (prevSlopePrice >= 0) !== (nwe_slope_price >= 0);
+
+    // Update carry-forward values for any subsequent ghost bars
+    lastNweCenter = nwe_center;
+    lastNweUpper = nwe_upper;
+    lastNweLower = nwe_lower;
+    lastNweSlope = nwe_slope_price;
 
     return {
       ...d,
       nwe_center,
       nwe_upper,
       nwe_lower,
-      nwe_slope,
+      nwe_slope: nwe_slope_price,
       // Both series get the value at transition points for continuity
       nwe_up: (isUp || isTransition || wasTransition) ? nwe_center : null,
       nwe_down: (!isUp || isTransition || wasTransition) ? nwe_center : null,
@@ -440,6 +501,46 @@ function computeNWE(data) {
 
 /* ── Main App ────────────────────────────────────── */
 const REFRESH_INTERVAL = 30_000 // 30 seconds (fallback polling)
+
+// Helper: compute local time from UTC time string + offset in hours
+function toLocalTime(utcTimeStr, offsetH) {
+  if (!utcTimeStr || !offsetH) return null;
+  const [hStr, mStr] = utcTimeStr.split(':');
+  let h = (parseInt(hStr, 10) + offsetH + 24) % 24;
+  return `${h.toString().padStart(2, '0')}:${mStr}`;
+}
+
+const padSeriesToFullDay = (series, isB3 = false) => {
+  if (!series || series.length === 0) return series;
+  
+  const lastTimeStr = series[series.length - 1].time; // ex: "18:05"
+  if (!lastTimeStr) return series;
+
+  const [hStr, mStr] = lastTimeStr.split(":");
+  let currentH = parseInt(hStr, 10);
+  let currentM = parseInt(mStr, 10);
+  
+  const padded = [...series];
+  
+  while (currentH < 23 || (currentH === 23 && currentM < 55)) {
+    currentM += 5;
+    if (currentM >= 60) {
+      currentM = 0;
+      currentH += 1;
+    }
+    if (currentH > 23) break;
+    
+    const h = currentH.toString().padStart(2, '0');
+    const m = currentM.toString().padStart(2, '0');
+    const timeTickmill = `${h}:${m}`;
+    
+    padded.push({
+      time: timeTickmill,
+      time_local: isB3 ? toLocalTime(timeTickmill, -6) : null
+    });
+  }
+  return padded;
+};
 
 export default function App() {
   const [page, setPage] = useState('overview')
@@ -556,9 +657,10 @@ export default function App() {
             ...x,
             time: x.timestamp ? x.timestamp.substring(11, 16) : '00:00',
           }))
-          setSeries(processed)
+          setSeries(padSeriesToFullDay(processed))
           setSummary(sum)
-          setSeriesInfo({ display_name: tMeta.display_name, icon: tMeta.icon })
+          const history_closes = data?.history?.[safeTarget] || []
+          setSeriesInfo({ display_name: tMeta.display_name, icon: tMeta.icon, history_closes })
           setLoading(false)
           setLastUpdate(new Date(data?.last_update ? data.last_update * 1000 : Date.now()))
           setError(null)
@@ -569,13 +671,23 @@ export default function App() {
         .then(r => r.json())
         .then(data => {
           if (data.error) { setError(data.error); setLoading(false); return }
-          const processed = (data.series || []).map(s => ({
-            ...s,
-            time: s.timestamp ? s.timestamp.substring(11, 16) : '00:00',
-          }))
-          setSeries(processed)
+          const isB3 = data.is_b3 || false;
+          const processed = (data.series || []).map(s => {
+            const timeDb = s.timestamp ? s.timestamp.substring(11, 16) : '00:00';
+            // The backend now correctly shifts B3 timestamps to Tickmill time (+6h).
+            // So timeDb is already the primary axis Tickmill time.
+            const timeTickmill = timeDb;
+            // The secondary BRT axis is Tickmill time - 6 hours.
+            const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
+            return {
+              ...s,
+              time: timeTickmill,
+              time_local: timeBrt,
+            };
+          })
+          setSeries(padSeriesToFullDay(processed, isB3))
           setSummary(data.summary)
-          setSeriesInfo({ display_name: data.display_name, icon: data.icon })
+          setSeriesInfo({ display_name: data.display_name, icon: data.icon, history_closes: data.history_closes || [], tz_offset: isB3 ? -3 : 0, tz_label: 'BRT' })
           setLoading(false)
           setLastUpdate(new Date())
           setError(null)
@@ -604,7 +716,8 @@ export default function App() {
     }
   }, [effectiveDate, selectedTarget, liveMode, fetchSeries])
 
-  const now = series.length > 0 ? series[series.length - 1] : null
+  const validSeries = useMemo(() => series.filter(s => s.win_current !== undefined), [series]);
+  const now = validSeries.length > 0 ? validSeries[validSeries.length - 1] : null
   const hasFlow = now && 'flow_confirms' in now
 
   const isOffline = error && (error.includes('Failed to fetch') || error.includes('NetworkError') || error.includes('Load failed'));
@@ -631,22 +744,28 @@ export default function App() {
 
   // Applica NWE na série
   const seriesWithNWE = useMemo(() => {
-    const rawNwe = computeNWE(series);
+    const rawNwe = computeNWE(series, seriesInfo?.history_closes || []);
     return rawNwe.map(entry => {
-      let z_compra_v1 = 0, z_venda_v1 = 0, z_neutro_v1 = entry.price_diverge_z_v1 || 0;
-      if (entry.price_diverges_v1) {
-        if (entry.p_up_v1 > 55) { z_compra_v1 = entry.price_diverge_z_v1; z_neutro_v1 = 0; }
-        else if (entry.p_up_v1 < 45) { z_venda_v1 = entry.price_diverge_z_v1; z_neutro_v1 = 0; }
+      let z_compra = 0, z_venda = 0, z_neutro = entry.price_diverge_z || 0;
+      if (entry.price_diverges) {
+        if (entry.p_up > 55) { z_compra = entry.price_diverge_z; z_neutro = 0; }
+        else if (entry.p_up < 45) { z_venda = entry.price_diverge_z; z_neutro = 0; }
       }
-      let z_compra_v2 = 0, z_venda_v2 = 0, z_neutro_v2 = entry.price_diverge_z_v2 || 0;
-      if (entry.price_diverges_v2) {
-        if (entry.p_up_v2 > 55) { z_compra_v2 = entry.price_diverge_z_v2; z_neutro_v2 = 0; }
-        else if (entry.p_up_v2 < 45) { z_venda_v2 = entry.price_diverge_z_v2; z_neutro_v2 = 0; }
+      const mappedEntry = { ...entry, z_compra, z_venda, z_neutro };
+      
+      // Flatten weights for Recharts
+      const factors = entry.factors;
+      if (factors) {
+        Object.keys(factors).forEach(label => {
+          mappedEntry[`weight_${label}`] = factors[label].weight;
+        });
       }
-      return { ...entry, z_compra_v1, z_venda_v1, z_neutro_v1, z_compra_v2, z_venda_v2, z_neutro_v2 };
+      
+      return mappedEntry;
     });
   }, [series]);
-  const nweNow = seriesWithNWE.length > 0 ? seriesWithNWE[seriesWithNWE.length - 1] : null;
+  const validSeriesWithNWE = useMemo(() => seriesWithNWE.filter(s => s.win_current !== undefined), [seriesWithNWE]);
+  const nweNow = validSeriesWithNWE.length > 0 ? validSeriesWithNWE[validSeriesWithNWE.length - 1] : null;
 
   return (
     <>
@@ -744,7 +863,7 @@ export default function App() {
             {now && (
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
-              }}>{now.time} · barra {series.length}</span>
+              }}>{now.time} · barra {validSeries.length}</span>
             )}
             {/* WS connection dot */}
             {liveMode && (
@@ -859,39 +978,21 @@ export default function App() {
         {now && !loading && (
           <>
             {/* ── SIGNAL GAUGES ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-              <SignalGauge
-                title="V1 — LONGO PRAZO"
-                pUp={now.p_up_v1 || now.p_up}
-                verdict={now.verdict_v1 || now.verdict}
-                score={now.score_v1 || now.score}
-                winReturn={now.win_return}
-                flowConfirms={now.flow_confirms}
-                cumDeltaNorm={now.cum_delta_norm}
-                targetLabel={seriesInfo.display_name || selectedTarget}
-                hasFlow={hasFlow}
-                accuracy={seriesInfo.accuracy ?? 80}
-                recentPUp={series.slice(-8).map(b => b.p_up_v1 || b.p_up).filter(v => v != null)}
-                priceDiverges={now.price_diverges_v1 !== undefined ? now.price_diverges_v1 : now.price_diverges}
-                nweUp={(nweNow?.nwe_slope || 0) >= 0}
-                nweUpper={nweNow?.nwe_upper}
-                nweLower={nweNow?.nwe_lower}
-                isPreview={now.is_preview}
-              />
-              {now.p_up_v2 != null && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
+              {now.p_up != null && (
                 <SignalGauge
-                  title="V2 — CURTO PRAZO"
-                  pUp={now.p_up_v2}
-                  verdict={now.verdict_v2}
-                  score={now.score_v2}
+                  title="DINÂMICO (KALMAN)"
+                  pUp={now.p_up}
+                  verdict={now.verdict}
+                  score={now.score}
                   winReturn={now.win_return}
                   flowConfirms={now.flow_confirms}
                   cumDeltaNorm={now.cum_delta_norm}
                   targetLabel={seriesInfo.display_name || selectedTarget}
                   hasFlow={hasFlow}
                   accuracy={seriesInfo.accuracy ?? 80}
-                  recentPUp={series.slice(-8).map(b => b.p_up_v2).filter(v => v != null)}
-                  priceDiverges={now.price_diverges_v2}
+                  recentPUp={series.slice(-8).map(b => b.p_up).filter(v => v != null)}
+                  priceDiverges={now.price_diverges}
                   nweUp={(nweNow?.nwe_slope || 0) >= 0}
                   nweUpper={nweNow?.nwe_upper}
                   nweLower={nweNow?.nwe_lower}
@@ -921,38 +1022,24 @@ export default function App() {
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>{seriesInfo.display_name || selectedTarget}</span>
                   </div>
                   <div style={{ display: 'flex', border: '1px solid #1E293B', borderRadius: 4, overflow: 'hidden' }}>
-                    <button
-                      onClick={() => setRastroView(rastroView === 'v1' ? 'both' : 'v1')}
+                    <div
                       style={{
-                        background: rastroView === 'v1' || rastroView === 'both' ? 'rgba(212,168,76,0.1)' : 'transparent',
-                        border: 'none', padding: '4px 8px', cursor: 'pointer',
+                        background: 'rgba(96,165,250,0.1)',
+                        border: 'none', padding: '4px 8px',
                         display: 'flex', alignItems: 'center', gap: 4,
-                        borderRight: '1px solid #1E293B',
                       }}
                     >
-                      <div style={{ width: 12, height: 2, background: rastroView === 'v1' || rastroView === 'both' ? '#D4A84C' : '#475569', borderTop: `1px dashed ${rastroView === 'v1' || rastroView === 'both' ? '#D4A84C' : '#475569'}` }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: rastroView === 'v1' || rastroView === 'both' ? '#D4A84C' : '#64748B' }}>P(↑) V1</span>
-                    </button>
-                    {now.p_up_v2 !== undefined && (
-                      <button
-                        onClick={() => setRastroView(rastroView === 'v2' ? 'both' : 'v2')}
-                        style={{
-                          background: rastroView === 'v2' || rastroView === 'both' ? 'rgba(96,165,250,0.1)' : 'transparent',
-                          border: 'none', padding: '4px 8px', cursor: 'pointer',
-                          display: 'flex', alignItems: 'center', gap: 4,
-                        }}
-                      >
-                        <div style={{ width: 12, height: 2, background: rastroView === 'v2' || rastroView === 'both' ? '#60A5FA' : '#475569', borderTop: `1px dashed ${rastroView === 'v2' || rastroView === 'both' ? '#60A5FA' : '#475569'}` }} />
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: rastroView === 'v2' || rastroView === 'both' ? '#60A5FA' : '#64748B' }}>P(↑) V2</span>
-                      </button>
-                    )}
+                      <div style={{ width: 12, height: 2, background: '#60A5FA', borderTop: '1px dashed #60A5FA' }} />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#60A5FA' }}>P(↑) Dinâmico</span>
+                    </div>
                   </div>
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={260}>
                 <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 10, right: 45, left: 5, bottom: 0 }}>
                   <CartesianGrid stroke="var(--grid)" vertical={false} />
-                  <XAxis dataKey="time" tick={false} stroke="#1E293B" />
+                  <XAxis dataKey="time" tick={false} stroke="#1E293B" xAxisId="utc" />
+                  {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={false} stroke="#1E293B" />}
                   <YAxis
                     yAxisId="win" orientation="left" width={45}
                     domain={([dataMin, dataMax]) => { const max = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01); return [-max, max]; }}
@@ -979,12 +1066,7 @@ export default function App() {
                   <ReferenceLine yAxisId="win" y={0} stroke="#334155" strokeDasharray="2 2" />
                   <Tooltip content={<CustomTooltip />} />
                   <Line yAxisId="win" type="monotone" dataKey="win_return" stroke="#E2E8F0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  {(rastroView === 'v1' || rastroView === 'both') && (
-                    <Line yAxisId="pup" type="monotone" dataKey={d => d.p_up_v1 !== undefined ? d.p_up_v1 : d.p_up} stroke="#D4A84C" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
-                  )}
-                  {now.p_up_v2 !== undefined && (rastroView === 'v2' || rastroView === 'both') && (
-                    <Line yAxisId="pup" type="monotone" dataKey="p_up_v2" stroke="#60A5FA" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
-                  )}
+                  <Line yAxisId="pup" type="monotone" dataKey="p_up" stroke="#60A5FA" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
 
@@ -1011,10 +1093,16 @@ export default function App() {
                   <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
                     <CartesianGrid stroke="var(--grid)" vertical={false} />
                     <XAxis
-                      dataKey="time"
+                      dataKey="time" xAxisId="utc"
                       tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
                       stroke="#1E293B" interval={11}
                     />
+                    {seriesInfo.tz_offset && <XAxis
+                      dataKey="time_local" xAxisId="brt"
+                      tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }}
+                      stroke="#1E293B" interval={11}
+                      label={{ value: seriesInfo.tz_label || 'BRT', position: 'insideRight', fill: '#C9A227', fontSize: 8, fontFamily: 'JetBrains Mono', offset: -5 }}
+                    />}
                     <YAxis
                       yAxisId="nwe" orientation="left" width={45}
                       domain={([dataMin, dataMax]) => { const max = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01); return [-max, max]; }}
@@ -1057,7 +1145,6 @@ export default function App() {
                 </ResponsiveContainer>
               </div>
 
-              
               {/* BOTTOM: Divergence Z-Score */}
               <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
@@ -1066,22 +1153,23 @@ export default function App() {
                       fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                       letterSpacing: '0.1em', textTransform: 'uppercase',
                     }}>
-                      z-score · longo prazo (v1)
+                      z-score · dinâmico (kalman)
                     </div>
                     <div style={{
                       fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                      color: (now.price_diverges_v1 || now.price_diverges) ? ((now.p_up_v1 || now.p_up) > 55 ? '#4ADE80' : '#F87171') : '#64748B',
+                      color: now.price_diverges ? (now.p_up > 55 ? '#4ADE80' : '#F87171') : '#64748B',
                     }}>
-                      {(now.price_diverges_v1 || now.price_diverges) ? ((now.p_up_v1 || now.p_up) > 55 ? '🟢 COMPRA' : '🔴 VENDA') : '✓ ALINHADO'}
+                      {now.price_diverges ? (now.p_up > 55 ? '🟢 COMPRA' : '🔴 VENDA') : '✓ ALINHADO'}
                       <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                        z={(now.price_diverge_z_v1 || now.price_diverge_z) >= 0 ? '+' : ''}{(now.price_diverge_z_v1 || now.price_diverge_z)?.toFixed(2)}
+                        z={now.price_diverge_z >= 0 ? '+' : ''}{now.price_diverge_z?.toFixed(2)}
                       </span>
                     </div>
                   </div>
                   <ResponsiveContainer width="100%" height={120}>
                     <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
                       <CartesianGrid stroke="var(--grid)" vertical={false} />
-                      <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
+                      <XAxis dataKey="time" xAxisId="utc" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
+                      {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />}
                       <YAxis yAxisId="z" orientation="left" width={45} domain={[-2.5, 2.5]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
                       <ReferenceLine yAxisId="z" y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
                       <ReferenceLine yAxisId="z" y={0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
@@ -1089,63 +1177,59 @@ export default function App() {
                       <Tooltip
                         formatter={(v, name, props) => {
                            let div = "✓ Alinhado";
-                           if (props.payload.price_diverges_v1 || props.payload.price_diverges) {
-                               div = (props.payload.p_up_v1 || props.payload.p_up) > 55 ? "Compra" : "Venda";
+                           if (props.payload.price_diverges) {
+                               div = props.payload.p_up > 55 ? "Compra" : "Venda";
                            }
-                           return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score V1']
+                           return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score']
                         }}
                         contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
                         labelStyle={{ color: '#6A6A7A' }}
                       />
-                      <Bar yAxisId="z" dataKey={d => d.z_neutro_v1 !== undefined ? d.z_neutro_v1 : d.z_neutro} stackId="z" fill="#334155" isAnimationActive={false} />
-                      <Bar yAxisId="z" dataKey={d => d.z_compra_v1 !== undefined ? d.z_compra_v1 : d.z_compra} stackId="z" fill="#4ADE80" isAnimationActive={false} />
-                      <Bar yAxisId="z" dataKey={d => d.z_venda_v1 !== undefined ? d.z_venda_v1 : d.z_venda} stackId="z" fill="#F87171" isAnimationActive={false} />
+                      <Bar yAxisId="z" dataKey="z_neutro" stackId="z" fill="#334155" isAnimationActive={false} />
+                      <Bar yAxisId="z" dataKey="z_compra" stackId="z" fill="#4ADE80" isAnimationActive={false} />
+                      <Bar yAxisId="z" dataKey="z_venda" stackId="z" fill="#F87171" isAnimationActive={false} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
                 
-                {now.p_up_v2 != null && (
+                {/* BOTTOM: Dynamic Weights (Kalman) */}
+                {now.factors && Object.keys(now.factors).length > 0 && (
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
                       <div style={{
                         fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                         letterSpacing: '0.1em', textTransform: 'uppercase',
                       }}>
-                        z-score · curto prazo (v2)
-                      </div>
-                      <div style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                        color: now.price_diverges_v2 ? (now.p_up_v2 > 55 ? '#4ADE80' : '#F87171') : '#64748B',
-                      }}>
-                        {now.price_diverges_v2 ? (now.p_up_v2 > 55 ? '🟢 COMPRA' : '🔴 VENDA') : '✓ ALINHADO'}
-                        <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                          z={now.price_diverge_z_v2 >= 0 ? '+' : ''}{now.price_diverge_z_v2?.toFixed(2)}
-                        </span>
+                        pesos dinâmicos (kalman filter)
                       </div>
                     </div>
-                    <ResponsiveContainer width="100%" height={120}>
-                      <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
+                    <ResponsiveContainer width="100%" height={140}>
+                      <LineChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
                         <CartesianGrid stroke="var(--grid)" vertical={false} />
                         <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
-                        <YAxis yAxisId="z" orientation="left" width={45} domain={[-2.5, 2.5]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
-                        <ReferenceLine yAxisId="z" y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
-                        <ReferenceLine yAxisId="z" y={0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
-                        <ReferenceLine yAxisId="z" y={-0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
+                        <YAxis orientation="left" width={45} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
+                        <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
                         <Tooltip
-                          formatter={(v, name, props) => {
-                             let div = "✓ Alinhado";
-                             if (props.payload.price_diverges_v2) {
-                                 div = props.payload.p_up_v2 > 55 ? "Compra" : "Venda";
-                             }
-                             return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score V2']
+                          formatter={(v, name) => {
+                             const realName = name.replace('weight_', '');
+                             const meta = getFactorMeta(realName);
+                             return [Number(v).toFixed(4), meta.label];
                           }}
                           contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
                           labelStyle={{ color: '#6A6A7A' }}
                         />
-                        <Bar yAxisId="z" dataKey="z_neutro_v2" stackId="z" fill="#334155" isAnimationActive={false} />
-                        <Bar yAxisId="z" dataKey="z_compra_v2" stackId="z" fill="#4ADE80" isAnimationActive={false} />
-                        <Bar yAxisId="z" dataKey="z_venda_v2" stackId="z" fill="#F87171" isAnimationActive={false} />
-                      </ComposedChart>
+                        {Object.keys(now.factors_v2 || now.factors).map((label, idx) => (
+                          <Line 
+                            key={label}
+                            type="monotone" 
+                            dataKey={`weight_${label}`} 
+                            stroke={FACTOR_COLORS[idx % FACTOR_COLORS.length]} 
+                            strokeWidth={1.5} 
+                            dot={false} 
+                            isAnimationActive={false} 
+                          />
+                        ))}
+                      </LineChart>
                     </ResponsiveContainer>
                   </div>
                 )}
@@ -1155,7 +1239,7 @@ export default function App() {
             {/* ── COMPACT FACTOR ROW ── */}
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber-dim)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 16, marginBottom: 6 }}>fatores</div>
             <div className="factors-grid">
-              {Object.entries(now.factors || {}).map(([key, data]) => {
+              {Object.entries(now.factors_v2 || now.factors_v1 || now.factors || {}).map(([key, data]) => {
                 if (!data) return null
                 const meta = getFactorMeta(key)
                 const contrib = data.contribution || 0
@@ -1219,7 +1303,7 @@ export default function App() {
               fontFamily: 'var(--font-mono)', fontSize: 10, color: '#2A2A36',
               display: 'flex', justifyContent: 'space-between',
             }}>
-              <span>IRAI · {Object.keys(now.factors || {}).length} fatores cross-asset</span>
+              <span>IRAI · {Object.keys(now.factors_v2 || now.factors_v1 || now.factors || {}).length} fatores cross-asset</span>
               <span>
                 sessão {effectiveDate} ·
                 {seriesInfo.display_name || selectedTarget} {now.win_open?.toFixed(0)} → {now.win_current?.toFixed(0)}
