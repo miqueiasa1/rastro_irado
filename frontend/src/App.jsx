@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { useSwipeable } from 'react-swipeable'
 import Overview from './Overview'
+import GEX_LEVELS from './gexLevels'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
 const API = FIREBASE_URL ? null : 'http://localhost:8888'
@@ -41,6 +42,23 @@ const FACTOR_COLORS = [
   '#FCD34D', '#A78BFA', '#34D399', '#FB923C'
 ];
 
+/* ── Forex Session Definitions (UTC) ─────────────── */
+const SERVER_UTC_OFFSET = 3; // Tickmill EEST = UTC+3 (all chart times are EEST)
+const FOREX_SESSIONS = [
+  { id: 'AS', label: 'AS', startH: 0, endH: 8, color: '#F59E0B' }, // Asia (03:00 - 11:00 EEST)
+  { id: 'UK', label: 'UK', startH: 8, endH: 13.5, color: '#06B6D4' }, // London (11:00 - 16:30 EEST)
+  { id: 'NY', label: 'NY', startH: 13.5, endH: 21, color: '#A855F7' }, // New York (16:30 - 24:00 EEST)
+];
+
+// Convert chart time (EEST) to UTC hour (float with minute precision)
+function chartTimeToUtcH(timeStr) {
+  if (!timeStr) return null;
+  const parts = timeStr.split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+  return ((h + m / 60) - SERVER_UTC_OFFSET + 24) % 24;
+}
+
 /* ── Big Gauge ────────────────────────────────────── */
 function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview }) {
   const isBuy = pUp >= 60
@@ -67,11 +85,11 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
 
   const convLabel = isPreview ? 'pré-mercado' :
     convRatio >= 0.55 ? 'forte' :
-    convRatio >= 0.25 ? 'moderada' : 'fraca'
+      convRatio >= 0.25 ? 'moderada' : 'fraca'
   const convColor = isPreview ? '#EAB308' :
     convRatio >= 0.55 ? signalColor :
-    convRatio >= 0.25 ? '#C9A227' :
-    '#475569'
+      convRatio >= 0.25 ? '#C9A227' :
+        '#475569'
 
   // ── Estabilidade (últimas 8 barras) ───────────────────────────────
   // Mede quanto o P(↑) variou e se cruzou o neutro (50)
@@ -91,7 +109,7 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
     // Trend: P(↑) nas últimas 4 barras vs. 4 barras anteriores
     const half = Math.floor(vals.length / 2)
     const early = vals.slice(0, half).reduce((a, b) => a + b, 0) / half
-    const late  = vals.slice(half).reduce((a, b) => a + b, 0) / (vals.length - half)
+    const late = vals.slice(half).reduce((a, b) => a + b, 0) / (vals.length - half)
     const trending = Math.abs(late - early) > 6  // deslocamento > 6pp entre metades
 
     if (hasCross || std > 18) {
@@ -283,7 +301,7 @@ function FactorSignal({ fkey, data }) {
   const isFavorSell = contrib < -0.02
   const isNeutral = !isFavorBuy && !isFavorSell
 
-  const label = isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : '—'
+  const label = isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : 'NEUTRO'
   const color = isFavorBuy ? '#4ADE80' : isFavorSell ? '#F87171' : '#475569'
   const bgColor = isFavorBuy ? 'rgba(74,222,128,0.06)' : isFavorSell ? 'rgba(248,113,113,0.06)' : 'rgba(71,85,105,0.04)'
   const borderColor = isFavorBuy ? 'rgba(74,222,128,0.15)' : isFavorSell ? 'rgba(248,113,113,0.15)' : 'rgba(71,85,105,0.1)'
@@ -347,7 +365,7 @@ function CustomTooltip({ active, payload, label }) {
   const winRet = d.win_return;
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
-  
+
   return (
     <div style={{
       background: '#0F172A', border: '1px solid #1E293B', borderRadius: 4,
@@ -384,21 +402,28 @@ const NWE_LOOKBACK = 95; // janela retroativa
 
 function computeNWE(data, history_closes = []) {
   if (!data || data.length < 1) return data;
-  
+
   // Only use valid prices for NWE calculation
-  const historyPrices = history_closes || [];
+  let historyPrices = history_closes || [];
   const validData = data.filter(d => d.win_current !== undefined && !d.is_ghost);
   const currentPrices = validData.map(d => d.win_current);
+
+  // Stitch history across overnight gap to prevent NWE distortion at session open
+  if (historyPrices.length > 0 && currentPrices.length > 0) {
+    const gap = currentPrices[0] - historyPrices[historyPrices.length - 1];
+    historyPrices = historyPrices.map(p => p + gap);
+  }
+
   const allPrices = [...historyPrices, ...currentPrices];
   const nAll = allPrices.length;
   if (nAll < 3) return data;
-  
+
   // 1) Kernel regression (center line) - CAUSAL (Lookback only)
   const center = new Array(nAll).fill(0);
   for (let t = 0; t < nAll; t++) {
     let sumW = 0, sumY = 0;
     const lookbackLimit = Math.min(t, NWE_LOOKBACK - 1);
-    
+
     for (let i = 0; i <= lookbackLimit; i++) {
       const w = Math.exp(-Math.pow(i, 2) / (2 * NWE_BW * NWE_BW));
       sumW += w;
@@ -413,11 +438,11 @@ function computeNWE(data, history_closes = []) {
     let sumErr = 0;
     const lookbackLimit = Math.min(t, NWE_LOOKBACK - 1);
     const count = lookbackLimit + 1;
-    
+
     for (let i = 0; i <= lookbackLimit; i++) {
       sumErr += Math.abs(allPrices[t - i] - center[t - i]);
     }
-    
+
     const mae = sumErr / count;
     envWidth[t] = mae * NWE_MULT;
   }
@@ -434,16 +459,16 @@ function computeNWE(data, history_closes = []) {
   return data.map((d) => {
     // If it's a future padded bar without data, leave it blank so it doesn't plot.
     if (d.win_current === undefined) return d;
-    
+
     const open = d.win_open || 1; // avoid div by 0
 
     // Set initial carry-forward values from history at the start of the mapping if needed
     if (validIdx === 0 && historyPrices.length > 0 && lastNweCenter === null) {
-        lastNweCenter = ((center[historyPrices.length - 1] / open) - 1) * 100;
-        lastNweUpper = ((center[historyPrices.length - 1] + envWidth[historyPrices.length - 1]) / open - 1) * 100;
-        lastNweLower = ((center[historyPrices.length - 1] - envWidth[historyPrices.length - 1]) / open - 1) * 100;
-        const prevHistoricalCenter = historyPrices.length > 1 ? center[historyPrices.length - 2] : center[historyPrices.length - 1];
-        lastNweSlope = center[historyPrices.length - 1] - prevHistoricalCenter;
+      lastNweCenter = ((center[historyPrices.length - 1] / open) - 1) * 100;
+      lastNweUpper = ((center[historyPrices.length - 1] + envWidth[historyPrices.length - 1]) / open - 1) * 100;
+      lastNweLower = ((center[historyPrices.length - 1] - envWidth[historyPrices.length - 1]) / open - 1) * 100;
+      const prevHistoricalCenter = historyPrices.length > 1 ? center[historyPrices.length - 2] : center[historyPrices.length - 1];
+      lastNweSlope = center[historyPrices.length - 1] - prevHistoricalCenter;
     }
 
     // If it's a ghost bar (overnight flat), just repeat the last known NWE so the bands stay flat
@@ -453,20 +478,27 @@ function computeNWE(data, history_closes = []) {
         nwe_center: lastNweCenter !== null ? lastNweCenter : (((d.win_current / open) - 1) * 100),
         nwe_upper: lastNweUpper !== null ? lastNweUpper : (((d.win_current / open) - 1) * 100),
         nwe_lower: lastNweLower !== null ? lastNweLower : (((d.win_current / open) - 1) * 100),
+        nwe_center_price: d.win_current,
+        nwe_upper_price: d.win_current,
+        nwe_lower_price: d.win_current,
         nwe_slope: lastNweSlope >= 0,
         nwe_is_transition: false,
         nwe_was_transition: false
       };
     }
-    
+
     // Real bar: consume the NWE computed values
     const i = validIdx++;
-    
+
     // Convert absolute price back to percentage return relative to open
     const nwe_center = ((currentCenter[i] / open) - 1) * 100;
     const nwe_upper = ((currentCenter[i] + currentEnvWidth[i]) / open - 1) * 100;
     const nwe_lower = ((currentCenter[i] - currentEnvWidth[i]) / open - 1) * 100;
-    
+
+    const nwe_center_price = currentCenter[i];
+    const nwe_upper_price = currentCenter[i] + currentEnvWidth[i];
+    const nwe_lower_price = currentCenter[i] - currentEnvWidth[i];
+
     const prevCenter = i > 0 ? currentCenter[i - 1] : (historyPrices.length > 0 ? center[historyPrices.length - 1] : currentCenter[0]);
     const nwe_slope_price = currentCenter[i] - prevCenter;
     const isUp = nwe_slope_price >= 0;
@@ -474,7 +506,7 @@ function computeNWE(data, history_closes = []) {
     // Check if next bar changes direction (transition point)
     const nextSlope = i < validData.length - 1 ? currentCenter[i + 1] - currentCenter[i] : nwe_slope_price;
     const isTransition = (nwe_slope_price >= 0) !== (nextSlope >= 0);
-    
+
     // Check if previous bar was different direction
     const prevPrevCenter = i > 1 ? currentCenter[i - 2] : (historyPrices.length > 1 ? center[historyPrices.length - 2] : prevCenter);
     const prevSlopePrice = prevCenter - prevPrevCenter;
@@ -491,10 +523,15 @@ function computeNWE(data, history_closes = []) {
       nwe_center,
       nwe_upper,
       nwe_lower,
+      nwe_center_price,
+      nwe_upper_price,
+      nwe_lower_price,
       nwe_slope: nwe_slope_price,
       // Both series get the value at transition points for continuity
       nwe_up: (isUp || isTransition || wasTransition) ? nwe_center : null,
       nwe_down: (!isUp || isTransition || wasTransition) ? nwe_center : null,
+      nwe_up_price: (isUp || isTransition || wasTransition) ? nwe_center_price : null,
+      nwe_down_price: (!isUp || isTransition || wasTransition) ? nwe_center_price : null,
     };
   });
 }
@@ -512,28 +549,33 @@ function toLocalTime(utcTimeStr, offsetH) {
 
 const padSeriesToFullDay = (series, isB3 = false) => {
   if (!series || series.length === 0) return series;
-  
+
   const lastTimeStr = series[series.length - 1].time; // ex: "18:05"
   if (!lastTimeStr) return series;
 
   const [hStr, mStr] = lastTimeStr.split(":");
   let currentH = parseInt(hStr, 10);
   let currentM = parseInt(mStr, 10);
-  
+
   const padded = [...series];
-  
-  while (currentH < 23 || (currentH === 23 && currentM < 55)) {
+
+  const targetEndH = isB3 ? 0 : 23;
+  const targetEndM = isB3 ? 30 : 55;
+
+  while (true) {
+    if (currentH === targetEndH && currentM >= targetEndM) break;
+    if (padded.length > series.length + 300) break; // safety breakout
+
     currentM += 5;
     if (currentM >= 60) {
       currentM = 0;
-      currentH += 1;
+      currentH = (currentH + 1) % 24;
     }
-    if (currentH > 23) break;
-    
+
     const h = currentH.toString().padStart(2, '0');
     const m = currentM.toString().padStart(2, '0');
     const timeTickmill = `${h}:${m}`;
-    
+
     padded.push({
       time: timeTickmill,
       time_local: isB3 ? toLocalTime(timeTickmill, -6) : null
@@ -556,7 +598,18 @@ export default function App() {
   const [error, setError] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [rastroView, setRastroView] = useState('both') // 'v1', 'v2', 'both'
-  
+  const [lineToggles, setLineToggles] = useState({
+    AS_OP: true, AS_HI: true, AS_LO: true,
+    UK_OP: true, UK_HI: true, UK_LO: true,
+    NY_OP: true, NY_HI: true, NY_LO: true,
+  })
+  const [panOffsetY, setPanOffsetY] = useState(0)
+  const [isDraggingY, setIsDraggingY] = useState(false)
+  const dragStartY = useRef(0)
+  const lastPanOffsetY = useRef(0)
+  const [showGex, setShowGex] = useState(true)
+  const [showMidWalls, setShowMidWalls] = useState(false)
+
   // The effective date: LIVE = today (from backend), or manually selected
   const effectiveDate = liveMode ? (dates.length > 0 ? dates[0] : selectedDate) : selectedDate
 
@@ -587,15 +640,15 @@ export default function App() {
     trackMouse: false
   });
 
-  // Fetch dates + targets list once (and poll every 60s in live mode to detect new sessions)
+  // Fetch dates + targets list once (and poll every 120s in live mode to detect new sessions)
   useEffect(() => {
     function loadDates() {
       if (FIREBASE_URL) {
-        const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
-        fetch(url)
+        const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
+        fetch(`${baseUrl}/dates.json`)
           .then(r => r.json())
           .then(data => {
-            const d = data?.dates?.dates || []
+            const d = data?.dates || []
             setDates(d)
             if (d.length > 0) setSelectedDate(prev => prev || d[0])
           })
@@ -612,22 +665,22 @@ export default function App() {
       }
     }
     loadDates()
-    const poll = setInterval(loadDates, 60_000)
+    const poll = setInterval(loadDates, FIREBASE_URL ? 120_000 : 60_000)
     return () => clearInterval(poll)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (FIREBASE_URL) {
-      const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
-      fetch(url)
+      const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
+      fetch(`${baseUrl}/targets.json`)
         .then(r => r.json())
-        .then(data => setTargetsMeta((data?.targets?.targets || []).filter(t => t.calibrated)))
-        .catch(() => {})
+        .then(data => setTargetsMeta((data?.targets || []).filter(t => t.calibrated)))
+        .catch(() => { })
     } else {
       fetch(`${API}/api/irai/targets`)
         .then(r => r.json())
         .then(data => setTargetsMeta((data.targets || []).filter(t => t.calibrated)))
-        .catch(() => {})
+        .catch(() => { })
     }
   }, [])
 
@@ -642,42 +695,67 @@ export default function App() {
       setSeriesInfo({})
       setError(null)
     }
-    
+
     if (FIREBASE_URL) {
-      const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
-      fetch(url)
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) { setError(data.error); setLoading(false); return }
-          const safeTarget = target.replace('$', '_').replace('.', '_')
-          const s = data?.series?.[safeTarget] || []
-          const sum = data?.summaries?.[safeTarget] || {}
-          const tMeta = data?.targets?.targets?.find(t => t.target === target) || {}
-          const processed = s.map(x => ({
-            ...x,
-            time: x.timestamp ? x.timestamp.substring(11, 16) : '00:00',
-          }))
-          setSeries(padSeriesToFullDay(processed))
+      const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
+      const safeTarget = target.replace('$', '_').replace('.', '_')
+      Promise.all([
+        fetch(`${baseUrl}/targets.json`).then(r => r.json()),
+        fetch(`${baseUrl}/series/${safeTarget}.json`).then(r => r.json()),
+        fetch(`${baseUrl}/summaries/${safeTarget}.json`).then(r => r.json()),
+        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json()),
+        fetch(`${baseUrl}/last_update.json`).then(r => r.json()).catch(() => null)
+      ])
+        .then(([targetsData, seriesData, summariesData, historyData, lastUpdateData]) => {
+          const tMeta = targetsData?.targets?.find(t => t.target === target) || {}
+          const s = seriesData || []
+          const sum = summariesData || {}
+          const history_closes = historyData || []
+
+          const isB3 = tMeta.session_start_h && tMeta.session_start_h !== 0;
+          const processed = s.map(x => {
+            const timeDb = x.timestamp ? x.timestamp.substring(11, 16) : '00:00';
+            const timeTickmill = timeDb;
+            const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
+            return {
+              ...x,
+              time: timeTickmill,
+              time_local: timeBrt,
+            };
+          });
+
+          let sliced = processed;
+          if (isB3) {
+            sliced = processed.filter(s => {
+              if (!s.time) return true;
+              return s.time >= "09:00";
+            });
+            if (sliced.length === 0) sliced = processed;
+          }
+
+          setSeries(padSeriesToFullDay(sliced, isB3))
           setSummary(sum)
-          const history_closes = data?.history?.[safeTarget] || []
-          setSeriesInfo({ display_name: tMeta.display_name, icon: tMeta.icon, history_closes })
+          setSeriesInfo({ 
+            display_name: tMeta.display_name, 
+            icon: tMeta.icon, 
+            history_closes, 
+            tz_offset: isB3 ? -3 : 0, 
+            tz_label: 'BRT' 
+          })
           setLoading(false)
-          setLastUpdate(new Date(data?.last_update ? data.last_update * 1000 : Date.now()))
+          setLastUpdate(new Date(lastUpdateData ? lastUpdateData * 1000 : Date.now()))
           setError(null)
         })
         .catch(e => { setError(e.message); setLoading(false) })
     } else {
-      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=both`)
+      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2`)
         .then(r => r.json())
         .then(data => {
           if (data.error) { setError(data.error); setLoading(false); return }
           const isB3 = data.is_b3 || false;
           const processed = (data.series || []).map(s => {
             const timeDb = s.timestamp ? s.timestamp.substring(11, 16) : '00:00';
-            // The backend now correctly shifts B3 timestamps to Tickmill time (+6h).
-            // So timeDb is already the primary axis Tickmill time.
             const timeTickmill = timeDb;
-            // The secondary BRT axis is Tickmill time - 6 hours.
             const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
             return {
               ...s,
@@ -685,7 +763,16 @@ export default function App() {
               time_local: timeBrt,
             };
           })
-          setSeries(padSeriesToFullDay(processed, isB3))
+          let sliced = processed;
+          if (isB3) {
+            sliced = processed.filter(s => {
+              if (!s.time) return true;
+              return s.time >= "09:00";
+            });
+            if (sliced.length === 0) sliced = processed; // fallback
+          }
+
+          setSeries(padSeriesToFullDay(sliced, isB3))
           setSummary(data.summary)
           setSeriesInfo({ display_name: data.display_name, icon: data.icon, history_closes: data.history_closes || [], tz_offset: isB3 ? -3 : 0, tz_label: 'BRT' })
           setLoading(false)
@@ -699,16 +786,16 @@ export default function App() {
   // Initial load on date/target/liveMode change + polling
   useEffect(() => {
     fetchSeries(effectiveDate, selectedTarget, false)
-    
+
     if (!liveMode) return
 
     let mounted = true
     let pollTimer = null
-    
-    // Poll every 60s for updates (both Firebase and local)
+
+    // Poll for updates (Firebase: every 120s, local: every 60s)
     pollTimer = setInterval(() => {
       if (mounted) fetchSeries(effectiveDate, selectedTarget, true)
-    }, 60_000)
+    }, FIREBASE_URL ? 120_000 : 60_000)
     
     return () => {
       mounted = false
@@ -751,8 +838,68 @@ export default function App() {
         if (entry.p_up > 55) { z_compra = entry.price_diverge_z; z_neutro = 0; }
         else if (entry.p_up < 45) { z_venda = entry.price_diverge_z; z_neutro = 0; }
       }
-      const mappedEntry = { ...entry, z_compra, z_venda, z_neutro };
       
+      let pair_compra = undefined;
+      let pair_venda = undefined;
+      let hm_color_pr = '#1E293B';
+      
+      // Filtra sinais pair trading contra a direção do Rastro Macro P(↑)
+      // Se P(↑) > 50 (alta), não pinta bolinha vermelha (venda = falso alerta)
+      // Se P(↑) < 50 (baixa), não pinta bolinha verde (compra = falso alerta)
+      const pUpDir = entry.p_up != null ? entry.p_up : 50;
+      if (entry.pair_signal === 'buy' && pUpDir >= 50) {
+        pair_compra = entry.win_current;
+        hm_color_pr = '#4ADE80';
+      } else if (entry.pair_signal === 'sell' && pUpDir <= 50) {
+        pair_venda = entry.win_current;
+        hm_color_pr = '#F87171';
+      }
+
+      // Heatmap Logic
+      const pUp = entry.p_up != null ? entry.p_up : 50;
+      const isBuy = pUp >= 60;
+      const isSell = pUp <= 40;
+      const winReturn = entry.win_return || 0;
+
+      // D: Divergência de Retorno
+      const isReturnDivergentBuy = isBuy && winReturn < 0;
+      const isReturnDivergentSell = isSell && winReturn > 0;
+      let hm_color_d = isReturnDivergentBuy ? '#4ADE80' : isReturnDivergentSell ? '#F87171' : '#1E293B';
+
+      // P: Pullback NWE
+      const nweUp = entry.nwe_slope !== undefined ? entry.nwe_slope >= 0 : undefined;
+      const isNweDivergentBuy = isBuy && nweUp === false;
+      const isNweDivergentSell = isSell && nweUp === true;
+      let hm_color_p = isNweDivergentBuy ? '#4ADE80' : isNweDivergentSell ? '#F87171' : '#1E293B';
+
+      // Z: Z-Score
+      let hm_color_z = entry.price_diverges ? (entry.p_up > 55 ? '#4ADE80' : (entry.p_up < 45 ? '#F87171' : '#1E293B')) : '#1E293B';
+
+      // E: Exaustão NWE
+      const isNweExhaustionDown = entry.nwe_upper !== undefined && winReturn > entry.nwe_upper;
+      const isNweExhaustionUp = entry.nwe_lower !== undefined && winReturn < entry.nwe_lower;
+      let hm_color_e = isNweExhaustionUp ? '#4ADE80' : isNweExhaustionDown ? '#F87171' : '#1E293B';
+
+      // Limpar sinais se o mercado estiver fechado (ghost bar)
+      if (entry.is_ghost) {
+        hm_color_d = 'transparent';
+        hm_color_p = 'transparent';
+        hm_color_z = 'transparent';
+        hm_color_e = 'transparent';
+        hm_color_pr = 'transparent';
+        z_compra = 0;
+        z_venda = 0;
+        pair_compra = undefined;
+        pair_venda = undefined;
+      }
+
+      const mappedEntry = {
+        ...entry,
+        z_compra, z_venda, z_neutro,
+        pair_compra, pair_venda,
+        hm_val: 1, hm_color_d, hm_color_p, hm_color_z, hm_color_pr, hm_color_e
+      };
+
       // Flatten weights for Recharts
       const factors = entry.factors;
       if (factors) {
@@ -760,12 +907,97 @@ export default function App() {
           mappedEntry[`weight_${label}`] = factors[label].weight;
         });
       }
-      
+
       return mappedEntry;
     });
   }, [series]);
   const validSeriesWithNWE = useMemo(() => seriesWithNWE.filter(s => s.win_current !== undefined), [seriesWithNWE]);
   const nweNow = validSeriesWithNWE.length > 0 ? validSeriesWithNWE[validSeriesWithNWE.length - 1] : null;
+
+  // ── Forex Session Levels (Open/High/Low) ──────────────────────────
+  const sessionLevels = useMemo(() => {
+    if (!validSeriesWithNWE.length) return [];
+
+    return FOREX_SESSIONS.map(session => {
+      const bars = validSeriesWithNWE.filter(d => {
+        if (!d.time || d.is_ghost || d.win_current === undefined) return false;
+        const hUtc = chartTimeToUtcH(d.time);
+        return hUtc !== null && hUtc >= session.startH && hUtc < session.endH;
+      });
+
+      if (bars.length === 0) return null;
+
+      let high = -Infinity;
+      let low = Infinity;
+      let highTime = null;
+      let lowTime = null;
+
+      bars.forEach(b => {
+        if (b.win_current > high) {
+          high = b.win_current;
+          highTime = b.time;
+        }
+        if (b.win_current < low) {
+          low = b.win_current;
+          lowTime = b.time;
+        }
+      });
+
+      return {
+        ...session,
+        open: bars[0].win_current,
+        high,
+        low,
+        highTime,
+        lowTime,
+      };
+    }).filter(Boolean);
+  }, [validSeriesWithNWE]);
+
+  // Enrich series with session OP/HI/LO values (each starts from its relevant time)
+  const seriesWithSessions = useMemo(() => {
+    if (!sessionLevels.length) return seriesWithNWE;
+
+    // Build level map
+    const levelMap = {};
+    sessionLevels.forEach(s => { levelMap[s.id] = s; });
+
+    // Track when we pass the session open, high, and low times
+    const passed = { open: {}, high: {}, low: {} };
+
+    return seriesWithNWE.map(d => {
+      if (!d.time) return d;
+      const hUtc = chartTimeToUtcH(d.time);
+      if (hUtc === null) return d;
+
+      const result = { ...d };
+      FOREX_SESSIONS.forEach(session => {
+        const levels = levelMap[session.id];
+        if (!levels) return;
+
+        // Set passed flags chronologically
+        if (!passed.open[session.id] && hUtc >= session.startH && hUtc < session.endH) {
+          passed.open[session.id] = true;
+        }
+        if (d.time === levels.highTime) passed.high[session.id] = true;
+        if (d.time === levels.lowTime) passed.low[session.id] = true;
+
+        // OP: from exact chronological session start onward
+        if (passed.open[session.id]) {
+          result[`sop_${session.id}`] = levels.open;
+        }
+
+        // HI/LO: from exactly when they were formed
+        if (passed.high[session.id]) {
+          result[`shi_${session.id}`] = levels.high;
+        }
+        if (passed.low[session.id]) {
+          result[`slo_${session.id}`] = levels.low;
+        }
+      });
+      return result;
+    });
+  }, [seriesWithNWE, sessionLevels]);
 
   return (
     <>
@@ -825,494 +1057,737 @@ export default function App() {
         }
       `}</style>
       {page === 'overview' ? (
-        <Overview 
+        <Overview
           onSelectTarget={(target) => {
             setSelectedTarget(target)
             setPage('detail')
-          }} 
+          }}
         />
       ) : (
-      <div className="app-container" {...targetSwipeHandlers}>
-        {/* Header */}
-        <header className="app-header">
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-            <button
-              onClick={() => setPage('overview')}
-              style={{
-                background: 'none', border: '1px solid #334155',
-                borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-                fontFamily: 'var(--font-mono)', fontSize: 10, color: '#94A3B8',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={e => e.currentTarget.style.borderColor = '#64748B'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = '#334155'}
-            >← PAINEL</button>
-            <h1 style={{
-              fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 400,
-              margin: 0, color: 'var(--amber)',
-              letterSpacing: '0.04em',
-            }}>
-              IRAI
-            </h1>
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: '#3A3A4A',
-              letterSpacing: '0.12em', textTransform: 'uppercase',
-            }}>Intraday Risk Appetite Index</span>
-          </div>
-          <div className="app-header-controls">
-            {now && (
+        <div className="app-container" {...targetSwipeHandlers}>
+          {/* Header */}
+          <header className="app-header">
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+              <button
+                onClick={() => setPage('overview')}
+                style={{
+                  background: 'none', border: '1px solid #334155',
+                  borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, color: '#94A3B8',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = '#64748B'}
+                onMouseLeave={e => e.currentTarget.style.borderColor = '#334155'}
+              >← PAINEL</button>
+              <h1 style={{
+                fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 400,
+                margin: 0, color: 'var(--amber)',
+                letterSpacing: '0.04em',
+              }}>
+                IRAI
+              </h1>
               <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
-              }}>{now.time} · barra {validSeries.length}</span>
-            )}
-            {/* WS connection dot */}
-            {liveMode && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80',
-              }}>
-                <div style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: '#4ADE80',
-                  boxShadow: '0 0 6px #4ADE80',
-                  animation: 'pulse 2s infinite',
-                }} />
-                LIVE (60s)
-              </div>
-            )}
-            <select
-              value={selectedTarget}
-              onChange={e => setSelectedTarget(e.target.value)}
-            >
-              {targetsMeta.map(t => (
-                <option key={t.target} value={t.target}>
-                  {t.icon} {t.display_name}
-                </option>
-              ))}
-            </select>
-            {/* LIVE button + date dropdown */}
-            {!FIREBASE_URL ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                <button
-                  onClick={() => setLiveMode(true)}
-                  style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-                    letterSpacing: '0.1em', padding: '6px 11px',
-                    borderRadius: '4px 0 0 4px',
-                    border: `1px solid ${liveMode ? '#4ADE80' : '#334155'}`,
-                    borderRight: 'none',
-                    background: liveMode ? 'rgba(74,222,128,0.12)' : '#1E293B',
-                    color: liveMode ? '#4ADE80' : '#475569',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex', alignItems: 'center', gap: 5,
-                  }}
-                >
-                  {liveMode && (
-                    <span style={{
-                      display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                      background: '#4ADE80',
-                      boxShadow: '0 0 5px #4ADE80',
-                      animation: 'pulse 2s infinite',
-                    }} />
-                  )}
-                  LIVE
-                </button>
-                <select
-                  value={liveMode ? (dates[0] || '') : (selectedDate || '')}
-                  onChange={e => {
-                    setLiveMode(false)
-                    setSelectedDate(e.target.value)
-                  }}
-                  style={{
-                    borderRadius: '0 4px 4px 0',
-                    borderLeft: `1px solid ${liveMode ? '#4ADE8033' : '#334155'}`,
-                    opacity: liveMode ? 0.5 : 1,
-                  }}
-                >
-                  {dates.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-            ) : (
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-                letterSpacing: '0.1em', padding: '6px 11px',
-                borderRadius: 4,
-                border: '1px solid #4ADE80',
-                background: 'rgba(74,222,128,0.12)',
-                color: '#4ADE80',
-                display: 'flex', alignItems: 'center', gap: 5,
-              }}>
+                fontFamily: 'var(--font-mono)', fontSize: 10, color: '#3A3A4A',
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+              }}>Intraday Risk Appetite Index</span>
+            </div>
+            <div className="app-header-controls">
+              {now && (
                 <span style={{
-                  display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                  background: '#4ADE80', boxShadow: '0 0 5px #4ADE80',
-                  animation: 'pulse 2s infinite',
-                }} />
-                LIVE
-              </div>
-            )}
-          </div>
-        </header>
-
-        <main>
-        {loading && (
-          <div style={{ textAlign: 'center', padding: 60, color: '#64748B', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-            carregando sessão...
-          </div>
-        )}
-
-        {error && !seriesWithNWE.length && !loading && (
-          <div style={{ textAlign: 'center', padding: 100, color: '#64748B', fontFamily: 'var(--font-mono)' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
-            <div style={{ fontSize: 16, color: '#D4A84C', marginBottom: 8 }}>
-              {isOffline ? 'Backend offline' : error}
-            </div>
-            <div style={{ fontSize: 12, color: '#64748B', marginTop: 12 }}>
-              {liveMode 
-                ? "Dica: O pregão pode estar fechado (fim de semana/feriado). Desative o LIVE 🟢 para visualizar dias anteriores."
-                : "Aguardando o início do pregão ou os primeiros dados da sessão..."}
-            </div>
-          </div>
-        )}
-
-        {now && !loading && (
-          <>
-            {/* ── SIGNAL GAUGES ── */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
-              {now.p_up != null && (
-                <SignalGauge
-                  title="DINÂMICO (KALMAN)"
-                  pUp={now.p_up}
-                  verdict={now.verdict}
-                  score={now.score}
-                  winReturn={now.win_return}
-                  flowConfirms={now.flow_confirms}
-                  cumDeltaNorm={now.cum_delta_norm}
-                  targetLabel={seriesInfo.display_name || selectedTarget}
-                  hasFlow={hasFlow}
-                  accuracy={seriesInfo.accuracy ?? 80}
-                  recentPUp={series.slice(-8).map(b => b.p_up).filter(v => v != null)}
-                  priceDiverges={now.price_diverges}
-                  nweUp={(nweNow?.nwe_slope || 0) >= 0}
-                  nweUpper={nweNow?.nwe_upper}
-                  nweLower={nweNow?.nwe_lower}
-                  isPreview={now.is_preview}
-                />
+                  fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
+                }}>{now.time} · barra {validSeries.length}</span>
+              )}
+              {/* WS connection dot */}
+              {liveMode && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80',
+                }}>
+                  <div style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: '#4ADE80',
+                    boxShadow: '0 0 6px #4ADE80',
+                    animation: 'pulse 2s infinite',
+                  }} />
+                  LIVE (60s)
+                </div>
+              )}
+              <select
+                value={selectedTarget}
+                onChange={e => setSelectedTarget(e.target.value)}
+              >
+                {targetsMeta.map(t => (
+                  <option key={t.target} value={t.target}>
+                    {t.icon} {t.display_name}
+                  </option>
+                ))}
+              </select>
+              {/* LIVE button + date dropdown */}
+              {!FIREBASE_URL ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                  <button
+                    onClick={() => setLiveMode(true)}
+                    style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                      letterSpacing: '0.1em', padding: '6px 11px',
+                      borderRadius: '4px 0 0 4px',
+                      border: `1px solid ${liveMode ? '#4ADE80' : '#334155'}`,
+                      borderRight: 'none',
+                      background: liveMode ? 'rgba(74,222,128,0.12)' : '#1E293B',
+                      color: liveMode ? '#4ADE80' : '#475569',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    {liveMode && (
+                      <span style={{
+                        display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                        background: '#4ADE80',
+                        boxShadow: '0 0 5px #4ADE80',
+                        animation: 'pulse 2s infinite',
+                      }} />
+                    )}
+                    LIVE
+                  </button>
+                  <select
+                    value={liveMode ? (dates[0] || '') : (selectedDate || '')}
+                    onChange={e => {
+                      setLiveMode(false)
+                      setSelectedDate(e.target.value)
+                    }}
+                    style={{
+                      borderRadius: '0 4px 4px 0',
+                      borderLeft: `1px solid ${liveMode ? '#4ADE8033' : '#334155'}`,
+                      opacity: liveMode ? 0.5 : 1,
+                    }}
+                  >
+                    {dates.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.1em', padding: '6px 11px',
+                  borderRadius: 4,
+                  border: '1px solid #4ADE80',
+                  background: 'rgba(74,222,128,0.12)',
+                  color: '#4ADE80',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}>
+                  <span style={{
+                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                    background: '#4ADE80', boxShadow: '0 0 5px #4ADE80',
+                    animation: 'pulse 2s infinite',
+                  }} />
+                  LIVE
+                </div>
               )}
             </div>
+          </header>
 
-            {/* ── STACKED CHARTS: same X axis ── */}
-            <div className="chart-container">
-              {/* TOP: WIN vs IRAI */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div>
-                  <div style={{
-                    fontFamily: 'var(--font-serif)', fontSize: 18, color: '#D0D0DC',
-                  }}>
-                    {seriesInfo.display_name || selectedTarget} <span style={{ fontStyle: 'italic', color: '#3A3A4A' }}>vs</span> IRAI
-                  </div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber-dim)', marginTop: 2,
-                    letterSpacing: '0.1em', textTransform: 'uppercase',
-                  }}>rastro macro · fatores externos</div>
+          <main>
+            {loading && (
+              <div style={{ textAlign: 'center', padding: 60, color: '#64748B', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                carregando sessão...
+              </div>
+            )}
+
+            {error && !seriesWithNWE.length && !loading && (
+              <div style={{ textAlign: 'center', padding: 100, color: '#64748B', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ fontSize: 48, marginBottom: 16 }}>⏳</div>
+                <div style={{ fontSize: 16, color: '#D4A84C', marginBottom: 8 }}>
+                  {isOffline ? 'Backend offline' : error}
                 </div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <div style={{ width: 12, height: 2, background: '#E2E8F0' }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>{seriesInfo.display_name || selectedTarget}</span>
-                  </div>
-                  <div style={{ display: 'flex', border: '1px solid #1E293B', borderRadius: 4, overflow: 'hidden' }}>
-                    <div
-                      style={{
-                        background: 'rgba(96,165,250,0.1)',
-                        border: 'none', padding: '4px 8px',
-                        display: 'flex', alignItems: 'center', gap: 4,
-                      }}
-                    >
-                      <div style={{ width: 12, height: 2, background: '#60A5FA', borderTop: '1px dashed #60A5FA' }} />
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#60A5FA' }}>P(↑) Dinâmico</span>
-                    </div>
-                  </div>
+                <div style={{ fontSize: 12, color: '#64748B', marginTop: 12 }}>
+                  {liveMode
+                    ? "Dica: O pregão pode estar fechado (fim de semana/feriado). Desative o LIVE 🟢 para visualizar dias anteriores."
+                    : "Aguardando o início do pregão ou os primeiros dados da sessão..."}
                 </div>
               </div>
-              <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 10, right: 45, left: 5, bottom: 0 }}>
-                  <CartesianGrid stroke="var(--grid)" vertical={false} />
-                  <XAxis dataKey="time" tick={false} stroke="#1E293B" xAxisId="utc" />
-                  {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={false} stroke="#1E293B" />}
-                  <YAxis
-                    yAxisId="win" orientation="left" width={45}
-                    domain={([dataMin, dataMax]) => { const max = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01); return [-max, max]; }}
-                    allowDataOverflow={true}
-                    tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                    stroke="#1E293B" tickFormatter={v => `${Number(v).toFixed(1)}%`}
-                  />
-                  <YAxis
-                    yAxisId="pup" orientation="right" width={35} domain={[0, 100]}
-                    ticks={[0, 25, 50, 75, 100]}
-                    tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                    stroke="#1E293B" tickFormatter={v => `${v}%`}
-                  />
-                  {/* Limiares do modelo — cruzar estas linhas ativa/desativa divergência */}
-                  <ReferenceLine yAxisId="pup" y={60}
-                    stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 4"
-                    label={{ value: 'compra', position: 'insideRight', fontSize: 7, fontFamily: 'JetBrains Mono', fill: '#4ADE8099', dy: -6 }}
-                  />
-                  <ReferenceLine yAxisId="pup" y={40}
-                    stroke="#F87171" strokeWidth={1} strokeDasharray="3 4"
-                    label={{ value: 'venda', position: 'insideRight', fontSize: 7, fontFamily: 'JetBrains Mono', fill: '#F8717199', dy: 8 }}
-                  />
-                  <ReferenceLine yAxisId="pup" y={50} stroke="#1E293B" strokeDasharray="2 6" />
-                  <ReferenceLine yAxisId="win" y={0} stroke="#334155" strokeDasharray="2 2" />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Line yAxisId="win" type="monotone" dataKey="win_return" stroke="#E2E8F0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                  <Line yAxisId="pup" type="monotone" dataKey="p_up" stroke="#60A5FA" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
+            )}
 
-              {/* MOVIMENTO DO ÍNDICE — NWE (Nadaraya-Watson Envelope) */}
-              <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                    letterSpacing: '0.1em', textTransform: 'uppercase',
-                  }}>
-                    movimento {seriesInfo.display_name || selectedTarget}
-                  </div>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                    color: (nweNow?.nwe_slope || 0) >= 0 ? '#4ADE80' : '#F87171',
-                  }}>
-                    {(nweNow?.nwe_slope || 0) >= 0 ? '▲ NWE ALTA' : '▼ NWE BAIXA'}
-                    <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                      {`bw=${NWE_BW}`} · {nweNow?.nwe_center?.toFixed(3)}%
-                    </span>
-                  </div>
+            {now && !loading && (
+              <>
+                {/* ── SIGNAL GAUGES ── */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
+                  {now.p_up != null && (
+                    <SignalGauge
+                      title="RASTRO MACRO"
+                      pUp={now.p_up}
+                      verdict={now.verdict}
+                      score={now.score}
+                      winReturn={now.win_return}
+                      flowConfirms={now.flow_confirms}
+                      cumDeltaNorm={now.cum_delta_norm}
+                      targetLabel={seriesInfo.display_name || selectedTarget}
+                      hasFlow={hasFlow}
+                      accuracy={seriesInfo.accuracy ?? 80}
+                      recentPUp={series.slice(-8).map(b => b.p_up).filter(v => v != null)}
+                      priceDiverges={now.price_diverges}
+                      nweUp={(nweNow?.nwe_slope || 0) >= 0}
+                      nweUpper={nweNow?.nwe_upper}
+                      nweLower={nweNow?.nwe_lower}
+                      isPreview={now.is_preview}
+                    />
+                  )}
                 </div>
-                <ResponsiveContainer width="100%" height={180}>
-                  <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
-                    <CartesianGrid stroke="var(--grid)" vertical={false} />
-                    <XAxis
-                      dataKey="time" xAxisId="utc"
-                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                      stroke="#1E293B" interval={11}
-                    />
-                    {seriesInfo.tz_offset && <XAxis
-                      dataKey="time_local" xAxisId="brt"
-                      tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }}
-                      stroke="#1E293B" interval={11}
-                      label={{ value: seriesInfo.tz_label || 'BRT', position: 'insideRight', fill: '#C9A227', fontSize: 8, fontFamily: 'JetBrains Mono', offset: -5 }}
-                    />}
-                    <YAxis
-                      yAxisId="nwe" orientation="left" width={45}
-                      domain={([dataMin, dataMax]) => { const max = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01); return [-max, max]; }}
-                      allowDataOverflow={true}
-                      tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                      stroke="#1E293B"
-                      tickFormatter={v => `${Number(v).toFixed(2)}%`}
-                    />
-                    <YAxis yAxisId="spacer" orientation="right" width={35} tick={false} stroke="transparent" />
-                    <Tooltip
-                      formatter={(v, name) => {
-                        if (v === null || v === undefined) return [null, null];
-                        const labels = { nwe_upper: 'Banda ↑', nwe_lower: 'Banda ↓', nwe_up: 'NWE ↑', nwe_down: 'NWE ↓', win_return: 'Preço' };
-                        return [`${Number(v).toFixed(3)}%`, labels[name] || name]
-                      }}
-                      contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                      labelStyle={{ color: '#6A6A7A' }}
-                    />
-                    {/* Envelope bands (dashed) */}
-                    <Line yAxisId="nwe" type="monotone" dataKey="nwe_upper" dot={false}
-                      stroke="#F87171" strokeWidth={1} strokeDasharray="4 3" isAnimationActive={false}
-                    />
-                    <Line yAxisId="nwe" type="monotone" dataKey="nwe_lower" dot={false}
-                      stroke="#4ADE80" strokeWidth={1} strokeDasharray="4 3" isAnimationActive={false}
-                    />
-                    {/* NWE center line — split into up (green) and down (red) segments */}
-                    <Line yAxisId="nwe" type="monotone" dataKey="nwe_up" dot={false}
-                      stroke="#4ADE80" strokeWidth={1.5} isAnimationActive={false}
-                      connectNulls={false}
-                    />
-                    <Line yAxisId="nwe" type="monotone" dataKey="nwe_down" dot={false}
-                      stroke="#F87171" strokeWidth={1.5} isAnimationActive={false}
-                      connectNulls={false}
-                    />
-                    {/* Price line */}
-                    <Line yAxisId="nwe" type="monotone" dataKey="win_return" dot={false}
-                      stroke="#E2E8F0" strokeWidth={1.5} isAnimationActive={false}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
 
-              {/* BOTTOM: Divergence Z-Score */}
-              <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                      letterSpacing: '0.1em', textTransform: 'uppercase',
-                    }}>
-                      z-score · dinâmico (kalman)
-                    </div>
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                      color: now.price_diverges ? (now.p_up > 55 ? '#4ADE80' : '#F87171') : '#64748B',
-                    }}>
-                      {now.price_diverges ? (now.p_up > 55 ? '🟢 COMPRA' : '🔴 VENDA') : '✓ ALINHADO'}
-                      <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                        z={now.price_diverge_z >= 0 ? '+' : ''}{now.price_diverge_z?.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={120}>
-                    <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
-                      <CartesianGrid stroke="var(--grid)" vertical={false} />
-                      <XAxis dataKey="time" xAxisId="utc" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
-                      {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />}
-                      <YAxis yAxisId="z" orientation="left" width={45} domain={[-2.5, 2.5]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
-                      <ReferenceLine yAxisId="z" y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
-                      <ReferenceLine yAxisId="z" y={0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
-                      <ReferenceLine yAxisId="z" y={-0.5} stroke="#F8717133" strokeWidth={1} strokeDasharray="2 2" />
-                      <Tooltip
-                        formatter={(v, name, props) => {
-                           let div = "✓ Alinhado";
-                           if (props.payload.price_diverges) {
-                               div = props.payload.p_up > 55 ? "Compra" : "Venda";
-                           }
-                           return [`${Number(v).toFixed(2)} (${div})`, 'Z-Score']
-                        }}
-                        contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                        labelStyle={{ color: '#6A6A7A' }}
-                      />
-                      <Bar yAxisId="z" dataKey="z_neutro" stackId="z" fill="#334155" isAnimationActive={false} />
-                      <Bar yAxisId="z" dataKey="z_compra" stackId="z" fill="#4ADE80" isAnimationActive={false} />
-                      <Bar yAxisId="z" dataKey="z_venda" stackId="z" fill="#F87171" isAnimationActive={false} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* BOTTOM: Dynamic Weights (Kalman) */}
-                {now.factors && Object.keys(now.factors).length > 0 && (
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                {/* ── STACKED CHARTS: same X axis ── */}
+                <div className="chart-container">
+                  {/* TOP: WIN vs IRAI */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div>
                       <div style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                        letterSpacing: '0.1em', textTransform: 'uppercase',
+                        fontFamily: 'var(--font-serif)', fontSize: 18, color: '#D0D0DC',
                       }}>
-                        pesos dinâmicos (kalman filter)
+                        {seriesInfo.display_name || selectedTarget} <span style={{ fontStyle: 'italic', color: '#3A3A4A' }}>vs</span> IRAI
+                      </div>
+                      <div style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber-dim)', marginTop: 2,
+                        letterSpacing: '0.1em', textTransform: 'uppercase',
+                      }}>rastro macro · fatores externos</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                      {now.pair_factor && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', borderRadius: 4, background: '#0E0E11', border: '1px solid #1E293B' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>PAR ATIVO:</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#C9A227', fontWeight: 600 }}>{now.pair_factor}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>β:</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: now.pair_beta > 0 ? '#4ADE80' : '#F87171' }}>{now.pair_beta > 0 ? '+' : ''}{now.pair_beta?.toFixed(3)}</span>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ width: 12, height: 2, background: '#E2E8F0' }} />
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>{seriesInfo.display_name || selectedTarget}</span>
+                      </div>
+                      <div style={{ display: 'flex', border: '1px solid #1E293B', borderRadius: 4, overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            background: 'rgba(96,165,250,0.1)',
+                            border: 'none', padding: '4px 8px',
+                            display: 'flex', alignItems: 'center', gap: 4,
+                          }}
+                        >
+                          <div style={{ width: 12, height: 2, background: '#60A5FA', borderTop: '1px dashed #60A5FA' }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#60A5FA' }}>P(↑) Dinâmico</span>
+                        </div>
                       </div>
                     </div>
-                    <ResponsiveContainer width="100%" height={140}>
-                      <LineChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 80, left: 5, bottom: 0 }}>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
+                      <CartesianGrid stroke="var(--grid)" vertical={false} />
+                      <XAxis dataKey="time" tick={false} stroke="#1E293B" xAxisId="utc" />
+                      {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={false} stroke="#1E293B" />}
+                      <YAxis
+                        yAxisId="win" orientation="left" width={45}
+                        domain={([dataMin, dataMax]) => { const max = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01); return [-max, max]; }}
+                        allowDataOverflow={true}
+                        tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
+                        stroke="#1E293B" tickFormatter={v => `${Number(v).toFixed(1)}%`}
+                      />
+                      <YAxis
+                        yAxisId="pup" orientation="right" width={35} domain={[0, 100]}
+                        ticks={[0, 25, 50, 75, 100]}
+                        tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
+                        stroke="#1E293B" tickFormatter={v => `${v}%`}
+                      />
+                      {/* Limiares do modelo — cruzar estas linhas ativa/desativa divergência */}
+                      <ReferenceLine yAxisId="pup" y={60}
+                        stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 4"
+                        label={{ value: 'compra', position: 'insideRight', fontSize: 7, fontFamily: 'JetBrains Mono', fill: '#4ADE8099', dy: -6 }}
+                      />
+                      <ReferenceLine yAxisId="pup" y={40}
+                        stroke="#F87171" strokeWidth={1} strokeDasharray="3 4"
+                        label={{ value: 'venda', position: 'insideRight', fontSize: 7, fontFamily: 'JetBrains Mono', fill: '#F8717199', dy: 8 }}
+                      />
+                      <ReferenceLine yAxisId="pup" y={50} stroke="#1E293B" strokeDasharray="2 6" />
+                      <ReferenceLine yAxisId="win" y={0} stroke="#334155" strokeDasharray="2 2" />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Line yAxisId="win" type="monotone" dataKey="win_return" stroke="#E2E8F0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                      <Line yAxisId="pup" type="monotone" dataKey="p_up" stroke="#60A5FA" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+
+                  {/* MOVIMENTO DO ÍNDICE — NWE (Nadaraya-Watson Envelope) */}
+                  <div
+                    style={{
+                      marginTop: 2, borderTop: '1px solid var(--border-dim)',
+                      cursor: isDraggingY ? 'grabbing' : 'grab'
+                    }}
+                    onMouseDown={(e) => {
+                      setIsDraggingY(true);
+                      dragStartY.current = e.clientY;
+                      lastPanOffsetY.current = panOffsetY;
+                    }}
+                    onMouseMove={(e) => {
+                      if (!isDraggingY) return;
+                      const deltaY = e.clientY - dragStartY.current;
+                      // Convert pixel movement to ratio of the chart height (320px).
+                      // Moving mouse down (positive delta) shifts the chart down
+                      // which means increasing the domain values.
+                      setPanOffsetY(lastPanOffsetY.current + (deltaY / 320));
+                    }}
+                    onMouseUp={() => setIsDraggingY(false)}
+                    onMouseLeave={() => setIsDraggingY(false)}
+                    onDoubleClick={() => setPanOffsetY(0)}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                          letterSpacing: '0.1em', textTransform: 'uppercase',
+                        }}>
+                          movimento {seriesInfo.display_name || selectedTarget}
+                          {panOffsetY !== 0 && <span style={{ color: '#4ADE80', marginLeft: 8, fontSize: 8 }}>[Y-AXIS DESLOCADO - DUPLO CLIQUE PARA RESETAR]</span>}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {/* Per-line session toggle buttons */}
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {!seriesInfo.tz_offset && FOREX_SESSIONS.map(s => (
+                            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: s.color, fontWeight: 700, marginRight: 1 }}>{s.label}</span>
+                              {['OP', 'HI', 'LO'].map(type => {
+                                const key = `${s.id}_${type}`;
+                                const isOn = lineToggles[key];
+                                return (
+                                  <button
+                                    key={key}
+                                    onClick={() => setLineToggles(prev => ({ ...prev, [key]: !prev[key] }))}
+                                    style={{
+                                      fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 600,
+                                      padding: '2px 4px', borderRadius: 3, cursor: 'pointer',
+                                      border: `1px solid ${isOn ? s.color : '#1E293B'}`,
+                                      background: isOn ? `${s.color}18` : 'transparent',
+                                      color: isOn ? s.color : '#334155',
+                                      transition: 'all 0.15s',
+                                      lineHeight: 1,
+                                    }}
+                                  >
+                                    {type}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                        {/* GEX toggle buttons */}
+                        {GEX_LEVELS[selectedTarget] && (
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <button
+                              onClick={() => setShowGex(prev => !prev)}
+                              style={{
+                                fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+                                padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
+                                border: `1px solid ${showGex ? '#ffd600' : '#1E293B'}`,
+                                background: showGex ? 'rgba(255,214,0,0.1)' : 'transparent',
+                                color: showGex ? '#ffd600' : '#334155',
+                                transition: 'all 0.15s', lineHeight: 1,
+                              }}
+                            >GEX</button>
+                            {showGex && (
+                              <button
+                                onClick={() => setShowMidWalls(prev => !prev)}
+                                style={{
+                                  fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 600,
+                                  padding: '2px 5px', borderRadius: 3, cursor: 'pointer',
+                                  border: `1px solid ${showMidWalls ? '#90a4ae' : '#1E293B'}`,
+                                  background: showMidWalls ? 'rgba(144,164,174,0.1)' : 'transparent',
+                                  color: showMidWalls ? '#90a4ae' : '#334155',
+                                  transition: 'all 0.15s', lineHeight: 1,
+                                }}
+                              >MID</button>
+                            )}
+                          </div>
+                        )}
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                          color: (nweNow?.nwe_slope || 0) >= 0 ? '#4ADE80' : '#F87171',
+                        }}>
+                          {(nweNow?.nwe_slope || 0) >= 0 ? '▲ NWE ALTA' : '▼ NWE BAIXA'}
+                          <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
+                            {`bw=${NWE_BW}`} &middot; {
+                              nweNow?.nwe_center_price >= 1000 
+                                ? (nweNow.nwe_center_price / 1000).toFixed(1) + 'k' 
+                                : nweNow?.nwe_center_price?.toFixed(2)
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <ComposedChart data={seriesWithSessions} syncId="irai" margin={{ top: 4, right: 10, left: 5, bottom: 0 }}>
                         <CartesianGrid stroke="var(--grid)" vertical={false} />
-                        <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
-                        <YAxis orientation="left" width={45} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
-                        <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                        <XAxis
+                          dataKey="time" xAxisId="utc"
+                          tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
+                          stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11}
+                        />
+                        {seriesInfo.tz_offset && <XAxis
+                          dataKey="time_local" xAxisId="brt"
+                          tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }}
+                          stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11}
+                          label={{ value: seriesInfo.tz_label || 'BRT', position: 'insideRight', fill: '#C9A227', fontSize: 8, fontFamily: 'JetBrains Mono', offset: -5 }}
+                        />}
+                        <YAxis
+                          yAxisId="nwe" orientation="left" width={45}
+                          domain={([dataMin, dataMax]) => {
+                            const range = (dataMax - dataMin) || 1;
+                            const offset = panOffsetY * range;
+                            return [dataMin + offset, dataMax + offset];
+                          }}
+                          allowDataOverflow={true}
+                          tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
+                          stroke="#1E293B"
+                          tickFormatter={v => {
+                            if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
+                            return `${Number(v).toFixed(2)}`;
+                          }}
+                        />
+                        <YAxis yAxisId="spacer" orientation="right" width={35} tick={false} stroke="transparent" />
                         <Tooltip
                           formatter={(v, name) => {
-                             const realName = name.replace('weight_', '');
-                             const meta = getFactorMeta(realName);
-                             return [Number(v).toFixed(4), meta.label];
+                            if (v === null || v === undefined) return [null, null];
+                            const labels = { 
+                              nwe_upper_price: 'Banda ↑', nwe_lower_price: 'Banda ↓', 
+                              nwe_up_price: 'NWE ↑', nwe_down_price: 'NWE ↓', 
+                              win_current: 'Preço' 
+                            };
+                            return [Number(v).toFixed(2), labels[name] || name]
                           }}
                           contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
                           labelStyle={{ color: '#6A6A7A' }}
                         />
-                        {Object.keys(now.factors_v2 || now.factors).map((label, idx) => (
-                          <Line 
-                            key={label}
-                            type="monotone" 
-                            dataKey={`weight_${label}`} 
-                            stroke={FACTOR_COLORS[idx % FACTOR_COLORS.length]} 
-                            strokeWidth={1.5} 
-                            dot={false} 
-                            isAnimationActive={false} 
+                        {/* Envelope bands (dashed) */}
+                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_upper_price" dot={false}
+                          stroke="#F87171" strokeWidth={1} strokeDasharray="4 3" isAnimationActive={false}
+                        />
+                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_lower_price" dot={false}
+                          stroke="#4ADE80" strokeWidth={1} strokeDasharray="4 3" isAnimationActive={false}
+                        />
+                        {/* NWE center line — split into up (green) and down (red) segments */}
+                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_up_price" dot={false}
+                          stroke="#4ADE80" strokeWidth={1.5} isAnimationActive={false}
+                          connectNulls={false}
+                        />
+                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_down_price" dot={false}
+                          stroke="#F87171" strokeWidth={1.5} isAnimationActive={false}
+                          connectNulls={false}
+                        />
+                        {/* Price line */}
+                        <Line yAxisId="nwe" type="monotone" dataKey="win_current" dot={false}
+                          stroke="#E2E8F0" strokeWidth={1.5} isAnimationActive={false}
+                        />
+                        {/* Pairwise Signal Dots */}
+                        <Line yAxisId="nwe" type="monotone" dataKey="pair_compra" stroke="none" dot={{ r: 4, fill: '#4ADE80', strokeWidth: 0 }} isAnimationActive={false} />
+                        <Line yAxisId="nwe" type="monotone" dataKey="pair_venda" stroke="none" dot={{ r: 4, fill: '#F87171', strokeWidth: 0 }} isAnimationActive={false} />
+                        {/* ── GEX Levels (Gamma Exposure) ── */}
+                        {showGex && GEX_LEVELS[selectedTarget] && (() => {
+                          // Get visible price range from data
+                          const prices = seriesWithSessions
+                            .map(d => d.win_current)
+                            .filter(v => v != null);
+                          if (prices.length === 0) return null;
+                          const dataMin = Math.min(...prices);
+                          const dataMax = Math.max(...prices);
+                          const range = (dataMax - dataMin) || 1;
+                          const margin = range * 0.15; // 15% margin
+                          const visMin = dataMin - margin;
+                          const visMax = dataMax + margin;
+
+                          return GEX_LEVELS[selectedTarget]
+                            .filter(lvl => {
+                              if (lvl.type === 'mid_wall' && !showMidWalls) return false;
+                              return lvl.price >= visMin && lvl.price <= visMax;
+                            })
+                            .map((lvl, i) => (
+                              <ReferenceLine
+                                key={`gex-${i}`}
+                                yAxisId="nwe"
+                                y={lvl.price}
+                                stroke={lvl.color}
+                                strokeWidth={Math.max(lvl.width * 0.7, 0.5)}
+                                strokeDasharray={lvl.style === 'dashed' ? '4 3' : undefined}
+                                strokeOpacity={lvl.type === 'mid_wall' ? 0.4 : 0.7}
+                                label={lvl.type !== 'mid_wall' ? {
+                                  value: lvl.label,
+                                  position: 'insideRight',
+                                  fontSize: 6,
+                                  fontFamily: 'JetBrains Mono',
+                                  fill: lvl.color + 'CC',
+                                  dy: lvl.type === 'gamma_flip' ? -8 : (lvl.type === 'min_gamma' ? 8 : -6),
+                                } : undefined}
+                              />
+                            ));
+                        })()}
+                        {/* ── Forex Session Lines (AS/UK/NY) ── */}
+                        {/* Session OP — solid Line starting from session open */}
+                        {!seriesInfo.tz_offset && sessionLevels.map(s => lineToggles[`${s.id}_OP`] && (
+                          <Line
+                            key={`sop-${s.id}`}
+                            yAxisId="nwe" type="stepAfter"
+                            dataKey={`sop_${s.id}`}
+                            stroke={s.color} strokeWidth={1}
+                            dot={false} isAnimationActive={false}
+                            connectNulls={false}
                           />
                         ))}
-                      </LineChart>
+                        {/* Session HI — dashed Line starting from next session open */}
+                        {!seriesInfo.tz_offset && sessionLevels.map(s => lineToggles[`${s.id}_HI`] && (
+                          <Line
+                            key={`shi-${s.id}`}
+                            yAxisId="nwe" type="stepAfter"
+                            dataKey={`shi_${s.id}`}
+                            stroke={s.color} strokeWidth={1}
+                            strokeDasharray="6 3"
+                            dot={false} isAnimationActive={false}
+                            connectNulls={false}
+                          />
+                        ))}
+                        {/* Session LO — dashed Line starting from next session open */}
+                        {!seriesInfo.tz_offset && sessionLevels.map(s => lineToggles[`${s.id}_LO`] && (
+                          <Line
+                            key={`slo-${s.id}`}
+                            yAxisId="nwe" type="stepAfter"
+                            dataKey={`slo_${s.id}`}
+                            stroke={s.color} strokeWidth={1}
+                            strokeDasharray="6 3"
+                            dot={false} isAnimationActive={false}
+                            connectNulls={false}
+                          />
+                        ))}
+                      </ComposedChart>
                     </ResponsiveContainer>
                   </div>
-                )}
-              </div>
-            </div>
 
-            {/* ── COMPACT FACTOR ROW ── */}
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber-dim)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 16, marginBottom: 6 }}>fatores</div>
-            <div className="factors-grid">
-              {Object.entries(now.factors_v2 || now.factors_v1 || now.factors || {}).map(([key, data]) => {
-                if (!data) return null
-                const meta = getFactorMeta(key)
-                const contrib = data.contribution || 0
-                const isFavorBuy = contrib > 0.02
-                const isFavorSell = contrib < -0.02
-                const color = isFavorBuy ? '#4ADE80' : isFavorSell ? '#F87171' : '#475569'
-                const label = isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : '—'
-                const ret = data.ret || 0
-                const intensity = Math.min(Math.abs(contrib) / 0.5, 1) * 100
+                  {/* BOTTOM: Signal Heatmap (D-P-Z-E) */}
+                  <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                          letterSpacing: '0.1em', textTransform: 'uppercase',
+                        }}>
+                          sinais de trade · heatmap d-p-z-e
+                        </div>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
+                          color: '#64748B', display: 'flex', gap: 12
+                        }}>
+                          <span style={{ color: '#4ADE80' }}>🟢 COMPRA</span>
+                          <span style={{ color: '#F87171' }}>🔴 VENDA</span>
+                          <span style={{ color: '#1E293B' }}>⬛ NEUTRO</span>
+                        </div>
+                      </div>
+                      <ResponsiveContainer width="100%" height={120}>
+                        <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
+                          <CartesianGrid stroke="transparent" vertical={false} />
+                          <XAxis dataKey="time" xAxisId="utc" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11} />
+                          {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11} />}
 
-                return (
-                  <div key={key} style={{
-                    background: isFavorBuy ? 'rgba(74,222,128,0.04)' : isFavorSell ? 'rgba(248,113,113,0.04)' : '#0E0E11',
-                    border: `1px solid ${isFavorBuy ? 'rgba(74,222,128,0.14)' : isFavorSell ? 'rgba(248,113,113,0.14)' : '#1C1C22'}`,
-                    borderRadius: 4, padding: '8px 10px',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                      <span style={{ fontSize: 16 }}>{meta.icon}</span>
-                      <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color,
-                      }}>{label}</span>
+                          <YAxis yAxisId="hm" orientation="left" width={45} domain={[0, 4]} type="number"
+                            ticks={[0.5, 1.5, 2.5, 3.5]}
+                            interval={0}
+                            tickFormatter={(v) => {
+                              if (v === 0.5) return 'E';
+                              if (v === 1.5) return 'Z';
+                              if (v === 2.5) return 'P';
+                              if (v === 3.5) return 'D';
+                              return '';
+                            }}
+                            tick={{ fill: '#64748B', fontSize: 11, fontFamily: 'JetBrains Mono', fontWeight: 700, dy: 4 }}
+                            stroke="transparent"
+                          />
+
+                          <Tooltip
+                            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                            labelFormatter={(label, payload) => {
+                              if (payload && payload.length > 0) {
+                                const data = payload[0].payload;
+                                return `⏰ ${data.time} UTC${data.time_local ? ` (${data.time_local} BRT)` : ''}`;
+                              }
+                              return label;
+                            }}
+                            formatter={(v, name, props) => {
+                              if (name === 'hm_e') return [props.payload.hm_color_e === '#4ADE80' ? 'Compra' : props.payload.hm_color_e === '#F87171' ? 'Venda' : 'Neutro', 'Exaustão (E)'];
+                              if (name === 'hm_z') return [props.payload.hm_color_z === '#4ADE80' ? 'Compra' : props.payload.hm_color_z === '#F87171' ? 'Venda' : 'Neutro', 'Z-Score (Z)'];
+                              if (name === 'hm_p') return [props.payload.hm_color_p === '#4ADE80' ? 'Compra' : props.payload.hm_color_p === '#F87171' ? 'Venda' : 'Neutro', 'Pullback (P)'];
+                              if (name === 'hm_d') return [props.payload.hm_color_d === '#4ADE80' ? 'Compra' : props.payload.hm_color_d === '#F87171' ? 'Venda' : 'Neutro', 'Divergência (D)'];
+                              return [v, name];
+                            }}
+                            contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                            labelStyle={{ color: '#CBD5E1', fontWeight: 600, marginBottom: 6 }}
+                          />
+
+                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_e" stackId="a" isAnimationActive={false}>
+                            {seriesWithNWE.map((entry, index) => <Cell key={`e-${index}`} fill={entry.hm_color_e} />)}
+                          </Bar>
+                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_z" stackId="a" isAnimationActive={false}>
+                            {seriesWithNWE.map((entry, index) => <Cell key={`z-${index}`} fill={entry.hm_color_z} />)}
+                          </Bar>
+                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_p" stackId="a" isAnimationActive={false}>
+                            {seriesWithNWE.map((entry, index) => <Cell key={`p-${index}`} fill={entry.hm_color_p} />)}
+                          </Bar>
+                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_d" stackId="a" isAnimationActive={false}>
+                            {seriesWithNWE.map((entry, index) => <Cell key={`d-${index}`} fill={entry.hm_color_d} />)}
+                          </Bar>
+                        </ComposedChart>
+                      </ResponsiveContainer>
                     </div>
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color: '#CBD5E1',
-                    }}>{meta.label}</div>
-                    <div style={{
-                      marginTop: 4, height: 2, background: '#1E293B', borderRadius: 1,
-                      position: 'relative', overflow: 'hidden',
-                    }}>
-                      <div style={{
-                        position: 'absolute', top: 0, bottom: 0, left: 0,
-                        width: `${intensity}%`, background: color,
-                        borderRadius: 1, transition: 'width 0.5s ease',
-                      }} />
-                    </div>
-                    <div style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 3,
-                    }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</div>
+
+                    {/* BOTTOM: Dynamic Weights (Kalman) */}
+                    {now.factors && Object.keys(now.factors).length > 0 && (
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                          <div style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                            letterSpacing: '0.1em', textTransform: 'uppercase',
+                          }}>
+                            pesos dinâmicos (kalman filter)
+                          </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={140}>
+                          <LineChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
+                            <CartesianGrid stroke="var(--grid)" vertical={false} />
+                            <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
+                            <YAxis orientation="left" width={45} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
+                            <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                            <Tooltip
+                              formatter={(v, name) => {
+                                const realName = name.replace('weight_', '');
+                                const meta = getFactorMeta(realName);
+                                return [Number(v).toFixed(4), meta.label];
+                              }}
+                              contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                              labelStyle={{ color: '#6A6A7A' }}
+                            />
+                            {Object.keys(now.factors_v2 || now.factors).map((label, idx) => (
+                              <Line
+                                key={label}
+                                type="monotone"
+                                dataKey={`weight_${label}`}
+                                stroke={FACTOR_COLORS[idx % FACTOR_COLORS.length]}
+                                strokeWidth={1.5}
+                                dot={false}
+                                isAnimationActive={false}
+                              />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {/* BOTTOM 2: Pairwise Z-Score */}
+                    {seriesWithNWE.some(s => s.pair_z != null) && (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                          <div style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                            letterSpacing: '0.1em', textTransform: 'uppercase',
+                          }}>
+                            z-score dinâmico (pair spread)
+                          </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={100}>
+                          <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
+                            <CartesianGrid stroke="var(--grid)" vertical={false} />
+                            <XAxis dataKey="time" tick={false} stroke="#1E293B" />
+                            <YAxis orientation="left" width={45} domain={[-4, 4]} ticks={[-3, -2.0, 0, 2.0, 3]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
+                            <ReferenceLine y={2.0} stroke="#F87171" strokeWidth={1} strokeDasharray="3 3" />
+                            <ReferenceLine y={-2.0} stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 3" />
+                            <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                            <Tooltip
+                              formatter={(v) => [Number(v).toFixed(2), 'Z-Score']}
+                              contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                              labelStyle={{ color: '#6A6A7A' }}
+                            />
+                            <Line type="monotone" dataKey="pair_z" stroke="#C9A227" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
                   </div>
-                )
-              })}
-              <div style={{
-                background: now.score > 0 ? 'rgba(74,222,128,0.05)' : now.score < 0 ? 'rgba(248,113,113,0.05)' : '#0E0E11',
-                border: `1px solid ${now.score > 0 ? 'rgba(74,222,128,0.15)' : now.score < 0 ? 'rgba(248,113,113,0.15)' : '#1C1C22'}`,
-                borderRadius: 4, padding: '8px 14px', textAlign: 'center',
-              }}>
-                <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B',
-                  letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4,
-                }}>score</div>
-                <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600,
-                  color: (now.score_v1 || now.score || 0) > 0 ? '#4ADE80' : (now.score_v1 || now.score || 0) < 0 ? '#F87171' : '#94A3B8',
-                }}>{(now.score_v1 || now.score || 0) >= 0 ? '+' : ''}{(now.score_v1 || now.score || 0).toFixed(2)}</div>
-              </div>
-            </div>
+                </div>
 
-            {/* ── FOOTER ── */}
-            <div style={{
-              marginTop: 16, paddingTop: 12, borderTop: '1px solid #141418',
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: '#2A2A36',
-              display: 'flex', justifyContent: 'space-between',
-            }}>
-              <span>IRAI · {Object.keys(now.factors_v2 || now.factors_v1 || now.factors || {}).length} fatores cross-asset</span>
-              <span>
-                sessão {effectiveDate} ·
-                {seriesInfo.display_name || selectedTarget} {now.win_open?.toFixed(0)} → {now.win_current?.toFixed(0)}
-              </span>
-            </div>
-          </>
-        )}
-        </main>
-      </div>
+                {/* ── COMPACT FACTOR ROW ── */}
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber-dim)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 16, marginBottom: 6 }}>fatores</div>
+                <div className="factors-grid">
+                  {Object.entries(now.factors_v2 || now.factors_v1 || now.factors || {}).map(([key, data]) => {
+                    if (!data) return null
+                    const meta = getFactorMeta(key)
+                    const contrib = data.contribution || 0
+                    const isFavorBuy = contrib > 0.02
+                    const isFavorSell = contrib < -0.02
+                    const color = isFavorBuy ? '#4ADE80' : isFavorSell ? '#F87171' : '#475569'
+                    const label = isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : '—'
+                    const ret = data.ret || 0
+                    const intensity = Math.min(Math.abs(contrib) / 0.5, 1) * 100
+
+                    return (
+                      <div key={key} style={{
+                        background: isFavorBuy ? 'rgba(74,222,128,0.04)' : isFavorSell ? 'rgba(248,113,113,0.04)' : '#0E0E11',
+                        border: `1px solid ${isFavorBuy ? 'rgba(74,222,128,0.14)' : isFavorSell ? 'rgba(248,113,113,0.14)' : '#1C1C22'}`,
+                        borderRadius: 4, padding: '8px 10px',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <span style={{ fontSize: 16 }}>{meta.icon}</span>
+                          <span style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color,
+                          }}>{label}</span>
+                        </div>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, color: '#CBD5E1',
+                        }}>{meta.label}</div>
+                        <div style={{
+                          marginTop: 4, height: 2, background: '#1E293B', borderRadius: 1,
+                          position: 'relative', overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            position: 'absolute', top: 0, bottom: 0, left: 0,
+                            width: `${intensity}%`, background: color,
+                            borderRadius: 1, transition: 'width 0.5s ease',
+                          }} />
+                        </div>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 3,
+                        }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</div>
+                      </div>
+                    )
+                  })}
+                  <div style={{
+                    background: now.score > 0 ? 'rgba(74,222,128,0.05)' : now.score < 0 ? 'rgba(248,113,113,0.05)' : '#0E0E11',
+                    border: `1px solid ${now.score > 0 ? 'rgba(74,222,128,0.15)' : now.score < 0 ? 'rgba(248,113,113,0.15)' : '#1C1C22'}`,
+                    borderRadius: 4, padding: '8px 14px', textAlign: 'center',
+                  }}>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B',
+                      letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4,
+                    }}>score</div>
+                    <div style={{
+                      fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600,
+                      color: (now.score_v1 || now.score || 0) > 0 ? '#4ADE80' : (now.score_v1 || now.score || 0) < 0 ? '#F87171' : '#94A3B8',
+                    }}>{(now.score_v1 || now.score || 0) >= 0 ? '+' : ''}{(now.score_v1 || now.score || 0).toFixed(2)}</div>
+                  </div>
+                </div>
+
+                {/* ── FOOTER ── */}
+                <div style={{
+                  marginTop: 16, paddingTop: 12, borderTop: '1px solid #141418',
+                  fontFamily: 'var(--font-mono)', fontSize: 10, color: '#2A2A36',
+                  display: 'flex', justifyContent: 'space-between',
+                }}>
+                  <span>IRAI · {Object.keys(now.factors_v2 || now.factors_v1 || now.factors || {}).length} fatores cross-asset</span>
+                  <span>
+                    sessão {effectiveDate} ·
+                    {seriesInfo.display_name || selectedTarget} {now.win_open?.toFixed(0)} → {now.win_current?.toFixed(0)}
+                  </span>
+                </div>
+              </>
+            )}
+          </main>
+        </div>
       )}
     </>
   )
