@@ -71,6 +71,15 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 ### 4. NWE Filter Toggle
 * **Objetivo:** Checkbox no dashboard que, quando ativado, filtra/suprime sinais de consenso que colidem com a direção do NWE. Ex: se NWE mostra baixa, sinais de "compra" ficam visualmente atenuados.
 
+### 5. Implementar Preenchimento Contínuo (Forward-Fill) de Barras no Motor
+* **Objetivo:** Preencher os "buracos" de sessão (como o overnight da B3) com barras projetadas (mesmo valor do fechamento) para unificar os eixos de tempo do dashboard (24/7).
+* **Impacto:** Isso fará com que o NWE (que depende apenas de volatilidade local) permaneça perfeitamente estável em uma reta durante o fechamento do ativo alvo, enquanto o Rastro (Z-Score/Kalman) flutua contínua e organicamente na madrugada com base em ativos globais de funcionamento ininterrupto (US30, BTC, etc).
+
+### 6. Implementar Heatmap de Sinais (Matriz D-P-Z-E)
+* **Objetivo:** Substituir o gráfico de linha do Z-Score por uma Matriz de Sinais (Heatmap) com 4 linhas: Divergência (D), Pullback NWE (P), Z-Score (Z) e Exaustão NWE (E). Isso tornará a decisão de compra e venda mais direta e visual.
+* **Backend:** Modificar o pipeline de dados para armazenar e enviar o histórico completo (time-series) do estado desses 4 sinais, não apenas o booleano do tick atual.
+* **Frontend:** Criar o novo componente gráfico de Heatmap e integrá-lo ao dashboard.
+
 ---
 ---
-*Last updated: 2026-05-03*
+*Last updated: 2026-05-05*

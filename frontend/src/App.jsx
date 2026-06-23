@@ -42,22 +42,6 @@ const FACTOR_COLORS = [
   '#FCD34D', '#A78BFA', '#34D399', '#FB923C'
 ];
 
-/* ── Forex Session Definitions (UTC) ─────────────── */
-const SERVER_UTC_OFFSET = 3; // Tickmill EEST = UTC+3 (all chart times are EEST)
-const FOREX_SESSIONS = [
-  { id: 'AS', label: 'AS', startH: 0, endH: 8, color: '#F59E0B' }, // Asia (03:00 - 11:00 EEST)
-  { id: 'UK', label: 'UK', startH: 8, endH: 13.5, color: '#06B6D4' }, // London (11:00 - 16:30 EEST)
-  { id: 'NY', label: 'NY', startH: 13.5, endH: 21, color: '#A855F7' }, // New York (16:30 - 24:00 EEST)
-];
-
-// Convert chart time (EEST) to UTC hour (float with minute precision)
-function chartTimeToUtcH(timeStr) {
-  if (!timeStr) return null;
-  const parts = timeStr.split(':');
-  const h = parseInt(parts[0], 10);
-  const m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
-  return ((h + m / 60) - SERVER_UTC_OFFSET + 24) % 24;
-}
 
 /* ── Big Gauge ────────────────────────────────────── */
 function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview }) {
@@ -536,6 +520,27 @@ function computeNWE(data, history_closes = []) {
   });
 }
 
+/* ── Custom Dot Renderers for Recharts ────────────── */
+const renderZScoreSquare = (fillColor) => (props) => {
+  const { cx, cy } = props;
+  if (!cx || !cy) return null;
+  return (
+    <rect
+      cx={cx}
+      cy={cy}
+      x={cx - 4.5}
+      y={cy - 4.5}
+      width={9}
+      height={9}
+      fill={fillColor}
+      stroke="#09090b"
+      strokeWidth={1}
+      rx={1}
+    />
+  );
+};
+
+
 /* ── Main App ────────────────────────────────────── */
 const REFRESH_INTERVAL = 30_000 // 30 seconds (fallback polling)
 
@@ -598,15 +603,12 @@ export default function App() {
   const [error, setError] = useState(null)
   const [lastUpdate, setLastUpdate] = useState(null)
   const [rastroView, setRastroView] = useState('both') // 'v1', 'v2', 'both'
-  const [lineToggles, setLineToggles] = useState({
-    AS_OP: true, AS_HI: true, AS_LO: true,
-    UK_OP: true, UK_HI: true, UK_LO: true,
-    NY_OP: true, NY_HI: true, NY_LO: true,
-  })
   const [panOffsetY, setPanOffsetY] = useState(0)
   const [isDraggingY, setIsDraggingY] = useState(false)
   const dragStartY = useRef(0)
   const lastPanOffsetY = useRef(0)
+  const pairSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
+  const zscoreSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(false)
 
@@ -694,6 +696,8 @@ export default function App() {
       setSummary(null)
       setSeriesInfo({})
       setError(null)
+      pairSignalsMemory.current = {}
+      zscoreSignalsMemory.current = {}
     }
 
     if (FIREBASE_URL) {
@@ -832,7 +836,17 @@ export default function App() {
   // Applica NWE na série
   const seriesWithNWE = useMemo(() => {
     const rawNwe = computeNWE(series, seriesInfo?.history_closes || []);
-    return rawNwe.map(entry => {
+    
+    // Find the last valid non-ghost entry index to identify the live bar
+    let latestActiveIndex = -1;
+    for (let i = rawNwe.length - 1; i >= 0; i--) {
+      if (rawNwe[i].win_current !== undefined && !rawNwe[i].is_ghost) {
+        latestActiveIndex = i;
+        break;
+      }
+    }
+
+    return rawNwe.map((entry, index) => {
       let z_compra = 0, z_venda = 0, z_neutro = entry.price_diverge_z || 0;
       if (entry.price_diverges) {
         if (entry.p_up > 55) { z_compra = entry.price_diverge_z; z_neutro = 0; }
@@ -843,23 +857,58 @@ export default function App() {
       let pair_venda = undefined;
       let hm_color_pr = '#1E293B';
       
-      // Filtra sinais pair trading contra a direção do Rastro Macro P(↑)
-      // Se P(↑) > 50 (alta), não pinta bolinha vermelha (venda = falso alerta)
-      // Se P(↑) < 50 (baixa), não pinta bolinha verde (compra = falso alerta)
       const pUpDir = entry.p_up != null ? entry.p_up : 50;
-      if (entry.pair_signal === 'buy' && pUpDir >= 50) {
+      const memKey = `${selectedTarget}_${effectiveDate}_${entry.time}`;
+      const isLiveBar = (index === latestActiveIndex);
+
+      // Determine if condition is met right now
+      const isPairBuy = entry.pair_signal === 'buy' && pUpDir >= 50;
+      const isPairSell = entry.pair_signal === 'sell' && pUpDir <= 50;
+
+      // Only save to signals memory if it's the live active bar
+      if (isLiveBar) {
+        if (isPairBuy) pairSignalsMemory.current[memKey] = 'buy';
+        else if (isPairSell) pairSignalsMemory.current[memKey] = 'sell';
+      }
+
+      // Historical bars evaluate condition strictly. Live bar uses memory to avoid repaint.
+      const activeSignal = isLiveBar ? pairSignalsMemory.current[memKey] : (isPairBuy ? 'buy' : isPairSell ? 'sell' : null);
+      if (activeSignal === 'buy') {
         pair_compra = entry.win_current;
         hm_color_pr = '#4ADE80';
-      } else if (entry.pair_signal === 'sell' && pUpDir <= 50) {
+      } else if (activeSignal === 'sell') {
         pair_venda = entry.win_current;
         hm_color_pr = '#F87171';
       }
+
+      // Z-Score (Quadrado no gráfico)
+      const isZBuy = entry.price_diverges && pUpDir > 55 && Math.abs(entry.price_diverge_z || 0) >= 2.0;
+      const isZSell = entry.price_diverges && pUpDir < 45 && Math.abs(entry.price_diverge_z || 0) >= 2.0;
+
+      // Only save to signals memory if it's the live active bar
+      if (isLiveBar) {
+        if (isZBuy) zscoreSignalsMemory.current[memKey] = 'buy';
+        else if (isZSell) zscoreSignalsMemory.current[memKey] = 'sell';
+      }
+
+      // Historical bars evaluate condition strictly. Live bar uses memory to avoid repaint.
+      const activeZSignal = isLiveBar ? zscoreSignalsMemory.current[memKey] : (isZBuy ? 'buy' : isZSell ? 'sell' : null);
+      let z_compra_val = undefined;
+      let z_venda_val = undefined;
+      if (activeZSignal === 'buy') {
+        z_compra_val = entry.win_current;
+      } else if (activeZSignal === 'sell') {
+        z_venda_val = entry.win_current;
+      }
+
+      const winReturn = entry.win_return || 0;
+      const isNweExhaustionDown = entry.nwe_upper !== undefined && winReturn > entry.nwe_upper;
+      const isNweExhaustionUp = entry.nwe_lower !== undefined && winReturn < entry.nwe_lower;
 
       // Heatmap Logic
       const pUp = entry.p_up != null ? entry.p_up : 50;
       const isBuy = pUp >= 60;
       const isSell = pUp <= 40;
-      const winReturn = entry.win_return || 0;
 
       // D: Divergência de Retorno
       const isReturnDivergentBuy = isBuy && winReturn < 0;
@@ -876,8 +925,6 @@ export default function App() {
       let hm_color_z = entry.price_diverges ? (entry.p_up > 55 ? '#4ADE80' : (entry.p_up < 45 ? '#F87171' : '#1E293B')) : '#1E293B';
 
       // E: Exaustão NWE
-      const isNweExhaustionDown = entry.nwe_upper !== undefined && winReturn > entry.nwe_upper;
-      const isNweExhaustionUp = entry.nwe_lower !== undefined && winReturn < entry.nwe_lower;
       let hm_color_e = isNweExhaustionUp ? '#4ADE80' : isNweExhaustionDown ? '#F87171' : '#1E293B';
 
       // Limpar sinais se o mercado estiver fechado (ghost bar)
@@ -891,12 +938,15 @@ export default function App() {
         z_venda = 0;
         pair_compra = undefined;
         pair_venda = undefined;
+        z_compra_val = undefined;
+        z_venda_val = undefined;
       }
 
       const mappedEntry = {
         ...entry,
         z_compra, z_venda, z_neutro,
         pair_compra, pair_venda,
+        z_compra_val, z_venda_val,
         hm_val: 1, hm_color_d, hm_color_p, hm_color_z, hm_color_pr, hm_color_e
       };
 
@@ -910,94 +960,10 @@ export default function App() {
 
       return mappedEntry;
     });
-  }, [series]);
+  }, [series, selectedTarget, effectiveDate]);
   const validSeriesWithNWE = useMemo(() => seriesWithNWE.filter(s => s.win_current !== undefined), [seriesWithNWE]);
   const nweNow = validSeriesWithNWE.length > 0 ? validSeriesWithNWE[validSeriesWithNWE.length - 1] : null;
 
-  // ── Forex Session Levels (Open/High/Low) ──────────────────────────
-  const sessionLevels = useMemo(() => {
-    if (!validSeriesWithNWE.length) return [];
-
-    return FOREX_SESSIONS.map(session => {
-      const bars = validSeriesWithNWE.filter(d => {
-        if (!d.time || d.is_ghost || d.win_current === undefined) return false;
-        const hUtc = chartTimeToUtcH(d.time);
-        return hUtc !== null && hUtc >= session.startH && hUtc < session.endH;
-      });
-
-      if (bars.length === 0) return null;
-
-      let high = -Infinity;
-      let low = Infinity;
-      let highTime = null;
-      let lowTime = null;
-
-      bars.forEach(b => {
-        if (b.win_current > high) {
-          high = b.win_current;
-          highTime = b.time;
-        }
-        if (b.win_current < low) {
-          low = b.win_current;
-          lowTime = b.time;
-        }
-      });
-
-      return {
-        ...session,
-        open: bars[0].win_current,
-        high,
-        low,
-        highTime,
-        lowTime,
-      };
-    }).filter(Boolean);
-  }, [validSeriesWithNWE]);
-
-  // Enrich series with session OP/HI/LO values (each starts from its relevant time)
-  const seriesWithSessions = useMemo(() => {
-    if (!sessionLevels.length) return seriesWithNWE;
-
-    // Build level map
-    const levelMap = {};
-    sessionLevels.forEach(s => { levelMap[s.id] = s; });
-
-    // Track when we pass the session open, high, and low times
-    const passed = { open: {}, high: {}, low: {} };
-
-    return seriesWithNWE.map(d => {
-      if (!d.time) return d;
-      const hUtc = chartTimeToUtcH(d.time);
-      if (hUtc === null) return d;
-
-      const result = { ...d };
-      FOREX_SESSIONS.forEach(session => {
-        const levels = levelMap[session.id];
-        if (!levels) return;
-
-        // Set passed flags chronologically
-        if (!passed.open[session.id] && hUtc >= session.startH && hUtc < session.endH) {
-          passed.open[session.id] = true;
-        }
-        if (d.time === levels.highTime) passed.high[session.id] = true;
-        if (d.time === levels.lowTime) passed.low[session.id] = true;
-
-        // OP: from exact chronological session start onward
-        if (passed.open[session.id]) {
-          result[`sop_${session.id}`] = levels.open;
-        }
-
-        // HI/LO: from exactly when they were formed
-        if (passed.high[session.id]) {
-          result[`shi_${session.id}`] = levels.high;
-        }
-        if (passed.low[session.id]) {
-          result[`slo_${session.id}`] = levels.low;
-        }
-      });
-      return result;
-    });
-  }, [seriesWithNWE, sessionLevels]);
 
   return (
     <>
@@ -1255,6 +1221,12 @@ export default function App() {
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#C9A227', fontWeight: 600 }}>{now.pair_factor}</span>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>β:</span>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: now.pair_beta > 0 ? '#4ADE80' : '#F87171' }}>{now.pair_beta > 0 ? '+' : ''}{now.pair_beta?.toFixed(3)}</span>
+                          {now.pair_z != null && (
+                            <>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B', marginLeft: 6 }}>Z:</span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: now.pair_z >= 0 ? '#4ADE80' : '#F87171' }}>{now.pair_z >= 0 ? '+' : ''}{now.pair_z.toFixed(2)}</span>
+                            </>
+                          )}
                         </div>
                       )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1344,35 +1316,7 @@ export default function App() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {/* Per-line session toggle buttons */}
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {!seriesInfo.tz_offset && FOREX_SESSIONS.map(s => (
-                            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: s.color, fontWeight: 700, marginRight: 1 }}>{s.label}</span>
-                              {['OP', 'HI', 'LO'].map(type => {
-                                const key = `${s.id}_${type}`;
-                                const isOn = lineToggles[key];
-                                return (
-                                  <button
-                                    key={key}
-                                    onClick={() => setLineToggles(prev => ({ ...prev, [key]: !prev[key] }))}
-                                    style={{
-                                      fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 600,
-                                      padding: '2px 4px', borderRadius: 3, cursor: 'pointer',
-                                      border: `1px solid ${isOn ? s.color : '#1E293B'}`,
-                                      background: isOn ? `${s.color}18` : 'transparent',
-                                      color: isOn ? s.color : '#334155',
-                                      transition: 'all 0.15s',
-                                      lineHeight: 1,
-                                    }}
-                                  >
-                                    {type}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
+                        {/* GEX toggle buttons */}
                         {/* GEX toggle buttons */}
                         {GEX_LEVELS[selectedTarget] && (
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -1418,7 +1362,7 @@ export default function App() {
                       </div>
                     </div>
                     <ResponsiveContainer width="100%" height={320}>
-                      <ComposedChart data={seriesWithSessions} syncId="irai" margin={{ top: 4, right: 10, left: 5, bottom: 0 }}>
+                      <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 10, left: 5, bottom: 0 }}>
                         <CartesianGrid stroke="var(--grid)" vertical={false} />
                         <XAxis
                           dataKey="time" xAxisId="utc"
@@ -1483,10 +1427,16 @@ export default function App() {
                         {/* Pairwise Signal Dots */}
                         <Line yAxisId="nwe" type="monotone" dataKey="pair_compra" stroke="none" dot={{ r: 4, fill: '#4ADE80', strokeWidth: 0 }} isAnimationActive={false} />
                         <Line yAxisId="nwe" type="monotone" dataKey="pair_venda" stroke="none" dot={{ r: 4, fill: '#F87171', strokeWidth: 0 }} isAnimationActive={false} />
+
+                        {/* Z-Score Squares */}
+                        <Line yAxisId="nwe" type="monotone" dataKey="z_compra_val" stroke="none" dot={renderZScoreSquare('#4ADE80')} isAnimationActive={false} />
+                        <Line yAxisId="nwe" type="monotone" dataKey="z_venda_val" stroke="none" dot={renderZScoreSquare('#F87171')} isAnimationActive={false} />
+
+
                         {/* ── GEX Levels (Gamma Exposure) ── */}
                         {showGex && GEX_LEVELS[selectedTarget] && (() => {
                           // Get visible price range from data
-                          const prices = seriesWithSessions
+                          const prices = seriesWithNWE
                             .map(d => d.win_current)
                             .filter(v => v != null);
                           if (prices.length === 0) return null;
@@ -1522,120 +1472,13 @@ export default function App() {
                               />
                             ));
                         })()}
-                        {/* ── Forex Session Lines (AS/UK/NY) ── */}
-                        {/* Session OP — solid Line starting from session open */}
-                        {!seriesInfo.tz_offset && sessionLevels.map(s => lineToggles[`${s.id}_OP`] && (
-                          <Line
-                            key={`sop-${s.id}`}
-                            yAxisId="nwe" type="stepAfter"
-                            dataKey={`sop_${s.id}`}
-                            stroke={s.color} strokeWidth={1}
-                            dot={false} isAnimationActive={false}
-                            connectNulls={false}
-                          />
-                        ))}
-                        {/* Session HI — dashed Line starting from next session open */}
-                        {!seriesInfo.tz_offset && sessionLevels.map(s => lineToggles[`${s.id}_HI`] && (
-                          <Line
-                            key={`shi-${s.id}`}
-                            yAxisId="nwe" type="stepAfter"
-                            dataKey={`shi_${s.id}`}
-                            stroke={s.color} strokeWidth={1}
-                            strokeDasharray="6 3"
-                            dot={false} isAnimationActive={false}
-                            connectNulls={false}
-                          />
-                        ))}
-                        {/* Session LO — dashed Line starting from next session open */}
-                        {!seriesInfo.tz_offset && sessionLevels.map(s => lineToggles[`${s.id}_LO`] && (
-                          <Line
-                            key={`slo-${s.id}`}
-                            yAxisId="nwe" type="stepAfter"
-                            dataKey={`slo_${s.id}`}
-                            stroke={s.color} strokeWidth={1}
-                            strokeDasharray="6 3"
-                            dot={false} isAnimationActive={false}
-                            connectNulls={false}
-                          />
-                        ))}
                       </ComposedChart>
                     </ResponsiveContainer>
                   </div>
 
                   {/* BOTTOM: Signal Heatmap (D-P-Z-E) */}
                   <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
-                        <div style={{
-                          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                          letterSpacing: '0.1em', textTransform: 'uppercase',
-                        }}>
-                          sinais de trade · heatmap d-p-z-e
-                        </div>
-                        <div style={{
-                          fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
-                          color: '#64748B', display: 'flex', gap: 12
-                        }}>
-                          <span style={{ color: '#4ADE80' }}>🟢 COMPRA</span>
-                          <span style={{ color: '#F87171' }}>🔴 VENDA</span>
-                          <span style={{ color: '#1E293B' }}>⬛ NEUTRO</span>
-                        </div>
-                      </div>
-                      <ResponsiveContainer width="100%" height={120}>
-                        <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
-                          <CartesianGrid stroke="transparent" vertical={false} />
-                          <XAxis dataKey="time" xAxisId="utc" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11} />
-                          {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11} />}
 
-                          <YAxis yAxisId="hm" orientation="left" width={45} domain={[0, 4]} type="number"
-                            ticks={[0.5, 1.5, 2.5, 3.5]}
-                            interval={0}
-                            tickFormatter={(v) => {
-                              if (v === 0.5) return 'E';
-                              if (v === 1.5) return 'Z';
-                              if (v === 2.5) return 'P';
-                              if (v === 3.5) return 'D';
-                              return '';
-                            }}
-                            tick={{ fill: '#64748B', fontSize: 11, fontFamily: 'JetBrains Mono', fontWeight: 700, dy: 4 }}
-                            stroke="transparent"
-                          />
-
-                          <Tooltip
-                            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
-                            labelFormatter={(label, payload) => {
-                              if (payload && payload.length > 0) {
-                                const data = payload[0].payload;
-                                return `⏰ ${data.time} UTC${data.time_local ? ` (${data.time_local} BRT)` : ''}`;
-                              }
-                              return label;
-                            }}
-                            formatter={(v, name, props) => {
-                              if (name === 'hm_e') return [props.payload.hm_color_e === '#4ADE80' ? 'Compra' : props.payload.hm_color_e === '#F87171' ? 'Venda' : 'Neutro', 'Exaustão (E)'];
-                              if (name === 'hm_z') return [props.payload.hm_color_z === '#4ADE80' ? 'Compra' : props.payload.hm_color_z === '#F87171' ? 'Venda' : 'Neutro', 'Z-Score (Z)'];
-                              if (name === 'hm_p') return [props.payload.hm_color_p === '#4ADE80' ? 'Compra' : props.payload.hm_color_p === '#F87171' ? 'Venda' : 'Neutro', 'Pullback (P)'];
-                              if (name === 'hm_d') return [props.payload.hm_color_d === '#4ADE80' ? 'Compra' : props.payload.hm_color_d === '#F87171' ? 'Venda' : 'Neutro', 'Divergência (D)'];
-                              return [v, name];
-                            }}
-                            contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                            labelStyle={{ color: '#CBD5E1', fontWeight: 600, marginBottom: 6 }}
-                          />
-
-                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_e" stackId="a" isAnimationActive={false}>
-                            {seriesWithNWE.map((entry, index) => <Cell key={`e-${index}`} fill={entry.hm_color_e} />)}
-                          </Bar>
-                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_z" stackId="a" isAnimationActive={false}>
-                            {seriesWithNWE.map((entry, index) => <Cell key={`z-${index}`} fill={entry.hm_color_z} />)}
-                          </Bar>
-                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_p" stackId="a" isAnimationActive={false}>
-                            {seriesWithNWE.map((entry, index) => <Cell key={`p-${index}`} fill={entry.hm_color_p} />)}
-                          </Bar>
-                          <Bar yAxisId="hm" dataKey="hm_val" name="hm_d" stackId="a" isAnimationActive={false}>
-                            {seriesWithNWE.map((entry, index) => <Cell key={`d-${index}`} fill={entry.hm_color_d} />)}
-                          </Bar>
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </div>
 
                     {/* BOTTOM: Dynamic Weights (Kalman) */}
                     {now.factors && Object.keys(now.factors).length > 0 && (
@@ -1708,6 +1551,36 @@ export default function App() {
                         </ResponsiveContainer>
                       </div>
                     )}
+
+                    {/* BOTTOM 3: Price Divergence Z-Score */}
+                    {seriesWithNWE.some(s => s.price_diverge_z != null) && (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                          <div style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                            letterSpacing: '0.1em', textTransform: 'uppercase',
+                          }}>
+                            z-score dinâmico (divergência preço)
+                          </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={100}>
+                          <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
+                            <CartesianGrid stroke="var(--grid)" vertical={false} />
+                            <XAxis dataKey="time" tick={false} stroke="#1E293B" />
+                            <YAxis orientation="left" width={45} domain={[-4, 4]} ticks={[-3, -2.0, 0, 2.0, 3]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
+                            <ReferenceLine y={2.0} stroke="#F87171" strokeWidth={1} strokeDasharray="3 3" />
+                            <ReferenceLine y={-2.0} stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 3" />
+                            <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
+                            <Tooltip
+                              formatter={(v) => [Number(v).toFixed(2), 'Z-Score']}
+                              contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
+                              labelStyle={{ color: '#6A6A7A' }}
+                            />
+                            <Line type="monotone" dataKey="price_diverge_z" stroke="#38BDF8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1752,7 +1625,13 @@ export default function App() {
                         </div>
                         <div style={{
                           fontFamily: 'var(--font-mono)', fontSize: 8, color: '#475569', marginTop: 3,
-                        }}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</div>
+                          display: 'flex', justifyContent: 'space-between',
+                        }}>
+                          <span>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</span>
+                          {data.z_score !== undefined && (
+                            <span>z: {data.z_score >= 0 ? '+' : ''}{data.z_score.toFixed(2)}</span>
+                          )}
+                        </div>
                       </div>
                     )
                   })}

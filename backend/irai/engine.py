@@ -74,6 +74,12 @@ class IRAISnapshot:
     is_preview: bool = False  # True = preview pré-abertura (sem dados do target)
     johansen_p_value: float = 1.0
     is_cointegrated: bool = True
+    
+    # Pairwise Signal
+    pair_z: Optional[float] = None
+    pair_factor: Optional[str] = None
+    pair_beta: Optional[float] = None
+    pair_signal: Optional[str] = None
 
 
 def sigmoid(x: float) -> float:
@@ -102,30 +108,6 @@ class IRAIEngine:
         self.alpha: float = 1.0
         self.intercept: float = 0.0
         self._load_params()
-
-    def compute_from_db(self, target: str, version: str = "v1", is_preview_mode: bool = False, **kwargs):
-        # Em modo v2, salva o último estado no db se aplicável
-        if version == "v2" and len(snapshots) > 0 and kf is not None and not is_preview_mode:
-            last_snap_dt = datetime.fromisoformat(snapshots[-1].timestamp)
-            current_dt = datetime.utcnow()
-            
-            last_snap_utc = last_snap_dt.astimezone(timezone.utc).replace(tzinfo=None)
-            
-            # Save only if it's recent enough to not overwrite a potentially newer state
-            # and if we have a valid Kalman filter running.
-            current_state_mean, current_state_cov = kf.get_state()
-            try:
-                conn3 = get_connection(self.db_path)
-                save_kalman_state(
-                    conn3,
-                    slug,
-                    current_state_mean,
-                    current_state_cov,
-                    last_snap_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-                )
-                conn3.close()
-            except Exception as e:
-                print(f"Warning: Failed to save kalman state: {e}")
 
     def _load_params(self):
         """Carrega configs de asset_models + params de model_params."""
@@ -438,7 +420,7 @@ class IRAIEngine:
         
         # Load previous Kalman state if valid
         slug = cfg.get("slug", self.target_slugs.get(target, "win"))
-        saved_state = load_kalman_state(conn, slug)
+        saved_state = load_kalman_state(conn, slug, session_date)
         
         conn.close()
 
@@ -580,7 +562,7 @@ class IRAIEngine:
         
         # --- Kalman Filter Setup ---
         kf = None
-        if version == "v2":
+        if version in ("v2", "both"):
             n_dim_state = 1 + len(active_factors) # Intercept + Factors
             initial_state_mean = np.zeros(n_dim_state)
             initial_state_mean[0] = local_intercept
@@ -615,6 +597,10 @@ class IRAIEngine:
         use_johansen = cfg.get("use_johansen", True)
         target_div_sigma = div_cfg.get("sigma", 0.005)
         target_div_threshold = div_cfg.get("threshold", 0.5)
+        
+        pair_sigma_fallback = div_cfg.get("pair_sigma", 0.005)
+        pair_threshold = div_cfg.get("pair_threshold", 2.0)
+        recent_residuals = []
 
         # Set de timestamps reais do target para detecção precisa de ghost bars
         target_ts_set = set(r["timestamp"] for r in target_bars)
@@ -634,7 +620,7 @@ class IRAIEngine:
             while target_cursor < len(target_bars) - 1 and target_bars[target_cursor + 1]["timestamp"] <= ts:
                 target_cursor += 1
                 
-            is_pre_market = (target_cursor < 0)
+            is_pre_market = (len(target_bars) == 0 or ts < target_bars[0]["timestamp"])
             
             if target_cursor < len(target_bars) and target_bars[target_cursor]["timestamp"] <= ts and not is_pre_market:
                 row = target_bars[target_cursor]
@@ -657,7 +643,7 @@ class IRAIEngine:
             is_coint = True
             p_val = 0.01
 
-            if version == "v2":
+            if version in ("v2", "both"):
                 # Preparar dados para Johansen (Preços)
                 if use_johansen:
                     basket_prices = {"target": float(row["close"])}
@@ -673,10 +659,10 @@ class IRAIEngine:
                         df_basket = pd.DataFrame(price_history)
                         p_val, is_coint = check_cointegration(df_basket)
                 
-                # Preparar dados para Kalman (Retornos)
+                # Preparar dados para Kalman (Retornos em Porcentagem)
                 win_ret = 0.0
                 if opens[data_target] > 0 and not is_pre_market:
-                    win_ret = (float(row["close"]) - opens[data_target]) / opens[data_target]
+                    win_ret = ((float(row["close"]) - opens[data_target]) / opens[data_target]) * 100.0
                 
                 obs_matrix = [1.0] # Intercept
                 for factor in active_factors:
@@ -684,18 +670,21 @@ class IRAIEngine:
                     state = local_factor_states[label]
                     f_ret = 0.0
                     if state.open_price > 0 and state.current_price > 0:
-                        f_ret = (state.current_price - state.open_price) / state.open_price
+                        f_ret = ((state.current_price - state.open_price) / state.open_price) * 100.0
                     obs_matrix.append(f_ret)
                     
-                # Update Kalman
-                kf.update(observation=win_ret, observation_matrix=np.array([obs_matrix]))
-                current_betas, _ = kf.get_state()
-                
-                # Update local weights based on Kalman
-                local_intercept = current_betas[0]
-                for i, factor in enumerate(active_factors):
-                    label = active_labels.get(factor, factor)
-                    local_factor_states[label].weight = current_betas[i+1]
+                # Update Kalman ONLY if the target market is actually trading
+                if not is_ghost_bar and not is_pre_market:
+                    kf.update(observation=win_ret, observation_matrix=np.array([obs_matrix]))
+                    current_betas, _ = kf.get_state()
+                    
+                    # Update local weights based on Kalman
+                    # NOTE: We deliberately do NOT update local_intercept here.
+                    # current_betas[0] is a linear return intercept (usually ~0),
+                    # whereas local_intercept is a logistic regression intercept used in sigmoid().
+                    for i, factor in enumerate(active_factors):
+                        label = active_labels.get(factor, factor)
+                        local_factor_states[label].weight = current_betas[i+1]
             else:
                 # V1: Garantir que os pesos sejam os estáticos (default setup at the start)
                 pass
@@ -753,17 +742,61 @@ class IRAIEngine:
                     snap.price_diverges = True
                 elif snap.p_up < 45 and ret_z > target_div_threshold:
                     snap.price_diverges = True
+                    
+            # Pairwise Signal (v2 Kalman Only)
+            if version in ("v2", "both") and kf is not None and len(active_factors) > 0 and snap.t_frac > 0 and not is_ghost_bar and not is_pre_market:
+                betas_abs = [abs(b) for b in current_betas[1:]]
+                max_idx = int(np.argmax(betas_abs))
+                beta_max = current_betas[max_idx + 1]
+                f_ret_max = obs_matrix[max_idx + 1]
+                
+                pair_factor_key = active_factors[max_idx]
+                pair_label = active_labels.get(pair_factor_key, pair_factor_key)
+                
+                # Residual: (Target Return) - (Beta * Factor Return)
+                # Note: win_ret is a percentage here, so residual is a percentage.
+                residuo = win_ret - (beta_max * f_ret_max)
+                recent_residuals.append(residuo)
+                if len(recent_residuals) > 20:
+                    recent_residuals.pop(0)
+                    
+                # Need minimum 5 bars to have a meaningful sigma estimate
+                if len(recent_residuals) >= 5:
+                    pair_sigma = float(np.std(recent_residuals))
+                    if pair_sigma < 0.0001:
+                        pair_sigma = 0.0001
+                    
+                    # Detrend to calculate Z-Score against the rolling mean
+                    residuo_mean = float(np.mean(recent_residuals))
+                    pair_z = (residuo - residuo_mean) / pair_sigma
+                    
+                    # Clamp to prevent chart-breaking outliers
+                    pair_z = max(-4.0, min(4.0, pair_z))
+                    
+                    snap.pair_z = round(pair_z, 2)
+                else:
+                    pair_z = 0.0
+                    snap.pair_z = None
+                snap.pair_factor = pair_label
+                snap.pair_beta = round(beta_max, 3)
+                
+                if pair_z < -pair_threshold:
+                    snap.pair_signal = "buy"
+                elif pair_z > pair_threshold:
+                    snap.pair_signal = "sell"
+                else:
+                    snap.pair_signal = None
 
             snapshots.append(snap)
             
         # Salvar o último estado do Kalman no banco
-        if snapshots and version == "v2" and kf is not None:
+        if snapshots and version in ("v2", "both") and kf is not None:
             last_ts = snapshots[-1].timestamp
             last_p = snapshots[-1].johansen_p_value
             last_coint = snapshots[-1].is_cointegrated
             s_mean, s_cov = kf.get_state()
             conn2 = get_connection(self.db_path)
-            save_kalman_state(conn2, slug, s_mean, s_cov, last_p, last_coint, last_ts)
+            save_kalman_state(conn2, slug, session_date, s_mean, s_cov, last_p, last_coint, last_ts)
             conn2.close()
 
         return snapshots

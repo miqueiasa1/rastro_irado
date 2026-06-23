@@ -14,10 +14,13 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 from scipy.special import expit
+from scipy.optimize import lsq_linear
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "irai.db")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from backend.db import DB_PATH
+
 
 # Todos os possíveis fatores
 ALL_FACTORS = [
@@ -84,6 +87,12 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     print(f"  Calibrando: {target} (dados: {data_sym})")
     print(f"  Sessão: {session_start_h:02d}-{session_end_h:02d} UTC")
     print(f"{'='*60}")
+    
+    # Regra de Exceção para Momentum Tracker do US30
+    if target == "US30":
+        min_factors = min(4, min_factors)
+        max_factors = min(5, max_factors)
+        print("  [regra] Exceção Momentum Tracker ativada para US30 (min_factors=4, max_factors=5, permite US500)")
 
     daily = load_daily_returns(conn, session_start_h, session_end_h)
 
@@ -101,17 +110,27 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     us_indices = {"US500", "US30", "USTEC"}
     
     if target in us_indices:
-        # US indices não seguem outros US indices
-        exclude.update(us_indices)
+        # Exceção de Momentum Tracker para o US30 (permitimos US500 na cesta dele)
+        if target == "US30":
+            exclude.update({"US30", "USTEC"})
+        else:
+            # US indices não seguem outros US indices
+            exclude.update(us_indices)
 
     if target not in br_assets:
         # Internacional não usa BR
         exclude.update(br_assets)
 
     if target in DXY_COMPONENTS:
-        # Majors não usam DXY — são componentes do índice (multicolinearidade)
-        exclude.add("DXY")
-        print(f"  [regra] {target} é componente do DXY — DXY excluído dos fatores")
+        if target == "EURUSD":
+            # Exceção para EURUSD: Permitir o DXY como âncora principal
+            min_factors = min(4, min_factors)
+            max_factors = min(6, max_factors)
+            print("  [regra] Exceção EURUSD: Permitido usar DXY. min_factors=4, max_factors=6")
+        else:
+            # Majors não usam DXY — são componentes do índice (multicolinearidade)
+            exclude.add("DXY")
+            print(f"  [regra] {target} é componente do DXY — DXY excluído dos fatores")
 
     # ── Exclusão de tautologias aritméticas entre crosses ─────────────────
     cross_trios = [
@@ -121,7 +140,7 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
         {"EURJPY", "EURUSD", "USDJPY"},
         {"GBPJPY", "GBPUSD", "USDJPY"},
         {"EURAUD", "EURUSD", "AUDUSD"},
-        # {"EURJPY", "GBPJPY", "EURGBP"}, # Removido para controle manual
+        {"EURJPY", "GBPJPY", "EURGBP"}, # Descomentado para evitar colinearidade singular (Kalman Filter Issue)
     ]
     for trio in cross_trios:
         if target in trio:
@@ -192,6 +211,15 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
 
     # Precompute TSS for R2
     tss = np.sum((y_ret - y_ret.mean()) ** 2)
+    n_samples = len(y_ret)
+
+    # Precompute correlation matrix and highly correlated pairs (>= 0.80)
+    corr_matrix = merged_all[available_labels].corr().abs()
+    high_corr_pairs = set()
+    for i in range(len(available_labels)):
+        for j in range(i + 1, len(available_labels)):
+            if corr_matrix.iloc[i, j] >= 0.80:
+                high_corr_pairs.add((i, j))
 
     # Precompute index sets for multicollinearity groups
     treasury_indices = {i for i, f in enumerate(available_factors) 
@@ -200,6 +228,8 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
                        if f in em_bonds}
 
     skipped_multicol = 0
+
+    candidates = []
 
     for n_factors in range(min_factors, min(max_factors + 1, len(available_factors) + 1)):
         for combo in combinations(range(len(available_factors)), n_factors):
@@ -211,6 +241,21 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
                 skipped_multicol += 1
                 continue
 
+            # Filtro de correlação: nenhum par na cesta pode ter correlação >= 0.80
+            has_high_corr = False
+            for i in range(n_factors):
+                for j in range(i + 1, n_factors):
+                    idx_pair = (combo[i], combo[j]) if combo[i] < combo[j] else (combo[j], combo[i])
+                    if idx_pair in high_corr_pairs:
+                        has_high_corr = True
+                        break
+                if has_high_corr:
+                    break
+            
+            if has_high_corr:
+                skipped_multicol += 1
+                continue
+
             total_combos += 1
             labels = [available_labels[i] for i in combo]
             factors = [available_factors[i] for i in combo]
@@ -219,28 +264,70 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
             Xb = np.column_stack([X, np.ones(len(X))])
 
             try:
-                beta = np.linalg.lstsq(Xb, y_ret, rcond=None)[0]
+                # Stage 1: Fast unconstrained OLS
+                beta_ols = np.linalg.lstsq(Xb, y_ret, rcond=None)[0]
+                yp_ols = Xb @ beta_ols
+                correct = np.sum((yp_ols > 0) == (y_ret > 0))
+                acc = correct / len(y_ret)
+                
+                r2 = 1 - np.sum((y_ret - yp_ols) ** 2) / tss
+                adj_r2 = 1 - ((1 - r2) * (n_samples - 1) / (n_samples - n_factors - 1))
+                
+                score_ols = (acc * 0.7) + (max(0, adj_r2) * 0.3)
+                candidates.append((score_ols, combo, labels, factors))
             except Exception:
                 continue
 
-            yp = Xb @ beta
-            correct = np.sum((yp > 0) == (y_ret > 0))
-            acc = correct / len(y_ret)
-            
-            # Score Misto: 70% Direcional, 30% Correlação Estrutural (R²)
-            r2 = 1 - np.sum((y_ret - yp) ** 2) / tss
-            score = (acc * 0.7) + (max(0, r2) * 0.3)
+    # Stage 2: Constrained sign regression on the top 500 candidates
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    top_candidates = candidates[:500]
 
-            if score > best_score:
-                best_score = score
-                best_result = {
-                    "factors": factors,
-                    "labels": labels,
-                    "beta": beta,
-                    "r2": r2,
-                    "acc": acc,
-                    "n_factors": n_factors,
-                }
+    for score_ols, combo, labels, factors in top_candidates:
+        n_factors = len(combo)
+        X = merged_all[labels].values
+        Xb = np.column_stack([X, np.ones(len(X))])
+
+        # Define sign constraints based on correlation sign
+        lb = []
+        ub = []
+        for label in labels:
+            corr = merged_all["target"].corr(merged_all[label])
+            if corr >= 0:
+                lb.append(0.0)
+                ub.append(np.inf)
+            else:
+                lb.append(-np.inf)
+                ub.append(0.0)
+        # Intercept has no sign constraint
+        lb.append(-np.inf)
+        ub.append(np.inf)
+
+        try:
+            res = lsq_linear(Xb, y_ret, bounds=(lb, ub))
+            beta = res.x
+        except Exception:
+            continue
+
+        yp = Xb @ beta
+        correct = np.sum((yp > 0) == (y_ret > 0))
+        acc = correct / len(y_ret)
+        
+        r2 = 1 - np.sum((y_ret - yp) ** 2) / tss
+        adj_r2 = 1 - ((1 - r2) * (n_samples - 1) / (n_samples - n_factors - 1))
+        
+        score = (acc * 0.7) + (max(0, adj_r2) * 0.3)
+
+        if score > best_score:
+            best_score = score
+            best_result = {
+                "factors": factors,
+                "labels": labels,
+                "beta": beta,
+                "r2": r2,
+                "acc": acc,
+                "n_factors": n_factors,
+            }
+
 
     if best_result is None:
         print(f"  Testadas: {total_combos:,} combos ({skipped_multicol:,} descartadas por multicolinearidade)")
@@ -271,8 +358,20 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     from sklearn.linear_model import LogisticRegression
     lr = LogisticRegression(fit_intercept=True, max_iter=1000, C=1e6)
     lr.fit(scores.reshape(-1, 1), y_dir)
-    alpha = float(lr.coef_[0, 0])
-    intercept = float(lr.intercept_[0])
+    raw_alpha = float(lr.coef_[0, 0])
+    raw_intercept = float(lr.intercept_[0])
+
+    # --- GUARD RAILS FOR V2 (Kalman Filter Paradigm) ---
+    # The V2 engine uses dynamic Kalman weights but relies on these static
+    # logistic parameters for scaling the signal to a 0-100 probability.
+    # We must clamp alpha to maintain "responsiveness" without becoming binary,
+    # and clamp intercept to remain close to neutral (50% base prob).
+    alpha = max(1.0, min(3.5, raw_alpha))
+    intercept = max(-0.25, min(0.25, raw_intercept))
+
+    if raw_alpha != alpha or raw_intercept != intercept:
+        print(f"  [Guard Rails] Ajustado Alpha ({raw_alpha:.4f} -> {alpha:.4f}) e Intercept ({raw_intercept:.4f} -> {intercept:.4f})")
+    # ---------------------------------------------------
 
     p_up = expit(alpha * scores + intercept) * 100
     dir_acc = np.mean((p_up > 50).astype(int) == y_dir) * 100

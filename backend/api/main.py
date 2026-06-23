@@ -160,6 +160,7 @@ async def irai_targets():
                 "accuracy": t.get("accuracy"),
                 "r_squared": t.get("r_squared"),
                 "calibrated": t.get("accuracy") is not None,
+                "session_start_h": t.get("session_start_h", 0),
                 "session_hours": f"{t['session_start_h']:02d}h-{t['session_end_h']:02d}h",
             }
             for t in engine.registered_targets
@@ -266,6 +267,8 @@ async def irai_overview(
                 "price_diverge_z": price_diverge_z,
                 "nwe_slope": nwe_slope,
                 "is_preview": getattr(last, "is_preview", False),
+                "is_cointegrated": getattr(last, "is_cointegrated", True),
+                "johansen_p_value": getattr(last, "johansen_p_value", 1.0),
             }
 
             res_obj.update({
@@ -437,8 +440,14 @@ def _snap_to_dict(snap) -> dict:
         "flow_confirms": snap.flow_confirms,
         "price_diverges": snap.price_diverges,
         "price_diverge_z": snap.price_diverge_z,
+        "pair_z": getattr(snap, "pair_z", None),
+        "pair_factor": getattr(snap, "pair_factor", None),
+        "pair_beta": getattr(snap, "pair_beta", None),
+        "pair_signal": getattr(snap, "pair_signal", None),
         "is_preview": getattr(snap, "is_preview", False),
         "is_ghost": getattr(snap, "is_ghost", False),
+        "is_cointegrated": getattr(snap, "is_cointegrated", True),
+        "johansen_p_value": getattr(snap, "johansen_p_value", 1.0),
     }
 
 

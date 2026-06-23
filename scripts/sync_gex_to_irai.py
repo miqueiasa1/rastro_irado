@@ -33,44 +33,108 @@ PREFIX_TO_TARGET = {
 }
 
 
+
+
+
 def parse_pine(filepath):
+    import re
     with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
+        lines = f.readlines()
 
     results = {}
-
     for prefix, target in PREFIX_TO_TARGET.items():
         results[target] = []
 
-        prices = re.findall(rf'array\.push\({prefix}_prices,\s*([\d.]+)\)', content)
-        labels = re.findall(rf'array\.push\({prefix}_labels,\s*"([^"]+)"\)', content)
-        colors = re.findall(rf'array\.push\({prefix}_colors,\s*color\.new\((#[0-9a-fA-F]+),\s*\d+\)\)', content)
-        widths = re.findall(rf'array\.push\({prefix}_widths,\s*(\d+)\)', content)
-        styles = re.findall(rf'array\.push\({prefix}_styles,\s*"([^"]+)"\)', content)
+    current_target = None
+    current_prices = []
+    current_labels = []
+    current_colors = []
+    current_widths = []
+    current_styles = []
 
-        count = min(len(prices), len(labels), len(colors), len(widths), len(styles))
+    in_function = False
 
-        for i in range(count):
-            label = labels[i]
-            level_type = 'wall'
-            if 'MIN GAMMA' in label:
-                level_type = 'min_gamma'
-            elif 'MAX GAMMA' in label:
-                level_type = 'max_gamma'
-            elif 'GAMMA FLIP' in label:
-                level_type = 'gamma_flip'
-            elif label == "MID WALL":
-                level_type = 'mid_wall'
+    def flush_levels():
+        nonlocal current_target, current_prices, current_labels, current_colors, current_widths, current_styles
+        if current_target:
+            count = min(len(current_prices), len(current_labels), len(current_colors), len(current_widths), len(current_styles))
+            for i in range(count):
+                label = current_labels[i]
+                level_type = 'wall'
+                if 'MIN GAMMA' in label:
+                    level_type = 'min_gamma'
+                elif 'MAX GAMMA' in label:
+                    level_type = 'max_gamma'
+                elif 'GAMMA FLIP' in label:
+                    level_type = 'gamma_flip'
+                elif label == "MID WALL":
+                    level_type = 'mid_wall'
 
-            results[target].append({
-                'price': float(prices[i]),
-                'label': label,
-                'color': colors[i],
-                'width': int(widths[i]),
-                'style': styles[i],
-                'type': level_type,
-            })
+                results[current_target].append({
+                    'price': current_prices[i],
+                    'label': label,
+                    'color': current_colors[i],
+                    'width': current_widths[i],
+                    'style': current_styles[i],
+                    'type': level_type,
+                })
+            # Clear buffers
+            current_prices = []
+            current_labels = []
+            current_colors = []
+            current_widths = []
+            current_styles = []
 
+    for line in lines:
+        match = re.match(r'^\s*populate_([a-z]+)_\d+\(([^)]*)\)\s*=>', line)
+        if match:
+            flush_levels()
+            prefix = match.group(1)
+            if prefix in PREFIX_TO_TARGET:
+                current_target = PREFIX_TO_TARGET[prefix]
+                in_function = True
+            else:
+                current_target = None
+                in_function = False
+            continue
+
+        if in_function:
+            stripped = line.strip()
+            if stripped == "":
+                continue
+            if line.startswith('    ') or line.startswith('\t'):
+                # We are inside the function body. parse push lines
+                m_pr = re.search(r'array\.push\(pr,\s*([\d.-]+)\)', stripped)
+                if m_pr:
+                    current_prices.append(float(m_pr.group(1)))
+                    continue
+                
+                m_lb = re.search(r'array\.push\(lb,\s*"([^"]+)"\)', stripped)
+                if m_lb:
+                    current_labels.append(m_lb.group(1))
+                    continue
+                
+                m_cl = re.search(r'array\.push\(cl,\s*color\.new\((#[0-9a-fA-F]+),\s*\d+\)\)', stripped)
+                if m_cl:
+                    current_colors.append(m_cl.group(1))
+                    continue
+                
+                m_wd = re.search(r'array\.push\(wd,\s*(\d+)\)', stripped)
+                if m_wd:
+                    current_widths.append(int(m_wd.group(1)))
+                    continue
+                
+                m_st = re.search(r'array\.push\(st,\s*"([^"]+)"\)', stripped)
+                if m_st:
+                    current_styles.append(m_st.group(1))
+                    continue
+            else:
+                # Out of indentation
+                flush_levels()
+                current_target = None
+                in_function = False
+
+    flush_levels()
     return results
 
 

@@ -39,47 +39,34 @@ const OVERVIEW_STYLES = `
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
 const API = FIREBASE_URL ? null : 'http://localhost:8888'
 
-function Sparkline({ dataV1, dataV2, width = '100%', height = 24 }) {
-  const allData = [...(dataV1 || []), ...(dataV2 || [])]
-  if (allData.length < 2) return null
-  const min = Math.min(...allData)
-  const max = Math.max(...allData)
+function Sparkline({ data, width = '100%', height = 24 }) {
+  if (!data || data.length < 2) return null
+  const min = Math.min(...data)
+  const max = Math.max(...data)
   const range = max - min || 1
   const viewBoxWidth = 185
 
-  const makePoints = (data) => {
-    if (!data || data.length < 2) return ''
-    return data.map((v, i) => {
-      const x = (i / (data.length - 1)) * viewBoxWidth
+  const makePoints = (pts) => {
+    if (!pts || pts.length < 2) return ''
+    return pts.map((v, i) => {
+      const x = (i / (pts.length - 1)) * viewBoxWidth
       const y = height - ((v - min) / range) * (height - 4) - 2
       return `${x},${y}`
     }).join(' ')
   }
 
-  const pointsV1 = makePoints(dataV1)
-  const pointsV2 = makePoints(dataV2)
+  const points = makePoints(data)
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${viewBoxWidth} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-      {pointsV1 && (
-        <polyline
-          fill="none"
-          stroke="#D4A84C"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray="4 2"
-          points={pointsV1}
-        />
-      )}
-      {pointsV2 && (
+      {points && (
         <polyline
           fill="none"
           stroke="#60A5FA"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          points={pointsV2}
+          points={points}
         />
       )}
     </svg>
@@ -95,15 +82,19 @@ export default function Overview({ onSelectTarget }) {
     async function load() {
       try {
         if (FIREBASE_URL) {
-          const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
-          const res = await fetch(url)
-          const db = await res.json()
-          setTargets(db?.targets?.targets || [])
-          setOverview(db?.overview?.targets || [])
+          const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
+          const [tRes, oRes] = await Promise.all([
+            fetch(`${baseUrl}/targets.json`),
+            fetch(`${baseUrl}/overview.json`),
+          ])
+          const tData = await tRes.json()
+          const oData = await oRes.json()
+          setTargets(tData?.targets || [])
+          setOverview(oData?.targets || [])
         } else {
           const [tRes, oRes] = await Promise.all([
             fetch(`${API}/api/irai/targets`),
-            fetch(`${API}/api/irai/overview?version=both`),
+            fetch(`${API}/api/irai/overview?version=v2`),
           ])
           const tData = await tRes.json()
           const oData = await oRes.json()
@@ -122,24 +113,28 @@ export default function Overview({ onSelectTarget }) {
     let pollTimer = null
     
     if (FIREBASE_URL) {
-      // Firebase: poll every 60s (SSE unreliable for large payloads)
+      // Firebase: poll every 120s
       pollTimer = setInterval(async () => {
         if (!mounted) return
         try {
-          const url = FIREBASE_URL.endsWith('.json') ? FIREBASE_URL : `${FIREBASE_URL.replace(/\/$/, '')}/db.json`
-          const res = await fetch(url)
-          const db = await res.json()
-          setTargets(db?.targets?.targets || [])
-          setOverview(db?.overview?.targets || [])
+          const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
+          const [tRes, oRes] = await Promise.all([
+            fetch(`${baseUrl}/targets.json`),
+            fetch(`${baseUrl}/overview.json`),
+          ])
+          const tData = await tRes.json()
+          const oData = await oRes.json()
+          setTargets(tData?.targets || [])
+          setOverview(oData?.targets || [])
         } catch (e) { console.error('Overview poll error:', e) }
-      }, 60_000)
+      }, 120_000)
     } else {
       // Local: simple HTTP polling every 60s
       pollTimer = setInterval(async () => {
         if (!mounted) return
         try {
           const [oRes] = await Promise.all([
-            fetch(`${API}/api/irai/overview?version=both`),
+            fetch(`${API}/api/irai/overview?version=v2`),
           ])
           const oData = await oRes.json()
           setOverview(oData.targets || [])
@@ -159,7 +154,16 @@ export default function Overview({ onSelectTarget }) {
     return { ...t, ...live }
   })
 
-  const calibrated = cards.filter(c => c.calibrated)
+  const calibrated = cards
+    .filter(c => c.calibrated)
+    .sort((a, b) => {
+      const cointA = a.is_cointegrated === false ? 0 : 1;
+      const cointB = b.is_cointegrated === false ? 0 : 1;
+      if (cointA !== cointB) return cointB - cointA;
+      const pA = a.johansen_p_value !== undefined ? a.johansen_p_value : 1.0;
+      const pB = b.johansen_p_value !== undefined ? b.johansen_p_value : 1.0;
+      return pA - pB;
+    })
   const pending = cards.filter(c => !c.calibrated)
 
   if (loading) {
@@ -267,7 +271,7 @@ export default function Overview({ onSelectTarget }) {
 
 
 function AssetCard({ card, onClick }) {
-  const pUp = card.p_up_v1 != null ? card.p_up_v1 : (card.p_up || 50)
+  const pUp = card.p_up != null ? card.p_up : 50
   const accuracy = card.accuracy || 80
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
@@ -294,23 +298,14 @@ function AssetCard({ card, onClick }) {
   const acc = Math.min(Math.max(accuracy, 50), 100)
   const shrinkFactor = (2 * acc / 100) - 1
   
-  // V1 Conviction
-  const pUpV1 = card.p_up_v1 != null ? card.p_up_v1 : pUp
-  const pShrunkV1 = 50 + (pUpV1 - 50) * shrinkFactor
-  const convictionV1 = Math.round(Math.abs(pShrunkV1 - 50) * 2)
+  // Conviction
+  const pShrunk = 50 + (pUp - 50) * shrinkFactor
+  const conviction = Math.round(Math.abs(pShrunk - 50) * 2)
   const maxConviction = Math.round((acc - 50) * 2)
-  const convRatioV1 = maxConviction > 0 ? convictionV1 / maxConviction : 0
-  const convLabelV1 = card.is_preview ? 'pré-mercado' : (convRatioV1 >= 0.55 ? 'forte' : convRatioV1 >= 0.25 ? 'moderada' : 'fraca')
-  
-  // V2 Conviction
-  const hasV2 = card.p_up_v2 != null
-  const pUpV2 = card.p_up_v2
-  const pShrunkV2 = hasV2 ? 50 + (pUpV2 - 50) * shrinkFactor : 50
-  const convictionV2 = hasV2 ? Math.round(Math.abs(pShrunkV2 - 50) * 2) : 0
-  const convRatioV2 = maxConviction > 0 ? convictionV2 / maxConviction : 0
-  const convLabelV2 = card.is_preview ? 'pré-mercado' : (convRatioV2 >= 0.55 ? 'forte' : convRatioV2 >= 0.25 ? 'moderada' : 'fraca')
+  const convRatio = maxConviction > 0 ? conviction / maxConviction : 0
+  const convLabel = card.is_preview ? 'pré-mercado' : (convRatio >= 0.55 ? 'forte' : convRatio >= 0.25 ? 'moderada' : 'fraca')
 
-  const convColor = card.is_preview ? '#EAB308' : (convRatioV1 >= 0.55 ? signalColor : convRatioV1 >= 0.25 ? '#C9A227' : '#334155')
+  const convColor = card.is_preview ? '#EAB308' : (convRatio >= 0.55 ? signalColor : convRatio >= 0.25 ? '#C9A227' : '#334155')
 
   const ret = card.win_return || 0
 
@@ -357,7 +352,7 @@ function AssetCard({ card, onClick }) {
           background: `${convColor}18`,
           border: `1px solid ${convColor}33`,
         }}>
-          {convLabelV1}
+          {convLabel}
         </div>
       </div>
 
@@ -376,22 +371,12 @@ function AssetCard({ card, onClick }) {
           <div style={{ display: 'flex', gap: 12 }}>
             <div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: convColor, marginTop: 4, fontWeight: 600 }}>
-                v1 conv. {convictionV1}%
+                convicção {conviction}%
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#2A2A36', marginTop: 2 }}>
-                P(↑) {pUpV1.toFixed(0)}%
+                P(↑) {pUp.toFixed(0)}%
               </div>
             </div>
-            {hasV2 && (
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: '#60A5FA', marginTop: 4, fontWeight: 600 }}>
-                  v2 conv. {convictionV2}%
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#2A2A36', marginTop: 2 }}>
-                  P(↑) {pUpV2.toFixed(0)}%
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -437,13 +422,21 @@ function AssetCard({ card, onClick }) {
 
 
 
-      {/* Footer: acc + bars */}
+      {/* Footer: acc + coint + bars */}
       <div style={{
         marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 7,
-        color: '#1E1E28', display: 'flex', justifyContent: 'space-between',
+        color: '#475569', display: 'flex', justifyContent: 'space-between',
       }}>
-        <span>acc {accuracy.toFixed(0)}%</span>
+        <span>acc {accuracy.toFixed(0)}% · p-val: {card.johansen_p_value !== undefined ? card.johansen_p_value.toFixed(3) : '1.000'}</span>
+        <span style={{ color: card.is_cointegrated !== false ? '#4ADE80' : '#F87171', fontWeight: 600 }}>
+          {card.is_cointegrated !== false ? 'coint ✓' : 'coint ✗'}
+        </span>
         <span>{card.bars || 0} barras</span>
+      </div>
+
+      {/* Sparkline (Dinâmico) */}
+      <div className="sparkline-wrapper">
+        <Sparkline data={card.sparkline} />
       </div>
     </div>
   )

@@ -39,7 +39,7 @@ function Install-Service {
     nssm set $ServiceName AppStdout "$AppDirectory\logs\$ServiceName.log" | Out-Null
     nssm set $ServiceName AppStderr "$AppDirectory\logs\$ServiceName.error.log" | Out-Null
     nssm set $ServiceName AppRotateFiles 1 | Out-Null
-    nssm set $ServiceName AppRotateOnline 0 | Out-Null
+    nssm set $ServiceName AppRotateOnline 1 | Out-Null
     nssm set $ServiceName AppRotateBytes 5242880 | Out-Null # 5MB limit
     nssm set $ServiceName AppEnvironmentExtra "PYTHONPATH=C:\Users\ryzen\AppData\Roaming\Python\Python313\site-packages" | Out-Null
     nssm set $ServiceName Start SERVICE_AUTO_START | Out-Null

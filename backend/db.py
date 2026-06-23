@@ -4,7 +4,7 @@ IRAI Database — Schema e inicialização do SQLite.
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "irai.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "irai_live.db")
 
 SCHEMA = """
 -- Barras brutas coletadas pelos workers (M5 e D1)
@@ -89,12 +89,14 @@ CREATE TABLE IF NOT EXISTS asset_models (
 );
 -- Estado Dinâmico (Kalman Filter & Johansen)
 CREATE TABLE IF NOT EXISTS kalman_state (
-    slug             TEXT PRIMARY KEY,
+    slug             TEXT NOT NULL,
+    session_date     TEXT NOT NULL,
     state_mean       TEXT NOT NULL,         -- JSON array
     state_covariance TEXT NOT NULL,         -- JSON 2D array
     johansen_p_value REAL,
     is_cointegrated  INTEGER DEFAULT 1,     -- 1=sim, 0=não
-    timestamp_utc    TEXT NOT NULL
+    timestamp_utc    TEXT NOT NULL,
+    PRIMARY KEY (slug, session_date)
 );
 """
 
@@ -102,7 +104,7 @@ def get_connection(db_path=None):
     """Retorna conexão SQLite com WAL mode."""
     path = db_path or DB_PATH
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
@@ -140,12 +142,14 @@ def migrate_kalman_state(db_path=None):
     conn = get_connection(db_path)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS kalman_state (
-            slug             TEXT PRIMARY KEY,
+            slug             TEXT NOT NULL,
+            session_date     TEXT NOT NULL,
             state_mean       TEXT NOT NULL,
             state_covariance TEXT NOT NULL,
             johansen_p_value REAL,
             is_cointegrated  INTEGER DEFAULT 1,
-            timestamp_utc    TEXT NOT NULL
+            timestamp_utc    TEXT NOT NULL,
+            PRIMARY KEY (slug, session_date)
         )
     """)
     conn.commit()
@@ -153,7 +157,7 @@ def migrate_kalman_state(db_path=None):
     conn.close()
 
 
-def save_kalman_state(conn, slug: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str):
+def save_kalman_state(conn, slug: str, session_date: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str):
     """Salva o estado atual do filtro de Kalman e teste de Johansen."""
     import json
     import numpy as np
@@ -166,22 +170,23 @@ def save_kalman_state(conn, slug: str, state_mean, state_covariance, p_value: fl
         
     conn.execute("""
         INSERT OR REPLACE INTO kalman_state 
-        (slug, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (slug, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
+        (slug, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (slug, session_date, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
     conn.commit()
 
 
-def load_kalman_state(conn, slug: str):
-    """Carrega o último estado do filtro de Kalman para o ativo."""
+def load_kalman_state(conn, slug: str, session_date: str):
+    """Carrega o último estado do filtro de Kalman para o ativo anterior à data informada."""
     import json
     import numpy as np
     
     row = conn.execute("""
         SELECT state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc
         FROM kalman_state
-        WHERE slug = ?
-    """, (slug,)).fetchone()
+        WHERE slug = ? AND session_date < ?
+        ORDER BY session_date DESC LIMIT 1
+    """, (slug, session_date)).fetchone()
     
     if not row:
         return None

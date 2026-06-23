@@ -27,7 +27,11 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 TERMINALS = [
     {
         "name": "BR (XP)",
-        "path": r"C:\Program Files\MetaTrader 5 Terminal - milhao - Copia\terminal64.exe",
+        "paths": [
+            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+            r"C:\Program Files\MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\MetaTrader 5 Terminal - milhao - Copia\terminal64.exe",
+        ],
         "source": "br",
         "symbols": ["WIN$N", "WDO$N", "DI1$N"],
     },
@@ -37,7 +41,7 @@ TERMINALS = [
         "source": "tickmill",
         "symbols": [
             "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
-            "US500", "US30", "USTEC", "XAUUSD",
+            "US500", "US30", "USTEC", "DE40", "XAUUSD",
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
             "CADCHF", "AUDNZD", "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD",
         ],
@@ -141,18 +145,39 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False) -> dic
                 results[sym] = {"status": "skipped", "error": "B3 fechada"}
             continue
 
-        try:
-            mt5.shutdown()
-        except Exception:
-            pass
-        time.sleep(0.5)
+        # Obter caminhos a tentar
+        paths_to_try = terminal.get("paths")
+        if not paths_to_try:
+            paths_to_try = [terminal.get("path")]
 
-        if not mt5.initialize(path=terminal["path"], timeout=15000):
-            error = mt5.last_error()
-            log.warning(f"{terminal['name']}: falha na conexao: {error}")
+        connected = False
+        last_error = None
+        active_path = None
+
+        for path in paths_to_try:
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+            # Usar timeout mais curto se for uma lista de fallbacks
+            timeout_ms = 5000 if len(paths_to_try) > 1 else 15000
+            if mt5.initialize(path=path, timeout=timeout_ms):
+                connected = True
+                active_path = path
+                break
+            else:
+                last_error = mt5.last_error()
+                log.info(f"{terminal['name']}: Falha ao conectar em {path} ({last_error}). Tentando fallback...")
+
+        if not connected:
+            log.warning(f"{terminal['name']}: todas as tentativas de conexao falharam. Ultimo erro: {last_error}")
             for sym in terminal["symbols"]:
-                results[sym] = {"status": "error", "error": str(error)}
+                results[sym] = {"status": "error", "error": str(last_error)}
             continue
+
+        log.info(f"{terminal['name']}: conectado com sucesso usando {active_path}")
 
         for sym in terminal["symbols"]:
             inserted = collect_recent_bars(sym, terminal["source"], conn)

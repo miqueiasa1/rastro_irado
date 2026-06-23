@@ -4,7 +4,7 @@ import os
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 db_path = os.path.join(project_root, 'data', 'irai.db')
-out_md_path = os.path.join(project_root, '.planning', 'docs', 'FACTOR_MAP.md')
+out_md_path = os.path.join(project_root, '.planning', 'docs', 'FACTOR_MAP_NOVO.md')
 
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
@@ -21,14 +21,11 @@ for row in conn.execute("SELECT * FROM asset_models WHERE active = 1"):
     for p_row in conn.execute("SELECT param_name, value FROM model_params WHERE param_name LIKE ?", (f"{slug}_%",)):
         params[p_row["param_name"]] = p_row["value"]
         
-    for p_row in conn.execute("SELECT param_name, value FROM model_params WHERE param_name LIKE 'sigma_%'"):
-        params[p_row["param_name"]] = p_row["value"]
-        
     weights = []
     for f in factors:
         label = factor_labels.get(f, f)
         w = params.get(f"{slug}_w_{label}", 0.0)
-        s = params.get(f"sigma_{label}_daily", 0.0)
+        s = params.get(f"{slug}_sigma_{label}", 0.0)
         direction = "↑ COMPRA" if w > 0 else "↓ VENDA"
         weights.append((f, w, s, direction))
         
