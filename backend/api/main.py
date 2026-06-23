@@ -123,6 +123,12 @@ app.add_middleware(
 @app.post("/api/internal/notify_update")
 async def notify_update():
     """Chamado pelo collector.py após inserir novas barras."""
+    global engine
+    try:
+        if engine:
+            engine._load_params()
+    except Exception as e:
+        print(f"Error reloading model parameters: {e}")
     series_cache.clear()
     overview_cache_data.clear()
     data_updated_event.set()
