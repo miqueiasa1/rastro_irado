@@ -658,7 +658,7 @@ class IRAIEngine:
                     if len(price_history) > johansen_lookback:
                         price_history.pop(0)
                         
-                    if len(price_history) >= 20:
+                    if len(price_history) >= 20 and bar_idx == len(all_timestamps) - 1:
                         df_basket = pd.DataFrame(price_history)
                         p_val, is_coint = check_cointegration(df_basket)
                 
