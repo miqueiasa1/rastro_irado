@@ -585,7 +585,10 @@ class IRAIEngine:
                 state_ts = datetime.fromisoformat(saved_state["timestamp_utc"].replace("Z", "+00:00"))
                 session_start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
                 if state_ts < session_start_dt:
-                    kf.set_state(saved_state["state_mean"], saved_state["state_covariance"])
+                    if len(saved_state["state_mean"]) == n_dim_state:
+                        kf.set_state(saved_state["state_mean"], saved_state["state_covariance"])
+                    else:
+                        print(f"[Kalman Warning] Discarding saved state for {slug} due to dimension mismatch ({len(saved_state['state_mean'])} != {n_dim_state})")
         
         # --- Johansen Setup ---
         johansen_lookback = int(t_sigmas.get("johansen_lookback", 50))
