@@ -1444,8 +1444,9 @@ export default function App() {
                           const dataMax = Math.max(...prices);
                           const range = (dataMax - dataMin) || 1;
                           const margin = range * 0.15; // 15% margin
-                          const visMin = dataMin - margin;
-                          const visMax = dataMax + margin;
+                          const offset = panOffsetY * range;
+                          const visMin = dataMin + offset - margin;
+                          const visMax = dataMax + offset + margin;
 
                           return GEX_LEVELS[selectedTarget]
                             .filter(lvl => {
