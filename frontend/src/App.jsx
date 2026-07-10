@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceArea, ReferenceLine, Area, ComposedChart,
-  ResponsiveContainer, Bar, Cell, Brush
-} from 'recharts'
 import { useSwipeable } from 'react-swipeable'
 import Overview from './Overview'
 import GEX_LEVELS from './gexLevels'
+import TVProbabilityChart from './components/TVProbabilityChart'
+import TVNweChart from './components/TVNweChart'
+import TVKalmanWeightsChart from './components/TVKalmanWeightsChart'
+import TVPairwiseZScoreChart from './components/TVPairwiseZScoreChart'
+import TVPriceDivergeZScoreChart from './components/TVPriceDivergeZScoreChart'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
-const API = FIREBASE_URL ? null : 'http://localhost:8888'
-const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8888/ws/irai'
+const API = FIREBASE_URL ? null : 'http://localhost:8889'
+const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8889/ws/irai'
 
 // Mapa cosmético de labels para fatores conhecidos
 const FACTOR_DISPLAY = {
@@ -465,7 +465,7 @@ function computeNWE(data, history_closes = []) {
         nwe_center_price: d.win_current,
         nwe_upper_price: d.win_current,
         nwe_lower_price: d.win_current,
-        nwe_slope: lastNweSlope >= 0,
+        nwe_slope: lastNweSlope,
         nwe_is_transition: false,
         nwe_was_transition: false
       };
@@ -552,7 +552,7 @@ function toLocalTime(utcTimeStr, offsetH) {
   return `${h.toString().padStart(2, '0')}:${mStr}`;
 }
 
-const padSeriesToFullDay = (series, isB3 = false) => {
+const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5') => {
   if (!series || series.length === 0) return series;
 
   const lastTimeStr = series[series.length - 1].time; // ex: "18:05"
@@ -564,17 +564,36 @@ const padSeriesToFullDay = (series, isB3 = false) => {
 
   const padded = [...series];
 
-  const targetEndH = isB3 ? 0 : 23;
-  const targetEndM = isB3 ? 30 : 55;
+  let stepMinutes = 5;
+  if (timeframe === 'M1') stepMinutes = 1;
+  else if (timeframe === 'M2') stepMinutes = 2;
+  else if (timeframe === 'M5') stepMinutes = 5;
+  else if (timeframe === 'M15') stepMinutes = 15;
+  else if (timeframe === 'M30') stepMinutes = 30;
+  else if (timeframe === 'H1') stepMinutes = 60;
+
+  let targetEndH = isB3 ? 0 : 23;
+  let targetEndM = isB3 ? 30 : 59;
+  
+  if (timeframe === 'H1') {
+    targetEndM = 0;
+    if (isB3) targetEndH = 0;
+  } else if (timeframe === 'M30') {
+    targetEndM = 30;
+  } else if (timeframe === 'M15') {
+    targetEndM = 45;
+  }
+
+  const maxPaddedLength = series.length + Math.ceil(24 * 60 / stepMinutes);
 
   while (true) {
     if (currentH === targetEndH && currentM >= targetEndM) break;
-    if (padded.length > series.length + 300) break; // safety breakout
+    if (padded.length > maxPaddedLength) break; 
 
-    currentM += 5;
+    currentM += stepMinutes;
     if (currentM >= 60) {
-      currentM = 0;
-      currentH = (currentH + 1) % 24;
+      currentH = (currentH + Math.floor(currentM / 60)) % 24;
+      currentM = currentM % 60;
     }
 
     const h = currentH.toString().padStart(2, '0');
@@ -589,12 +608,28 @@ const padSeriesToFullDay = (series, isB3 = false) => {
   return padded;
 };
 
+function parseTimeToTimestamp(dateStr, timeStr) {
+  if (!timeStr) return 0;
+  let year = 2026, month = 6, day = 26;
+  if (dateStr && dateStr.includes("-")) {
+    const parts = dateStr.split("-").map(Number);
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      [year, month, day] = parts;
+    }
+  }
+  const [hour, minute] = timeStr.split(":").map(Number);
+  if (isNaN(hour) || isNaN(minute)) return 0;
+  return Math.floor(Date.UTC(year, month - 1, day, hour, minute) / 1000);
+}
+
 export default function App() {
   const [page, setPage] = useState('overview')
   const [dates, setDates] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [liveMode, setLiveMode] = useState(true) // Start in LIVE mode
   const [selectedTarget, setSelectedTarget] = useState('WIN$N')
+  const [timeframe, setTimeframe] = useState('M5')
+  const [chartType, setChartType] = useState('line') // 'line' | 'candle'
   const [targetsMeta, setTargetsMeta] = useState([]) // From /api/irai/targets
   const [seriesInfo, setSeriesInfo] = useState({}) // display_name, icon from series response
   const [series, setSeries] = useState([])
@@ -609,8 +644,16 @@ export default function App() {
   const lastPanOffsetY = useRef(0)
   const pairSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
   const zscoreSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
+  const isFirstLoadRef = useRef(true)
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(false)
+
+  // Refs for TradingView lightweight-charts
+  const probChartRef = useRef(null)
+  const nweChartRef = useRef(null)
+  const kalmanChartRef = useRef(null)
+  const pairZChartRef = useRef(null)
+  const priceDivergeZChartRef = useRef(null)
 
   // The effective date: LIVE = today (from backend), or manually selected
   const effectiveDate = liveMode ? (dates.length > 0 ? dates[0] : selectedDate) : selectedDate
@@ -703,15 +746,22 @@ export default function App() {
     if (FIREBASE_URL) {
       const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
       const safeTarget = target.replace('$', '_').replace('.', '_')
-      Promise.all([
-        fetch(`${baseUrl}/targets.json`).then(r => r.json()),
+      
+      const fetches = [
         fetch(`${baseUrl}/series/${safeTarget}.json`).then(r => r.json()),
         fetch(`${baseUrl}/summaries/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/last_update.json`).then(r => r.json()).catch(() => null)
-      ])
-        .then(([targetsData, seriesData, summariesData, historyData, lastUpdateData]) => {
-          const tMeta = targetsData?.targets?.find(t => t.target === target) || {}
+        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json())
+      ]
+      
+      const shouldFetchLastUpdate = silent || isFirstLoadRef.current
+      if (shouldFetchLastUpdate) {
+        isFirstLoadRef.current = false
+        fetches.push(fetch(`${baseUrl}/last_update.json`).then(r => r.json()).catch(() => null))
+      }
+
+      Promise.all(fetches)
+        .then(([seriesData, summariesData, historyData, lastUpdateData]) => {
+          const tMeta = targetsMeta.find(t => t.target === target) || {}
           const s = seriesData || []
           const sum = summariesData || {}
           const history_closes = historyData || []
@@ -737,7 +787,7 @@ export default function App() {
             if (sliced.length === 0) sliced = processed;
           }
 
-          setSeries(padSeriesToFullDay(sliced, isB3))
+          setSeries(padSeriesToFullDay(sliced, isB3, timeframe))
           setSummary(sum)
           setSeriesInfo({ 
             display_name: tMeta.display_name, 
@@ -747,12 +797,14 @@ export default function App() {
             tz_label: 'BRT' 
           })
           setLoading(false)
-          setLastUpdate(new Date(lastUpdateData ? lastUpdateData * 1000 : Date.now()))
+          if (shouldFetchLastUpdate && lastUpdateData !== undefined && lastUpdateData !== null) {
+            setLastUpdate(new Date(lastUpdateData * 1000))
+          }
           setError(null)
         })
         .catch(e => { setError(e.message); setLoading(false) })
     } else {
-      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2`)
+      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}`)
         .then(r => r.json())
         .then(data => {
           if (data.error) { setError(data.error); setLoading(false); return }
@@ -776,16 +828,16 @@ export default function App() {
             if (sliced.length === 0) sliced = processed; // fallback
           }
 
-          setSeries(padSeriesToFullDay(sliced, isB3))
+          setSeries(padSeriesToFullDay(sliced, isB3, timeframe))
           setSummary(data.summary)
-          setSeriesInfo({ display_name: data.display_name, icon: data.icon, history_closes: data.history_closes || [], tz_offset: isB3 ? -3 : 0, tz_label: 'BRT' })
+          setSeriesInfo({ display_name: data.display_name, icon: data.icon, history_closes: data.history_closes || [], tz_offset: isB3 ? -3 : 0, tz_label: 'BRT', accuracy: data.summary?.accuracy })
           setLoading(false)
           setLastUpdate(new Date())
           setError(null)
         })
         .catch(e => { setError(e.message); setLoading(false) })
     }
-  }, [])
+  }, [targetsMeta, timeframe])
 
   // Initial load on date/target/liveMode change + polling
   useEffect(() => {
@@ -964,6 +1016,235 @@ export default function App() {
   const validSeriesWithNWE = useMemo(() => seriesWithNWE.filter(s => s.win_current !== undefined), [seriesWithNWE]);
   const nweNow = validSeriesWithNWE.length > 0 ? validSeriesWithNWE[validSeriesWithNWE.length - 1] : null;
 
+  // Determine visibility of bottom charts
+  const showKalman = now && now.factors && Object.keys(now.factors).length > 0;
+  const showPairZ = seriesWithNWE.some(s => s.pair_z != null);
+  const showPriceDivergeZ = seriesWithNWE.some(s => s.price_diverge_z != null);
+
+  const lastActiveChart = useMemo(() => {
+    if (showPriceDivergeZ) return 'priceDivergeZ';
+    if (showPairZ) return 'pairZ';
+    if (showKalman) return 'kalman';
+    return 'nwe';
+  }, [showPriceDivergeZ, showPairZ, showKalman]);
+
+  // Build crosshair price maps as a ref (updated on data change, no re-subscription)
+  const crosshairMapsRef = useRef({});
+  useEffect(() => {
+    const timeToProbPrice = new Map();
+    const timeToNwePrice = new Map();
+    const timeToKalmanPrice = new Map();
+    const timeToPairZPrice = new Map();
+    const timeToPriceDivergeZPrice = new Map();
+
+    (seriesWithNWE || []).forEach(s => {
+      const t = parseTimeToTimestamp(effectiveDate, s.time);
+      if (t === 0) return;
+      timeToProbPrice.set(t, s.p_up != null ? s.p_up : 50);
+      timeToNwePrice.set(t, s.win_current ?? 0);
+      if (s.factors) {
+        const keys = Object.keys(s.factors);
+        if (keys.length > 0) {
+          timeToKalmanPrice.set(t, s[`weight_${keys[0]}`] ?? 0);
+        }
+      }
+      timeToPairZPrice.set(t, s.pair_z ?? 0);
+      timeToPriceDivergeZPrice.set(t, s.price_diverge_z ?? 0);
+    });
+
+    crosshairMapsRef.current = {
+      timeToProbPrice, timeToNwePrice, timeToKalmanPrice,
+      timeToPairZPrice, timeToPriceDivergeZPrice
+    };
+  }, [seriesWithNWE, effectiveDate]);
+
+  // Compute a fingerprint of which charts are currently mounted
+  const chartFingerprint = useMemo(() => {
+    const parts = [];
+    if (probChartRef.current?.getChart()) parts.push('prob');
+    if (nweChartRef.current?.getChart()) parts.push('nwe');
+    if (kalmanChartRef.current?.getChart()) parts.push('kalman');
+    if (pairZChartRef.current?.getChart()) parts.push('pairZ');
+    if (priceDivergeZChartRef.current?.getChart()) parts.push('priceDivergeZ');
+    return parts.join(',');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesWithNWE, chartType]);
+
+  // Synchronize timescale (zoom/pan) and crosshair (hover) for all TV charts
+  // Re-bind when chart instances appear/disappear or chartType changes
+  const savedRangeRef = useRef(null);
+  useEffect(() => {
+    let timeHandlers = [];
+    let crosshairHandlers = [];
+
+    const timer = setTimeout(() => {
+      const charts = [
+        { chart: probChartRef.current?.getChart(), series: probChartRef.current?.getMainSeries(), key: 'prob' },
+        { chart: nweChartRef.current?.getChart(), series: nweChartRef.current?.getMainSeries(), key: 'nwe' },
+        { chart: kalmanChartRef.current?.getChart(), series: kalmanChartRef.current?.getMainSeries(), key: 'kalman' },
+        { chart: pairZChartRef.current?.getChart(), series: pairZChartRef.current?.getMainSeries(), key: 'pairZ' },
+        { chart: priceDivergeZChartRef.current?.getChart(), series: priceDivergeZChartRef.current?.getMainSeries(), key: 'priceDivergeZ' }
+      ].filter(c => c.chart);
+
+      if (charts.length < 2) return;
+
+      // Restore saved range to all charts (preserve user zoom across re-binds)
+      if (savedRangeRef.current) {
+        charts.forEach(c => {
+          try {
+            c.chart.timeScale().setVisibleLogicalRange(savedRangeRef.current);
+          } catch (err) {}
+        });
+      }
+
+      // Time scale synchronization with recursive protection based on range values
+      charts.forEach(c => {
+        const handler = (logicalRange) => {
+          if (!logicalRange) return;
+          savedRangeRef.current = logicalRange; // persist current range
+          
+          charts.forEach(other => {
+            if (other.chart !== c.chart) {
+              try {
+                const otherRange = other.chart.timeScale().getVisibleLogicalRange();
+                // If already extremely close to target range, skip updating to prevent loop
+                if (otherRange &&
+                    Math.abs(otherRange.from - logicalRange.from) < 0.05 &&
+                    Math.abs(otherRange.to - logicalRange.to) < 0.05) {
+                  return;
+                }
+                other.chart.timeScale().setVisibleLogicalRange(logicalRange);
+              } catch (err) {}
+            }
+          });
+        };
+        c.chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
+        timeHandlers.push({ chart: c.chart, handler });
+      });
+
+      function getClosestTimestampForSeries(map, t) {
+        if (!map || map.size === 0) return t;
+        let closestKey = t;
+        let minDiff = Infinity;
+        for (let k of map.keys()) {
+          let diff = Math.abs(k - t);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestKey = k;
+          }
+        }
+        return closestKey;
+      }
+
+      let isSyncingCrosshair = false;
+
+      charts.forEach(c => {
+        const handler = (param) => {
+          if (isSyncingCrosshair) return;
+          isSyncingCrosshair = true;
+
+          const maps = crosshairMapsRef.current;
+
+          if (!param.time) {
+            charts.forEach(other => {
+              if (other.chart !== c.chart) {
+                try {
+                  other.chart.clearCrosshairPosition();
+                } catch (err) {}
+              }
+            });
+          } else {
+            const t = param.time;
+            charts.forEach(other => {
+              if (other.chart !== c.chart && other.series) {
+                let price = 0;
+                let targetTime = t;
+                let priceMap = null;
+
+                if (other.key === 'prob') priceMap = maps.timeToProbPrice;
+                else if (other.key === 'nwe') priceMap = maps.timeToNwePrice;
+                else if (other.key === 'kalman') priceMap = maps.timeToKalmanPrice;
+                else if (other.key === 'pairZ') priceMap = maps.timeToPairZPrice;
+                else if (other.key === 'priceDivergeZ') priceMap = maps.timeToPriceDivergeZPrice;
+
+                if (priceMap) {
+                  targetTime = getClosestTimestampForSeries(priceMap, t);
+                  price = priceMap.get(targetTime) ?? 0;
+                }
+
+                try {
+                  other.chart.setCrosshairPosition(price, targetTime, other.series);
+                } catch (err) {}
+              }
+            });
+          }
+          isSyncingCrosshair = false;
+        };
+        c.chart.subscribeCrosshairMove(handler);
+        crosshairHandlers.push({ chart: c.chart, handler });
+      });
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      timeHandlers.forEach(h => {
+        try {
+          h.chart.timeScale().unsubscribeVisibleLogicalRangeChange(h.handler);
+        } catch (err) {}
+      });
+      crosshairHandlers.forEach(h => {
+        try {
+          h.chart.unsubscribeCrosshairMove(h.handler);
+        } catch (err) {}
+      });
+    };
+  }, [chartType, chartFingerprint]);
+
+  // Force timescale alignment on every data update to ensure they stay in sync
+  const prevAlignKey = useRef('');
+  useEffect(() => {
+    if (!seriesWithNWE || seriesWithNWE.length === 0) return;
+
+    const alignKey = `${timeframe}_${selectedTarget}_${effectiveDate}`;
+    const isContextChange = prevAlignKey.current !== alignKey;
+    if (isContextChange) {
+      prevAlignKey.current = alignKey;
+      savedRangeRef.current = null; // clear saved zoom on context change
+    }
+
+    const timer = setTimeout(() => {
+      const charts = [
+        probChartRef.current?.getChart(),
+        nweChartRef.current?.getChart(),
+        kalmanChartRef.current?.getChart(),
+        pairZChartRef.current?.getChart(),
+        priceDivergeZChartRef.current?.getChart()
+      ].filter(Boolean);
+
+      if (charts.length < 2) return;
+
+      const validCount = seriesWithNWE.filter(s => s.win_current !== undefined).length;
+      if (validCount > 0) {
+        let range = savedRangeRef.current;
+        if (!range) {
+          range = {
+            from: Math.max(0, validCount - 100),
+            to: validCount + 15
+          };
+          savedRangeRef.current = range;
+        }
+
+        charts.forEach(chart => {
+          try {
+            chart.timeScale().setVisibleLogicalRange(range);
+          } catch (err) {}
+        });
+      }
+    }, 300); // 300ms to let all child setData calls settle
+
+    return () => clearTimeout(timer);
+  }, [seriesWithNWE, timeframe, selectedTarget, effectiveDate]);
+
 
   return (
     <>
@@ -1088,6 +1369,73 @@ export default function App() {
                   </option>
                 ))}
               </select>
+
+              {/* Timeframe Selector */}
+              {!FIREBASE_URL && (
+                <select
+                  value={timeframe}
+                  onChange={e => setTimeframe(e.target.value)}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 4,
+                    border: '1px solid #334155',
+                    background: '#1E293B',
+                    color: '#F8FAFC',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value="M1">1m</option>
+                  <option value="M2">2m</option>
+                  <option value="M5">5m</option>
+                  <option value="M15">15m</option>
+                  <option value="M30">30m</option>
+                  <option value="H1">1h</option>
+                </select>
+              )}
+
+              {/* Chart Style (Line vs Candles) */}
+              <div style={{ display: 'flex', border: '1px solid #334155', borderRadius: 4, overflow: 'hidden' }}>
+                <button
+                  onClick={() => setChartType('line')}
+                  style={{
+                    padding: '6px 10px',
+                    background: chartType === 'line' ? '#334155' : '#1E293B',
+                    color: '#F8FAFC',
+                    border: 'none',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title="Gráfico de Linha"
+                >
+                  📈
+                </button>
+                <button
+                  onClick={() => setChartType('candle')}
+                  style={{
+                    padding: '6px 10px',
+                    background: chartType === 'candle' ? '#334155' : '#1E293B',
+                    color: '#F8FAFC',
+                    border: 'none',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  title="Gráfico de Velas"
+                >
+                  🕯️
+                </button>
+              </div>
               {/* LIVE button + date dropdown */}
               {!FIREBASE_URL ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
@@ -1229,6 +1577,12 @@ export default function App() {
                           )}
                         </div>
                       )}
+                      {now.price_diverge_z != null && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', borderRadius: 4, background: '#0E0E11', border: '1px solid #1E293B' }}>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>DIV Z:</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: now.price_diverge_z >= 0 ? '#4ADE80' : '#F87171' }}>{now.price_diverge_z >= 0 ? '+' : ''}{now.price_diverge_z.toFixed(2)}</span>
+                        </div>
+                      )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         <div style={{ width: 12, height: 2, background: '#E2E8F0' }} />
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>{seriesInfo.display_name || selectedTarget}</span>
@@ -1247,40 +1601,13 @@ export default function App() {
                       </div>
                     </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
-                      <CartesianGrid stroke="var(--grid)" vertical={false} />
-                      <XAxis dataKey="time" tick={false} stroke="#1E293B" xAxisId="utc" />
-                      {seriesInfo.tz_offset && <XAxis dataKey="time_local" xAxisId="brt" tick={false} stroke="#1E293B" />}
-                      <YAxis
-                        yAxisId="win" orientation="left" width={45}
-                        domain={([dataMin, dataMax]) => { const max = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01); return [-max, max]; }}
-                        allowDataOverflow={true}
-                        tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                        stroke="#1E293B" tickFormatter={v => `${Number(v).toFixed(1)}%`}
-                      />
-                      <YAxis
-                        yAxisId="pup" orientation="right" width={35} domain={[0, 100]}
-                        ticks={[0, 25, 50, 75, 100]}
-                        tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                        stroke="#1E293B" tickFormatter={v => `${v}%`}
-                      />
-                      {/* Limiares do modelo — cruzar estas linhas ativa/desativa divergência */}
-                      <ReferenceLine yAxisId="pup" y={60}
-                        stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 4"
-                        label={{ value: 'compra', position: 'insideRight', fontSize: 7, fontFamily: 'JetBrains Mono', fill: '#4ADE8099', dy: -6 }}
-                      />
-                      <ReferenceLine yAxisId="pup" y={40}
-                        stroke="#F87171" strokeWidth={1} strokeDasharray="3 4"
-                        label={{ value: 'venda', position: 'insideRight', fontSize: 7, fontFamily: 'JetBrains Mono', fill: '#F8717199', dy: 8 }}
-                      />
-                      <ReferenceLine yAxisId="pup" y={50} stroke="#1E293B" strokeDasharray="2 6" />
-                      <ReferenceLine yAxisId="win" y={0} stroke="#334155" strokeDasharray="2 2" />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Line yAxisId="win" type="monotone" dataKey="win_return" stroke="#E2E8F0" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                      <Line yAxisId="pup" type="monotone" dataKey="p_up" stroke="#60A5FA" strokeWidth={2} dot={false} strokeDasharray="6 3" isAnimationActive={false} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                  <TVProbabilityChart
+                    ref={probChartRef}
+                    history={seriesWithNWE}
+                    effectiveDate={effectiveDate}
+                    selectedTarget={selectedTarget}
+                    hideXAxis={lastActiveChart !== 'prob'}
+                  />
 
                   {/* MOVIMENTO DO ÍNDICE — NWE (Nadaraya-Watson Envelope) */}
                   <div
@@ -1361,171 +1688,26 @@ export default function App() {
                         </div>
                       </div>
                     </div>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 10, left: 5, bottom: 0 }}>
-                        <CartesianGrid stroke="var(--grid)" vertical={false} />
-                        <XAxis
-                          dataKey="time" xAxisId="utc"
-                          tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                          stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11}
-                        />
-                        {seriesInfo.tz_offset && <XAxis
-                          dataKey="time_local" xAxisId="brt"
-                          tick={{ fill: '#C9A227', fontSize: 7, fontFamily: 'JetBrains Mono' }}
-                          stroke="#1E293B" interval={seriesInfo.tz_offset ? 5 : 11}
-                          label={{ value: seriesInfo.tz_label || 'BRT', position: 'insideRight', fill: '#C9A227', fontSize: 8, fontFamily: 'JetBrains Mono', offset: -5 }}
-                        />}
-                        <YAxis
-                          yAxisId="nwe" orientation="left" width={45}
-                          domain={([dataMin, dataMax]) => {
-                            const range = (dataMax - dataMin) || 1;
-                            const offset = panOffsetY * range;
-                            return [dataMin + offset, dataMax + offset];
-                          }}
-                          allowDataOverflow={true}
-                          tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }}
-                          stroke="#1E293B"
-                          tickFormatter={v => {
-                            if (v >= 1000) return `${(v / 1000).toFixed(1)}k`;
-                            return `${Number(v).toFixed(2)}`;
-                          }}
-                        />
-                        <YAxis yAxisId="spacer" orientation="right" width={35} tick={false} stroke="transparent" />
-                        <Tooltip
-                          formatter={(v, name) => {
-                            if (v === null || v === undefined) return [null, null];
-                            const labels = { 
-                              nwe_upper_price: 'Banda ↑', nwe_lower_price: 'Banda ↓', 
-                              nwe_up_price: 'NWE ↑', nwe_down_price: 'NWE ↓', 
-                              win_current: 'Preço' 
-                            };
-                            return [Number(v).toFixed(2), labels[name] || name]
-                          }}
-                          contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                          labelStyle={{ color: '#6A6A7A' }}
-                        />
-                        {/* Envelope bands (dashed) */}
-                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_upper_price" dot={false}
-                          stroke="#F87171" strokeWidth={1} strokeDasharray="4 3" isAnimationActive={false}
-                        />
-                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_lower_price" dot={false}
-                          stroke="#4ADE80" strokeWidth={1} strokeDasharray="4 3" isAnimationActive={false}
-                        />
-                        {/* NWE center line — split into up (green) and down (red) segments */}
-                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_up_price" dot={false}
-                          stroke="#4ADE80" strokeWidth={1.5} isAnimationActive={false}
-                          connectNulls={false}
-                        />
-                        <Line yAxisId="nwe" type="monotone" dataKey="nwe_down_price" dot={false}
-                          stroke="#F87171" strokeWidth={1.5} isAnimationActive={false}
-                          connectNulls={false}
-                        />
-                        {/* Price line */}
-                        <Line yAxisId="nwe" type="monotone" dataKey="win_current" dot={false}
-                          stroke="#E2E8F0" strokeWidth={1.5} isAnimationActive={false}
-                        />
-                        {/* Pairwise Signal Dots */}
-                        <Line yAxisId="nwe" type="monotone" dataKey="pair_compra" stroke="none" dot={{ r: 4, fill: '#4ADE80', strokeWidth: 0 }} isAnimationActive={false} />
-                        <Line yAxisId="nwe" type="monotone" dataKey="pair_venda" stroke="none" dot={{ r: 4, fill: '#F87171', strokeWidth: 0 }} isAnimationActive={false} />
-
-                        {/* Z-Score Squares */}
-                        <Line yAxisId="nwe" type="monotone" dataKey="z_compra_val" stroke="none" dot={renderZScoreSquare('#4ADE80')} isAnimationActive={false} />
-                        <Line yAxisId="nwe" type="monotone" dataKey="z_venda_val" stroke="none" dot={renderZScoreSquare('#F87171')} isAnimationActive={false} />
-
-
-                        {/* ── GEX Levels (Gamma Exposure) ── */}
-                        {showGex && GEX_LEVELS[selectedTarget] && (() => {
-                          // Get visible price range from data
-                          const prices = seriesWithNWE
-                            .map(d => d.win_current)
-                            .filter(v => v != null);
-                          if (prices.length === 0) return null;
-                          const dataMin = Math.min(...prices);
-                          const dataMax = Math.max(...prices);
-                          const range = (dataMax - dataMin) || 1;
-                          const margin = range * 0.15; // 15% margin
-                          const offset = panOffsetY * range;
-                          const visMin = dataMin + offset - margin;
-                          const visMax = dataMax + offset + margin;
-
-                          return GEX_LEVELS[selectedTarget]
-                            .filter(lvl => {
-                              if (lvl.type === 'mid_wall' && !showMidWalls) return false;
-                              return lvl.price >= visMin && lvl.price <= visMax;
-                            })
-                            .map((lvl, i) => (
-                              <ReferenceLine
-                                key={`gex-${i}`}
-                                yAxisId="nwe"
-                                y={lvl.price}
-                                stroke={lvl.color}
-                                strokeWidth={Math.max(lvl.width * 0.7, 0.5)}
-                                strokeDasharray={lvl.style === 'dashed' ? '4 3' : undefined}
-                                strokeOpacity={lvl.type === 'mid_wall' ? 0.4 : 0.7}
-                                label={lvl.type !== 'mid_wall' ? {
-                                  value: lvl.label,
-                                  position: 'insideRight',
-                                  fontSize: 6,
-                                  fontFamily: 'JetBrains Mono',
-                                  fill: lvl.color + 'CC',
-                                  dy: lvl.type === 'gamma_flip' ? -8 : (lvl.type === 'min_gamma' ? 8 : -6),
-                                } : undefined}
-                              />
-                            ));
-                        })()}
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                    <TVNweChart
+                      ref={nweChartRef}
+                      history={seriesWithNWE}
+                      walls={GEX_LEVELS[selectedTarget] || []}
+                      showGex={showGex}
+                      showMidWalls={showMidWalls}
+                      effectiveDate={effectiveDate}
+                      selectedTarget={selectedTarget}
+                      hideXAxis={lastActiveChart !== 'nwe'}
+                      chartType={chartType}
+                    />
                   </div>
 
                   {/* BOTTOM: Signal Heatmap (D-P-Z-E) */}
                   <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
 
-                    {/* BOTTOM: Dynamic Weights (Kalman) */}
-                    {now.factors && Object.keys(now.factors).length > 0 && (
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
-                          <div style={{
-                            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                            letterSpacing: '0.1em', textTransform: 'uppercase',
-                          }}>
-                            pesos dinâmicos (kalman filter)
-                          </div>
-                        </div>
-                        <ResponsiveContainer width="100%" height={140}>
-                          <LineChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
-                            <CartesianGrid stroke="var(--grid)" vertical={false} />
-                            <XAxis dataKey="time" tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" interval={11} />
-                            <YAxis orientation="left" width={45} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
-                            <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
-                            <Tooltip
-                              formatter={(v, name) => {
-                                const realName = name.replace('weight_', '');
-                                const meta = getFactorMeta(realName);
-                                return [Number(v).toFixed(4), meta.label];
-                              }}
-                              contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                              labelStyle={{ color: '#6A6A7A' }}
-                            />
-                            {Object.keys(now.factors_v2 || now.factors).map((label, idx) => (
-                              <Line
-                                key={label}
-                                type="monotone"
-                                dataKey={`weight_${label}`}
-                                stroke={FACTOR_COLORS[idx % FACTOR_COLORS.length]}
-                                strokeWidth={1.5}
-                                dot={false}
-                                isAnimationActive={false}
-                              />
-                            ))}
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-
-                    {/* BOTTOM 2: Pairwise Z-Score */}
+                    {/* BOTTOM 1: Pairwise Z-Score (Pair Spread) */}
                     {seriesWithNWE.some(s => s.pair_z != null) && (
-                      <div style={{ marginTop: 16 }}>
+                      <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
@@ -1534,26 +1716,16 @@ export default function App() {
                             z-score dinâmico (pair spread)
                           </div>
                         </div>
-                        <ResponsiveContainer width="100%" height={100}>
-                          <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
-                            <CartesianGrid stroke="var(--grid)" vertical={false} />
-                            <XAxis dataKey="time" tick={false} stroke="#1E293B" />
-                            <YAxis orientation="left" width={45} domain={[-4, 4]} ticks={[-3, -2.0, 0, 2.0, 3]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
-                            <ReferenceLine y={2.0} stroke="#F87171" strokeWidth={1} strokeDasharray="3 3" />
-                            <ReferenceLine y={-2.0} stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 3" />
-                            <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
-                            <Tooltip
-                              formatter={(v) => [Number(v).toFixed(2), 'Z-Score']}
-                              contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                              labelStyle={{ color: '#6A6A7A' }}
-                            />
-                            <Line type="monotone" dataKey="pair_z" stroke="#C9A227" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                          </ComposedChart>
-                        </ResponsiveContainer>
+                        <TVPairwiseZScoreChart
+                          ref={pairZChartRef}
+                          history={seriesWithNWE}
+                          effectiveDate={effectiveDate}
+                          hideXAxis={lastActiveChart !== 'pairZ'}
+                        />
                       </div>
                     )}
 
-                    {/* BOTTOM 3: Price Divergence Z-Score */}
+                    {/* BOTTOM 2: Price Divergence Z-Score */}
                     {seriesWithNWE.some(s => s.price_diverge_z != null) && (
                       <div style={{ marginTop: 16 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
@@ -1564,22 +1736,33 @@ export default function App() {
                             z-score dinâmico (divergência preço)
                           </div>
                         </div>
-                        <ResponsiveContainer width="100%" height={100}>
-                          <ComposedChart data={seriesWithNWE} syncId="irai" margin={{ top: 4, right: 45, left: 5, bottom: 0 }}>
-                            <CartesianGrid stroke="var(--grid)" vertical={false} />
-                            <XAxis dataKey="time" tick={false} stroke="#1E293B" />
-                            <YAxis orientation="left" width={45} domain={[-4, 4]} ticks={[-3, -2.0, 0, 2.0, 3]} tick={{ fill: '#475569', fontSize: 8, fontFamily: 'JetBrains Mono' }} stroke="#1E293B" />
-                            <ReferenceLine y={2.0} stroke="#F87171" strokeWidth={1} strokeDasharray="3 3" />
-                            <ReferenceLine y={-2.0} stroke="#4ADE80" strokeWidth={1} strokeDasharray="3 3" />
-                            <ReferenceLine y={0} stroke="#475569" strokeWidth={1} strokeDasharray="4 4" />
-                            <Tooltip
-                              formatter={(v) => [Number(v).toFixed(2), 'Z-Score']}
-                              contentStyle={{ background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 4, fontFamily: 'JetBrains Mono', fontSize: 11 }}
-                              labelStyle={{ color: '#6A6A7A' }}
-                            />
-                            <Line type="monotone" dataKey="price_diverge_z" stroke="#38BDF8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                          </ComposedChart>
-                        </ResponsiveContainer>
+                        <TVPriceDivergeZScoreChart
+                          ref={priceDivergeZChartRef}
+                          history={seriesWithNWE}
+                          effectiveDate={effectiveDate}
+                          hideXAxis={lastActiveChart !== 'priceDivergeZ'}
+                        />
+                      </div>
+                    )}
+
+                    {/* BOTTOM 3: Dynamic Weights (Kalman Filter) */}
+                    {now.factors && Object.keys(now.factors).length > 0 && (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                          <div style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                            letterSpacing: '0.1em', textTransform: 'uppercase',
+                          }}>
+                            pesos dinâmicos (kalman filter)
+                          </div>
+                        </div>
+                        <TVKalmanWeightsChart
+                          ref={kalmanChartRef}
+                          history={seriesWithNWE}
+                          factorKeys={Object.keys(now.factors_v2 || now.factors || {})}
+                          effectiveDate={effectiveDate}
+                          hideXAxis={lastActiveChart !== 'kalman'}
+                        />
                       </div>
                     )}
                   </div>

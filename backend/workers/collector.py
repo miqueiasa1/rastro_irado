@@ -80,9 +80,9 @@ def compute_bar_delta(open_p, high, low, close, real_volume):
     return real_volume * (2 * close_pct - 1)
 
 
-def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, n_bars: int = 5) -> int:
-    """Coleta as N barras M5 mais recentes de um símbolo."""
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, n_bars)
+def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, timeframe: str, mt5_timeframe, n_bars: int = 5) -> int:
+    """Coleta as N barras de um símbolo no timeframe informado."""
+    rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, n_bars)
 
     if rates is None or len(rates) == 0:
         return 0
@@ -110,7 +110,7 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, n_ba
                    (symbol, source, timeframe, timestamp_utc, open, high, low, close,
                     volume, real_volume, delta)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (symbol, source, "M5", ts_iso, o, h, l, c,
+                (symbol, source, timeframe, ts_iso, o, h, l, c,
                  tick_vol, real_vol, delta),
             )
             if cursor.rowcount > 0:
@@ -134,9 +134,18 @@ def is_b3_session() -> bool:
     return True
 
 
-def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False) -> dict:
+def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_num: int = 1) -> dict:
     """Executa um ciclo de coleta em todos os terminais."""
     results = {}
+
+    TIMEFRAME_MAP = {
+        "M1": mt5.TIMEFRAME_M1,
+        "M2": mt5.TIMEFRAME_M2,
+        "M5": mt5.TIMEFRAME_M5,
+        "M15": mt5.TIMEFRAME_M15,
+        "M30": mt5.TIMEFRAME_M30,
+        "H1": mt5.TIMEFRAME_H1,
+    }
 
     for terminal in TERMINALS:
         # Pular terminal BR fora do horário
@@ -180,12 +189,26 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False) -> dic
         log.info(f"{terminal['name']}: conectado com sucesso usando {active_path}")
 
         for sym in terminal["symbols"]:
-            inserted = collect_recent_bars(sym, terminal["source"], conn)
+            total_inserted = 0
+            for tf_name, mt5_tf in TIMEFRAME_MAP.items():
+                n_bars = 5
+                if cycle_num == 1:
+                    # History pre-fill sizes
+                    if tf_name == "M1": n_bars = 600
+                    elif tf_name == "M2": n_bars = 300
+                    elif tf_name == "M5": n_bars = 150
+                    elif tf_name == "M15": n_bars = 100
+                    elif tf_name == "M30": n_bars = 100
+                    elif tf_name == "H1": n_bars = 50
+
+                inserted = collect_recent_bars(sym, terminal["source"], conn, tf_name, mt5_tf, n_bars)
+                total_inserted += inserted
+
             tick = mt5.symbol_info_tick(sym)
             bid = tick.bid if tick and tick.bid > 0 else 0
             results[sym] = {
                 "status": "ok",
-                "inserted": inserted,
+                "inserted": total_inserted,
                 "bid": bid,
                 "source": terminal["source"],
             }
@@ -218,7 +241,7 @@ def main():
         b3_open = args.force or is_b3_session()
 
         log.info(f"--- Ciclo {cycle} {'(B3 aberta)' if b3_open else '(apenas internacional)'} ---")
-        results = run_collection_cycle(conn, skip_br=not b3_open)
+        results = run_collection_cycle(conn, skip_br=not b3_open, cycle_num=cycle)
 
         for sym, r in results.items():
             if r.get("status") == "skipped":
@@ -234,7 +257,7 @@ def main():
         # Notificar API sobre novos dados para push via WebSocket
         try:
             import requests
-            requests.post("http://127.0.0.1:8888/api/internal/notify_update", timeout=1.0)
+            requests.post("http://127.0.0.1:8889/api/internal/notify_update", timeout=1.0)
         except Exception as e:
             log.debug(f"Falha ao notificar API local: {e}")
 

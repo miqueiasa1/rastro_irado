@@ -62,6 +62,9 @@ class IRAISnapshot:
     factors: dict = field(default_factory=dict)
     win_return: float = 0.0
     win_open: float = 0.0
+    win_bar_open: float = 0.0
+    win_high: float = 0.0
+    win_low: float = 0.0
     win_current: float = 0.0
     stale_factors: list = field(default_factory=list)
     # Cumulative Delta
@@ -112,6 +115,8 @@ class IRAIEngine:
     def _load_params(self):
         """Carrega configs de asset_models + params de model_params."""
         conn = get_connection(self.db_path)
+
+        self.registered_targets = []
 
         # 1) Carregar asset_models
         try:
@@ -362,13 +367,14 @@ class IRAIEngine:
             stale_factors=stale_factors,
         )
 
-    def compute_from_db(self, session_date: str = None, target: str = None, version: str = "v1") -> list[IRAISnapshot]:
+    def compute_from_db(self, session_date: str = None, target: str = None, version: str = "v1", timeframe: str = "M5", persist_state: bool = True) -> list[IRAISnapshot]:
         """Computa série IRAI completa para uma sessão a partir do banco.
         
         Args:
             session_date: Data YYYY-MM-DD
             target: Símbolo alvo (WIN$N, WDO$N). Default: WIN$N
             version: 'v1' para regressão estática, 'v2' para Kalman dinâmico
+            timeframe: Timeframe para os dados ('M1', 'M2', 'M5', 'M15', 'M30', 'H1'). Default: M5
         """
         session_date = session_date or date.today().isoformat()
         target = target or TARGET
@@ -407,7 +413,7 @@ class IRAIEngine:
         query = f"""
             SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
             FROM market_bars
-            WHERE timeframe = 'M5'
+            WHERE timeframe = ?
               AND symbol IN ({placeholders})
               AND timestamp_utc >= ? AND timestamp_utc < ?
             ORDER BY timestamp_utc
@@ -416,11 +422,11 @@ class IRAIEngine:
         end_dt = datetime.fromisoformat(session_date) + timedelta(days=1)
         end = end_dt.strftime("%Y-%m-%dT00:00:00Z")
 
-        rows_raw = conn.execute(query, all_symbols + [start, end]).fetchall()
+        rows_raw = conn.execute(query, [timeframe] + all_symbols + [start, end]).fetchall()
         
         # Load previous Kalman state if valid
         slug = cfg.get("slug", self.target_slugs.get(target, "win"))
-        saved_state = load_kalman_state(conn, slug, session_date)
+        saved_state = load_kalman_state(conn, slug, timeframe, session_date)
         
         conn.close()
 
@@ -455,7 +461,21 @@ class IRAIEngine:
         if duration_h <= 0:
             duration_h += 24
         
-        target_bars_per_session = int(duration_h * 12)
+        bars_per_hour = 12
+        if timeframe == "M1":
+            bars_per_hour = 60
+        elif timeframe == "M2":
+            bars_per_hour = 30
+        elif timeframe == "M5":
+            bars_per_hour = 12
+        elif timeframe == "M15":
+            bars_per_hour = 4
+        elif timeframe == "M30":
+            bars_per_hour = 2
+        elif timeframe == "H1":
+            bars_per_hour = 1
+
+        target_bars_per_session = int(duration_h * bars_per_hour)
         if target_bars_per_session <= 0:
             target_bars_per_session = BARS_PER_SESSION
 
@@ -467,9 +487,9 @@ class IRAIEngine:
             conn2 = get_connection(self.db_path)
             last_row = conn2.execute("""
                 SELECT close FROM market_bars
-                WHERE symbol = ? AND timeframe = 'M5'
+                WHERE symbol = ? AND timeframe = ?
                 ORDER BY timestamp_utc DESC LIMIT 1
-            """, (data_target,)).fetchone()
+            """, (data_target, timeframe)).fetchone()
             conn2.close()
 
             if not last_row:
@@ -521,6 +541,9 @@ class IRAIEngine:
                     alpha=local_alpha,
                     intercept=local_intercept,
                 )
+                snap.win_bar_open = target_last_close
+                snap.win_high = target_last_close
+                snap.win_low = target_last_close
                 snap.timestamp = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
                 snap.is_preview = True
                 snap.is_ghost = True
@@ -582,13 +605,15 @@ class IRAIEngine:
             )
             
             if saved_state:
-                state_ts = datetime.fromisoformat(saved_state["timestamp_utc"].replace("Z", "+00:00"))
-                session_start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-                if state_ts < session_start_dt:
-                    if len(saved_state["state_mean"]) == n_dim_state:
-                        kf.set_state(saved_state["state_mean"], saved_state["state_covariance"])
-                    else:
-                        print(f"[Kalman Warning] Discarding saved state for {slug} due to dimension mismatch ({len(saved_state['state_mean'])} != {n_dim_state})")
+                if len(saved_state["state_mean"]) == n_dim_state:
+                    kf.set_state(saved_state["state_mean"], saved_state["state_covariance"])
+                    # Inicializar pesos locais com o estado dinâmico final do Kalman do dia anterior
+                    for i, factor in enumerate(active_factors):
+                        label = active_labels.get(factor, factor)
+                        local_factor_states[label].weight = saved_state["state_mean"][i+1]
+                else:
+                    print(f"[Kalman Warning] Discarding saved state for {slug} due to dimension mismatch ({len(saved_state['state_mean'])} != {n_dim_state})")
+        
         
         # --- Johansen Setup ---
         johansen_lookback = int(t_sigmas.get("johansen_lookback", 50))
@@ -612,9 +637,9 @@ class IRAIEngine:
         conn_prev = get_connection(self.db_path)
         prev_close_row = conn_prev.execute("""
             SELECT close FROM market_bars
-            WHERE symbol = ? AND timeframe = 'M5' AND timestamp_utc < ?
+            WHERE symbol = ? AND timeframe = ? AND timestamp_utc < ?
             ORDER BY timestamp_utc DESC LIMIT 1
-        """, (data_target, f"{session_date}T00:00:00Z")).fetchone()
+        """, (data_target, timeframe, f"{session_date}T00:00:00Z")).fetchone()
         conn_prev.close()
         pre_market_close = float(prev_close_row["close"]) if prev_close_row else opens.get(data_target, 0)
         pre_market_open = pre_market_close  # Open = last known close for ghost bars
@@ -623,7 +648,11 @@ class IRAIEngine:
             while target_cursor < len(target_bars) - 1 and target_bars[target_cursor + 1]["timestamp"] <= ts:
                 target_cursor += 1
                 
-            is_pre_market = (len(target_bars) == 0 or ts < target_bars[0]["timestamp"])
+            if is_b3:
+                session_start_shifted = (session_start + 6) % 24
+                is_pre_market = (ts.hour < session_start_shifted)
+            else:
+                is_pre_market = False
             
             if target_cursor < len(target_bars) and target_bars[target_cursor]["timestamp"] <= ts and not is_pre_market:
                 row = target_bars[target_cursor]
@@ -704,6 +733,9 @@ class IRAIEngine:
                 is_cointegrated=is_coint,
                 johansen_p_value=p_val
             )
+            snap.win_bar_open = float(row.get("open", row["close"]))
+            snap.win_high = float(row.get("high", row["close"]))
+            snap.win_low = float(row.get("low", row["close"]))
             snap.timestamp = ts.isoformat()
             snap.is_ghost = is_ghost_bar
             
@@ -793,13 +825,13 @@ class IRAIEngine:
             snapshots.append(snap)
             
         # Salvar o último estado do Kalman no banco
-        if snapshots and version in ("v2", "both") and kf is not None:
+        if snapshots and version in ("v2", "both") and kf is not None and persist_state:
             last_ts = snapshots[-1].timestamp
             last_p = snapshots[-1].johansen_p_value
             last_coint = snapshots[-1].is_cointegrated
             s_mean, s_cov = kf.get_state()
             conn2 = get_connection(self.db_path)
-            save_kalman_state(conn2, slug, session_date, s_mean, s_cov, last_p, last_coint, last_ts)
+            save_kalman_state(conn2, slug, timeframe, session_date, s_mean, s_cov, last_p, last_coint, last_ts)
             conn2.close()
 
         return snapshots

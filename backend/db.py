@@ -11,7 +11,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS market_bars (
     symbol          TEXT NOT NULL,
     source          TEXT NOT NULL CHECK (source IN ('br', 'tickmill', 'axi')),
-    timeframe       TEXT NOT NULL CHECK (timeframe IN ('M5', 'D1')),
+    timeframe       TEXT NOT NULL CHECK (timeframe IN ('M1', 'M2', 'M5', 'M15', 'M30', 'H1', 'D1')),
     timestamp_utc   TEXT NOT NULL,    -- ISO 8601 em UTC
     open            REAL NOT NULL,
     high            REAL NOT NULL,
@@ -85,18 +85,20 @@ CREATE TABLE IF NOT EXISTS asset_models (
     r_squared       REAL,                     -- último R²
     n_sessions      INTEGER,                  -- sessões usadas na calibração
     calibrated_at   TEXT,                     -- timestamp última calibração
-    active          INTEGER DEFAULT 1         -- 1=ativo, 0=inativo
+    active          INTEGER DEFAULT 1,         -- 1=ativo, 0=inativo
+    divergence_config TEXT                     -- JSON config para desvios de preço e Johansen
 );
 -- Estado Dinâmico (Kalman Filter & Johansen)
 CREATE TABLE IF NOT EXISTS kalman_state (
     slug             TEXT NOT NULL,
+    timeframe        TEXT NOT NULL DEFAULT 'M5',
     session_date     TEXT NOT NULL,
     state_mean       TEXT NOT NULL,         -- JSON array
     state_covariance TEXT NOT NULL,         -- JSON 2D array
     johansen_p_value REAL,
     is_cointegrated  INTEGER DEFAULT 1,     -- 1=sim, 0=não
     timestamp_utc    TEXT NOT NULL,
-    PRIMARY KEY (slug, session_date)
+    PRIMARY KEY (slug, timeframe, session_date)
 );
 """
 
@@ -118,6 +120,13 @@ def init_db(db_path=None):
     conn.commit()
     print(f"Database initialized: {db_path or DB_PATH}")
     conn.close()
+
+    # Rodar migrações
+    migrate_delta(db_path)
+    migrate_kalman_state(db_path)
+    migrate_timeframe_constraint(db_path)
+    migrate_kalman_state_timeframe(db_path)
+    migrate_divergence_config(db_path)
 
 
 def migrate_delta(db_path=None):
@@ -157,11 +166,21 @@ def migrate_kalman_state(db_path=None):
     conn.close()
 
 
-def save_kalman_state(conn, slug: str, session_date: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str):
-    """Salva o estado atual do filtro de Kalman e teste de Johansen."""
+def save_kalman_state(conn, slug: str, timeframe: str, session_date: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str):
+    """Salva o estado atual do filtro de Kalman e teste de Johansen com guard de timestamp."""
     import json
     import numpy as np
     
+    # Guard de timestamp: só atualizar se o novo timestamp_utc for estritamente mais recente
+    row = conn.execute("""
+        SELECT timestamp_utc FROM kalman_state
+        WHERE slug = ? AND timeframe = ? AND session_date = ?
+    """, (slug, timeframe, session_date)).fetchone()
+    if row:
+        existing_ts = row["timestamp_utc"]
+        if timestamp_utc <= existing_ts:
+            return
+            
     # Converter numpy arrays para listas para serialização JSON
     if isinstance(state_mean, np.ndarray):
         state_mean = state_mean.tolist()
@@ -170,23 +189,23 @@ def save_kalman_state(conn, slug: str, session_date: str, state_mean, state_cova
         
     conn.execute("""
         INSERT OR REPLACE INTO kalman_state 
-        (slug, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (slug, session_date, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
+        (slug, timeframe, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (slug, timeframe, session_date, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
     conn.commit()
 
 
-def load_kalman_state(conn, slug: str, session_date: str):
-    """Carrega o último estado do filtro de Kalman para o ativo anterior à data informada."""
+def load_kalman_state(conn, slug: str, timeframe: str, session_date: str):
+    """Carrega o último estado do filtro de Kalman para o ativo e timeframe anterior à data informada."""
     import json
     import numpy as np
     
     row = conn.execute("""
         SELECT state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc
         FROM kalman_state
-        WHERE slug = ? AND session_date < ?
+        WHERE slug = ? AND timeframe = ? AND session_date < ?
         ORDER BY session_date DESC LIMIT 1
-    """, (slug, session_date)).fetchone()
+    """, (slug, timeframe, session_date)).fetchone()
     
     if not row:
         return None
@@ -200,7 +219,130 @@ def load_kalman_state(conn, slug: str, session_date: str):
     }
 
 
+def migrate_timeframe_constraint(db_path=None):
+    """Migra o check constraint de timeframe em market_bars para suportar novos timeframes."""
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='market_bars'").fetchone()
+    if not row:
+        conn.close()
+        return
+
+    sql = row["sql"]
+    if "'M1'" in sql or '"M1"' in sql:
+        conn.close()
+        return
+        
+    print("Iniciando migração do CHECK constraint em market_bars para suportar novos timeframes...")
+    
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN TRANSACTION")
+        conn.execute("ALTER TABLE market_bars RENAME TO _market_bars_old")
+        
+        conn.execute("""
+        CREATE TABLE market_bars (
+            symbol          TEXT NOT NULL,
+            source          TEXT NOT NULL CHECK (source IN ('br', 'tickmill', 'axi')),
+            timeframe       TEXT NOT NULL CHECK (timeframe IN ('M1', 'M2', 'M5', 'M15', 'M30', 'H1', 'D1')),
+            timestamp_utc   TEXT NOT NULL,
+            open            REAL NOT NULL,
+            high            REAL NOT NULL,
+            low             REAL NOT NULL,
+            close           REAL NOT NULL,
+            volume          REAL,
+            real_volume     REAL DEFAULT 0,
+            delta           REAL DEFAULT 0,
+            received_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (symbol, timeframe, timestamp_utc)
+        )
+        """)
+        
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bars_sym_tf_time ON market_bars(symbol, timeframe, timestamp_utc)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_bars_time ON market_bars(timestamp_utc)")
+        
+        conn.execute("INSERT INTO market_bars SELECT * FROM _market_bars_old")
+        conn.execute("DROP TABLE _market_bars_old")
+        conn.execute("COMMIT")
+        print("Migração do CHECK constraint concluída com sucesso!")
+    except Exception as e:
+        conn.execute("ROLLBACK")
+        print(f"Erro durante migração: {e}")
+        raise e
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.close()
+
+
+def migrate_kalman_state_timeframe(db_path=None):
+    """Migra kalman_state para incluir timeframe na chave primária."""
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='kalman_state'").fetchone()
+    if not row:
+        conn.close()
+        return
+
+    sql = row["sql"]
+    if "timeframe" in sql:
+        conn.close()
+        return
+        
+    print("Iniciando migração da tabela kalman_state para incluir coluna timeframe...")
+    
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN TRANSACTION")
+        conn.execute("ALTER TABLE kalman_state RENAME TO _kalman_state_old")
+        
+        conn.execute("""
+        CREATE TABLE kalman_state (
+            slug             TEXT NOT NULL,
+            timeframe        TEXT NOT NULL DEFAULT 'M5',
+            session_date     TEXT NOT NULL,
+            state_mean       TEXT NOT NULL,
+            state_covariance TEXT NOT NULL,
+            johansen_p_value REAL,
+            is_cointegrated  INTEGER DEFAULT 1,
+            timestamp_utc    TEXT NOT NULL,
+            PRIMARY KEY (slug, timeframe, session_date)
+        )
+        """)
+        
+        conn.execute("""
+            INSERT INTO kalman_state (slug, timeframe, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
+            SELECT slug, 'M5', session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc FROM _kalman_state_old
+        """)
+        
+        conn.execute("DROP TABLE _kalman_state_old")
+        conn.execute("COMMIT")
+        print("Migração da tabela kalman_state concluída com sucesso!")
+    except Exception as e:
+        conn.execute("ROLLBACK")
+        print(f"Erro durante migração de kalman_state: {e}")
+        raise e
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.close()
+
+
+def migrate_divergence_config(db_path=None):
+    """Adiciona a coluna divergence_config na tabela asset_models se não existir."""
+    conn = get_connection(db_path)
+    cursor = conn.execute("PRAGMA table_info(asset_models)")
+    cols = {row["name"] for row in cursor}
+    
+    if "divergence_config" not in cols:
+        print("Adicionando coluna divergence_config à tabela asset_models...")
+        try:
+            conn.execute("ALTER TABLE asset_models ADD COLUMN divergence_config TEXT")
+            conn.commit()
+            print("Coluna divergence_config adicionada com sucesso!")
+        except Exception as e:
+            print(f"Erro ao adicionar coluna divergence_config: {e}")
+    conn.close()
+
+
 if __name__ == "__main__":
     init_db()
     migrate_delta()
     migrate_kalman_state()
+    migrate_divergence_config()
