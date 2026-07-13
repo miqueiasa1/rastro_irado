@@ -14,14 +14,14 @@ Este documento especifica os requisitos funcionais e não-funcionais que devem s
 
 ### 2. Payload da API & Cache (NWE-API)
 
-- [ ] **NWE-API-01**: O endpoint `/api/irai/series` deve chamar a biblioteca NWE do backend e enriquecer o dicionário de cada barra da lista `"series"` com os novos campos calculados.
-- [ ] **NWE-API-02**: O payload final deve incluir os campos:
+- [x] **NWE-API-01**: O endpoint `/api/irai/series` deve chamar a biblioteca NWE do backend e enriquecer o dicionário de cada barra da lista `"series"` com os novos campos calculados.
+- [x] **NWE-API-02**: O payload final deve incluir os campos:
   - `nwe_center`, `nwe_upper`, `nwe_lower` (percentuais relativos ao preço de abertura `win_open`)
   - `nwe_center_price`, `nwe_upper_price`, `nwe_lower_price` (valores absolutos em preço)
   - `nwe_slope` (inclinação absoluta)
   - `nwe_up`, `nwe_down` (percentual de acordo com a direção/transição, ou null)
   - `nwe_up_price`, `nwe_down_price` (preço de acordo com a direção/transição, ou null)
-- [ ] **NWE-API-03**: O cache da API deve preservar e armazenar o payload com os dados de NWE integrados, com invalidação ativa a cada tick recebido do coletor.
+- [x] **NWE-API-03**: O cache da API deve preservar e armazenar o payload com os dados de NWE integrados, com invalidação ativa a cada tick recebido do coletor.
 
 ### 3. Interface Visual do Dashboard (NWE-UI)
 
