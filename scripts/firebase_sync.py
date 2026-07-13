@@ -16,7 +16,7 @@ if os.path.exists(env_path):
                 os.environ[key] = val
 
 FIREBASE_URL = os.environ.get("FIREBASE_URL")
-LOCAL_API = "http://localhost:8889"
+LOCAL_API = "http://localhost:8888"
 
 # Path to service account key in the root folder
 SERVICE_ACCOUNT_KEY = os.path.join(os.path.dirname(__file__), '..', 'serviceAccountKey.json')

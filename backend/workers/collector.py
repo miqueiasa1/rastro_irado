@@ -28,8 +28,8 @@ TERMINALS = [
     {
         "name": "BR (XP)",
         "paths": [
-            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
             r"C:\Program Files\MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
             r"C:\Program Files\MetaTrader 5 Terminal - milhao - Copia\terminal64.exe",
         ],
         "source": "br",
