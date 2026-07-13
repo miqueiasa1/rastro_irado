@@ -8,6 +8,15 @@ Dashboard cross-asset em tempo real que estima a probabilidade direcional (alta/
 
 Responder a cada 5 minutos, de forma visual e quantitativa, à pergunta: *"Neste momento do pregão, o resto do mundo está dizendo que este ativo deveria estar subindo ou caindo?"* — sintetizando até 8 fatores de forte correlação estrutural em um único número (P_up ∈ 0–100%) para cada alvo operado.
 
+## Current Milestone: v1.0 Otimização do Cálculo NWE
+
+**Goal:** Migrar o cálculo do Nadaraya-Watson Envelope (NWE) do frontend para o backend para eliminar travamentos e gargalos visuais no dashboard.
+
+**Target features:**
+- Cálculo vetorizado do NWE no backend em Python/NumPy (com bw=8, mult=3).
+- Inclusão dos campos nwe_center, nwe_upper e nwe_lower no payload da API (/api/irai/series).
+- Remoção do cálculo local de NWE no React (frontend) para consumo direto das séries da API.
+
 ## Requirements
 
 ### Validated
