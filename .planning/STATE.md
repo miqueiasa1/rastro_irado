@@ -1,8 +1,8 @@
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 1 — Implementação e Testes Unitários de NWE no Backend
 Plan: —
-Status: Defining requirements
+Status: Discussing phase
 Last activity: 2026-07-13 — Milestone v1.0 started
 
 ## Accumulated Context

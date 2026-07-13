@@ -4,6 +4,39 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 
 ---
 
+## 🎯 Milestone Ativa: v1.0 Otimização do Cálculo NWE
+
+| Fase | Título | Objetivo | Requisitos |
+|------|--------|----------|------------|
+| 1 | Implementação e Testes Unitários de NWE no Backend | Implementar algoritmo vetorizado em Python/NumPy e validar com testes de paridade | NWE-CALC-01, NWE-CALC-02, NWE-CALC-03, NWE-CALC-04, NWE-CALC-05 |
+| 2 | Integração de NWE no Endpoint da API | Acoplar o cálculo NWE às rotas do FastAPI (/api/irai/series) com cache ativo | NWE-API-01, NWE-API-02, NWE-API-03 |
+| 3 | Refatoração do Frontend React | Remover cálculo local computeNWE e consumir dados prontos da API | NWE-UI-01, NWE-UI-02 |
+
+---
+
+### Phase 1: Implementação e Testes Unitários de NWE no Backend
+* **Goal:** Criar o algoritmo de cálculo vetorizado do NWE no backend em Python/NumPy e validar a paridade absoluta frente ao Javascript original.
+* **Requirements:** NWE-CALC-01, NWE-CALC-02, NWE-CALC-03, NWE-CALC-04, NWE-CALC-05
+* **Success Criteria:**
+  1. Novo módulo `backend/quantitative/nwe.py` criado e validado.
+  2. Testes de unidade em `tests/` comprovando desvio numérico nulo (< 1e-9) do cálculo de preço e percentual de NWE frente ao algoritmo JS original.
+
+### Phase 2: Integração de NWE no Endpoint da API
+* **Goal:** Enriquecer o payload de retorno das séries temporais da API FastAPI com as métricas do NWE pré-calculadas.
+* **Requirements:** NWE-API-01, NWE-API-02, NWE-API-03
+* **Success Criteria:**
+  1. Endpoint `/api/irai/series` retorna os campos `nwe_center`, `nwe_upper`, `nwe_lower`, `nwe_slope`, `nwe_up` e `nwe_down` integrados no dicionário de cada barra da lista `series`.
+  2. O cache da API funciona corretamente sem afetar ou corromper os dados do NWE em cache.
+
+### Phase 3: Refatoração do Frontend React
+* **Goal:** Eliminar a carga de processamento de NWE no cliente removendo a função `computeNWE` e conectando diretamente os valores pré-calculados.
+* **Requirements:** NWE-UI-01, NWE-UI-02
+* **Success Criteria:**
+  1. Função `computeNWE` removida com sucesso do frontend React.
+  2. Exibição do gráfico Nadaraya-Watson Envelope funcionando perfeitamente em `http://localhost:5175` com cores dinâmicas e sem lag de rendering.
+
+---
+
 ## ✅ Concluídos
 
 ### Cobertura de Novos Ativos (CADCHF, AUDNZD)
@@ -54,32 +87,27 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 
 ---
 
-## 🔜 Próximos Passos
+## 🔜 Próximos Passos (Backlog de Evolução)
 
 ### 1. Integração com Regime Supervisor (Automated Risk Adjustment)
 * **Objetivo:** Integrar o sinal de `P_up` e a flag de `price_diverges` do IRAI diretamente nos EAs do Regime Supervisor.
 * **Impacto:** Permitir que o portfólio de robôs no MT5 trave o direcional (Buy Only / Sell Only / Block) e ajuste lotes automaticamente de acordo com o clima macro inferido pelo modelo Ridge.
 
-### 2. Otimização do Cálculo NWE
-* **Problema:** O `computeNWE` atual é O(n²) — com 287 barras são ~82k iterações de kernel por render.
-* **Proposta:** Migrar o cálculo para o backend (Python/NumPy), servindo `nwe_center`, `nwe_upper`, `nwe_lower` já computados na resposta da API. Isso elimina o custo no React e permite bandwidths maiores sem impacto visual.
-
-### 3. Alertas Inteligentes (Push / Telegram)
+### 2. Alertas Inteligentes (Push / Telegram)
 * **Objetivo:** Disparar eventos webhook para Telegram ou Discord quando houver inversão dramática de convicção.
 * **Trigger:** WIN$N caindo de 80% para 20% em menos de duas barras, ou acionando `price_diverges` com alto Z-score.
 
-### 4. NWE Filter Toggle
+### 3. NWE Filter Toggle
 * **Objetivo:** Checkbox no dashboard que, quando ativado, filtra/suprime sinais de consenso que colidem com a direção do NWE. Ex: se NWE mostra baixa, sinais de "compra" ficam visualmente atenuados.
 
-### 5. Implementar Preenchimento Contínuo (Forward-Fill) de Barras no Motor
+### 4. Implementar Preenchimento Contínuo (Forward-Fill) de Barras no Motor
 * **Objetivo:** Preencher os "buracos" de sessão (como o overnight da B3) com barras projetadas (mesmo valor do fechamento) para unificar os eixos de tempo do dashboard (24/7).
 * **Impacto:** Isso fará com que o NWE (que depende apenas de volatilidade local) permaneça perfeitamente estável em uma reta durante o fechamento do ativo alvo, enquanto o Rastro (Z-Score/Kalman) flutua contínua e organicamente na madrugada com base em ativos globais de funcionamento ininterrupto (US30, BTC, etc).
 
-### 6. Implementar Heatmap de Sinais (Matriz D-P-Z-E)
+### 5. Implementar Heatmap de Sinais (Matriz D-P-Z-E)
 * **Objetivo:** Substituir o gráfico de linha do Z-Score por uma Matriz de Sinais (Heatmap) com 4 linhas: Divergência (D), Pullback NWE (P), Z-Score (Z) e Exaustão NWE (E). Isso tornará a decisão de compra e venda mais direta e visual.
 * **Backend:** Modificar o pipeline de dados para armazenar e enviar o histórico completo (time-series) do estado desses 4 sinais, não apenas o booleano do tick atual.
 * **Frontend:** Criar o novo componente gráfico de Heatmap e integrá-lo ao dashboard.
 
 ---
----
-*Last updated: 2026-05-05*
+*Last updated: 2026-07-13*
