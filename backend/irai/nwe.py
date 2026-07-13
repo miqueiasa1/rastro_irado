@@ -67,6 +67,16 @@ def compute_nwe(data: list[dict], history_closes: list[float] = None) -> list[di
     valid_idx = 0
     enriched_data = []
 
+    # Inicializar os valores anteriores com base no histórico para evitar colapsar na abertura do dia
+    if len(history_prices) > 0:
+        last_center = float(center[len(history_prices) - 1])
+        last_upper = float(center[len(history_prices) - 1] + env_width[len(history_prices) - 1])
+        last_lower = float(center[len(history_prices) - 1] - env_width[len(history_prices) - 1])
+    else:
+        last_center = None
+        last_upper = None
+        last_lower = None
+
     for d in data:
         # Futuras barras vazias na grade horária (padding)
         if d.get("win_current") is None:
@@ -75,11 +85,12 @@ def compute_nwe(data: list[dict], history_closes: list[float] = None) -> list[di
 
         # Tratamento de Ghost Bars (B3 overnight flat)
         if d.get("is_ghost", False):
+            val = d["win_current"]
             enriched_data.append({
                 **d,
-                "nwe_center_price": d["win_current"],
-                "nwe_upper_price": d["win_current"],
-                "nwe_lower_price": d["win_current"],
+                "nwe_center_price": last_center if last_center is not None else val,
+                "nwe_upper_price": last_upper if last_upper is not None else val,
+                "nwe_lower_price": last_lower if last_lower is not None else val,
                 "nwe_slope": last_slope,
                 "nwe_up_price": None,
                 "nwe_down_price": None
@@ -93,6 +104,11 @@ def compute_nwe(data: list[dict], history_closes: list[float] = None) -> list[di
         nwe_center_price = float(current_center[i])
         nwe_upper_price = float(current_center[i] + current_env_width[i])
         nwe_lower_price = float(current_center[i] - current_env_width[i])
+
+        # Atualizar carry-forward para as próximas ghost bars
+        last_center = nwe_center_price
+        last_upper = nwe_upper_price
+        last_lower = nwe_lower_price
 
         # Inclinação (Slope)
         if i > 0:
