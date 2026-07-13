@@ -10,7 +10,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 |------|--------|----------|------------|
 | 1 | Implementação e Testes Unitários de NWE no Backend | Complete (0/0) | 2026-07-13 |
 | 2 | Integração de NWE no Endpoint da API | Complete (0/0) | 2026-07-13 |
-| 3 | Refatoração do Frontend React | Remover cálculo local computeNWE e consumir dados prontos da API | NWE-UI-01, NWE-UI-02 |
+| 3 | Refatoração do Frontend React | Complete (0/0) | 2026-07-13 |
 
 ---
 
