@@ -257,7 +257,7 @@ def main():
         # Notificar API sobre novos dados para push via WebSocket
         try:
             import requests
-            requests.post("http://127.0.0.1:8889/api/internal/notify_update", timeout=1.0)
+            requests.post("http://127.0.0.1:8888/api/internal/notify_update", timeout=1.0)
         except Exception as e:
             log.debug(f"Falha ao notificar API local: {e}")
 

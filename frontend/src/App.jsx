@@ -9,8 +9,8 @@ import TVPairwiseZScoreChart from './components/TVPairwiseZScoreChart'
 import TVPriceDivergeZScoreChart from './components/TVPriceDivergeZScoreChart'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
-const API = FIREBASE_URL ? null : 'http://localhost:8889'
-const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8889/ws/irai'
+const API = FIREBASE_URL ? null : 'http://localhost:8888'
+const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8888/ws/irai'
 
 // Mapa cosmético de labels para fatores conhecidos
 const FACTOR_DISPLAY = {

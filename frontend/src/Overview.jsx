@@ -37,7 +37,7 @@ const OVERVIEW_STYLES = `
   }
 `
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
-const API = FIREBASE_URL ? null : 'http://localhost:8889'
+const API = FIREBASE_URL ? null : 'http://localhost:8888'
 
 function Sparkline({ data, width = '100%', height = 24 }) {
   if (!data || data.length < 2) return null
