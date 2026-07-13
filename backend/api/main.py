@@ -197,7 +197,7 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
     prev_rows = conn.execute("""
         SELECT close FROM market_bars
         WHERE symbol = ? AND timeframe = ? AND timestamp_utc < ?
-        ORDER BY timestamp_utc DESC LIMIT 95
+        ORDER BY timestamp_utc DESC LIMIT 190
     """, (target_db, tf_query, f"{session_date}T00:00:00Z")).fetchall()
     conn.close()
     history_closes = [r["close"] for r in reversed(prev_rows)]
