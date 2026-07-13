@@ -1,9 +1,23 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: Otimização do Cálculo NWE
+status: planning
+last_updated: "2026-07-13T12:38:23.623Z"
+last_activity: 2026-07-13
+progress:
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+---
+
 ## Current Position
 
-Phase: Phase 1 — Implementação e Testes Unitários de NWE no Backend
-Plan: —
-Status: Discussing phase
-Last activity: 2026-07-13 — Milestone v1.0 started
+Phase: 2
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-13
 
 ## Accumulated Context
 
