@@ -193,11 +193,12 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
     conn = get_connection()
     target_db = next((t["data_proxy"] for t in engine.registered_targets if t["target"] == target), target)
     if not target_db: target_db = target
+    tf_query = "M5" if timeframe == "both" else timeframe
     prev_rows = conn.execute("""
         SELECT close FROM market_bars
         WHERE symbol = ? AND timeframe = ? AND timestamp_utc < ?
         ORDER BY timestamp_utc DESC LIMIT 95
-    """, (target_db, timeframe, f"{session_date}T00:00:00Z")).fetchall()
+    """, (target_db, tf_query, f"{session_date}T00:00:00Z")).fetchall()
     conn.close()
     history_closes = [r["close"] for r in reversed(prev_rows)]
 

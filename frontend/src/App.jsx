@@ -9,8 +9,8 @@ import TVPairwiseZScoreChart from './components/TVPairwiseZScoreChart'
 import TVPriceDivergeZScoreChart from './components/TVPriceDivergeZScoreChart'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
-const API = FIREBASE_URL ? null : 'http://localhost:8888'
-const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8888/ws/irai'
+const API = FIREBASE_URL ? null : 'http://localhost:8889'
+const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8889/ws/irai'
 
 // Mapa cosmético de labels para fatores conhecidos
 const FACTOR_DISPLAY = {
@@ -1397,7 +1397,7 @@ export default function App() {
                       targetLabel={seriesInfo.display_name || selectedTarget}
                       hasFlow={hasFlow}
                       accuracy={seriesInfo.accuracy ?? 80}
-                      recentPUp={series.slice(-8).map(b => b.p_up).filter(v => v != null)}
+                      recentPUp={series.filter(b => b.p_up != null && !b.is_ghost).slice(-8).map(b => b.p_up)}
                       priceDiverges={now.price_diverges}
                       nweUp={(nweNow?.nwe_slope || 0) >= 0}
                       nweUpper={nweNow?.nwe_upper_price}
