@@ -288,8 +288,8 @@ function AssetCard({ card, onClick }) {
   const isReturnDivergentBuy = isBuy && card.win_return < 0;
   const isReturnDivergentSell = isSell && card.win_return > 0;
   
-  const isNweExhaustionDown = card.nwe_upper !== undefined && card.win_return > card.nwe_upper;
-  const isNweExhaustionUp = card.nwe_lower !== undefined && card.win_return < card.nwe_lower;
+  const isNweExhaustionDown = card.nwe_upper_price !== undefined && card.nwe_upper_price !== null && card.win_current !== undefined && card.win_current !== null && card.win_current > card.nwe_upper_price;
+  const isNweExhaustionUp = card.nwe_lower_price !== undefined && card.nwe_lower_price !== null && card.win_current !== undefined && card.win_current !== null && card.win_current < card.nwe_lower_price;
 
   const hasAlert = isReturnDivergentBuy || isReturnDivergentSell;
   const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';

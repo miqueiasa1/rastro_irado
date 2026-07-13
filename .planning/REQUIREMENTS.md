@@ -25,8 +25,8 @@ Este documento especifica os requisitos funcionais e não-funcionais que devem s
 
 ### 3. Interface Visual do Dashboard (NWE-UI)
 
-- [ ] **NWE-UI-01**: O frontend React deve ter a função `computeNWE` removida e passar a consumir as variáveis de NWE diretamente da resposta JSON da API.
-- [ ] **NWE-UI-02**: Os gráficos de NWE e suas colorações dinâmicas por inclinação no dashboard devem reter 100% de paridade visual e funcional com a exibição original.
+- [x] **NWE-UI-01**: O frontend React deve ter a função `computeNWE` removida e passar a consumir as variáveis de NWE diretamente da resposta JSON da API.
+- [x] **NWE-UI-02**: Os gráficos de NWE e suas colorações dinâmicas por inclinação no dashboard devem reter 100% de paridade visual e funcional com a exibição original.
 
 ---
 

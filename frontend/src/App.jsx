@@ -44,7 +44,7 @@ const FACTOR_COLORS = [
 
 
 /* ── Big Gauge ────────────────────────────────────── */
-function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview }) {
+function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview, winCurrent }) {
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
 
@@ -124,8 +124,8 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
 
   const isReturnDivergentBuy = isBuy && winReturn < 0;
   const isReturnDivergentSell = isSell && winReturn > 0;
-  const isNweExhaustionDown = nweUpper !== undefined && winReturn > nweUpper;
-  const isNweExhaustionUp = nweLower !== undefined && winReturn < nweLower;
+  const isNweExhaustionDown = nweUpper !== undefined && nweUpper !== null && winCurrent !== undefined && winCurrent !== null && winCurrent > nweUpper;
+  const isNweExhaustionUp = nweLower !== undefined && nweLower !== null && winCurrent !== undefined && winCurrent !== null && winCurrent < nweLower;
   const isNweDivergentBuy = isBuy && nweUp === false;
   const isNweDivergentSell = isSell && nweUp === true;
 
@@ -814,8 +814,8 @@ export default function App() {
       }
 
       const winReturn = entry.win_return || 0;
-      const isNweExhaustionDown = entry.nwe_upper !== undefined && winReturn > entry.nwe_upper;
-      const isNweExhaustionUp = entry.nwe_lower !== undefined && winReturn < entry.nwe_lower;
+      const isNweExhaustionDown = entry.nwe_upper_price !== undefined && entry.nwe_upper_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current > entry.nwe_upper_price;
+      const isNweExhaustionUp = entry.nwe_lower_price !== undefined && entry.nwe_lower_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current < entry.nwe_lower_price;
 
       // Heatmap Logic
       const pUp = entry.p_up != null ? entry.p_up : 50;
@@ -1400,8 +1400,9 @@ export default function App() {
                       recentPUp={series.slice(-8).map(b => b.p_up).filter(v => v != null)}
                       priceDiverges={now.price_diverges}
                       nweUp={(nweNow?.nwe_slope || 0) >= 0}
-                      nweUpper={nweNow?.nwe_upper}
-                      nweLower={nweNow?.nwe_lower}
+                      nweUpper={nweNow?.nwe_upper_price}
+                      nweLower={nweNow?.nwe_lower_price}
+                      winCurrent={now.win_current}
                       isPreview={now.is_preview}
                     />
                   )}

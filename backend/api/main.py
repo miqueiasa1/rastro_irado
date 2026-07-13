@@ -335,6 +335,9 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
                 "score": round(score, 4),
                 "verdict": verdict,
                 "sparkline": sparkline,
+                "win_current": last_dict.get("win_current"),
+                "nwe_upper_price": last_dict.get("nwe_upper_price"),
+                "nwe_lower_price": last_dict.get("nwe_lower_price"),
             }
             results.append(res_obj)
         except Exception as e:
