@@ -1539,7 +1539,7 @@ export default function App() {
                         }}>
                           {(nweNow?.nwe_slope || 0) >= 0 ? '▲ NWE ALTA' : '▼ NWE BAIXA'}
                           <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
-                            {`bw=${NWE_BW}`} &middot; {
+                            {`bw=8`} &middot; {
                               nweNow?.nwe_center_price >= 1000 
                                 ? (nweNow.nwe_center_price / 1000).toFixed(1) + 'k' 
                                 : nweNow?.nwe_center_price?.toFixed(2)
