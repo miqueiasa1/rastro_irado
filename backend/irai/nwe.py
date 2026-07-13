@@ -5,6 +5,15 @@ def compute_nwe(data: list[dict], history_closes: list[float] = None) -> list[di
     Computa o Nadaraya-Watson Envelope (NWE) no backend de forma vetorizada com NumPy.
     Retorna a lista de dicionários enriquecida com os preços absolutos do NWE.
     """
+    # Inicializar os campos preventivamente como None para todos os elementos
+    for d in data:
+        d.setdefault("nwe_center_price", None)
+        d.setdefault("nwe_upper_price", None)
+        d.setdefault("nwe_lower_price", None)
+        d.setdefault("nwe_slope", None)
+        d.setdefault("nwe_up_price", None)
+        d.setdefault("nwe_down_price", None)
+
     if not data:
         return data
 

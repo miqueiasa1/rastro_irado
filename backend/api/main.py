@@ -207,13 +207,21 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
 
     target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
     is_b3 = target_info.get("session_start_h", 0) != 0
+    
+    series_data = [_snap_to_dict(s) for s in snapshots]
+    try:
+        from backend.irai.nwe import compute_nwe
+        series_data = compute_nwe(series_data, history_closes)
+    except Exception as e:
+        print(f"Error computing NWE in API: {e}", flush=True)
+
     result = {
         "session_date": session_date,
         "target": target,
         "display_name": target_info.get("display_name", target),
         "icon": target_info.get("icon", "📊"),
         "bars": len(snapshots),
-        "series": [_snap_to_dict(s) for s in snapshots],
+        "series": series_data,
         "history_closes": history_closes,
         "is_b3": is_b3,
         "summary": {
