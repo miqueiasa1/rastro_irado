@@ -90,38 +90,38 @@ def compute_nwe(data: list[dict], history_closes: list[float] = None) -> list[di
         i = valid_idx
         valid_idx += 1
 
-        nwe_center_price = current_center[i]
-        nwe_upper_price = current_center[i] + current_env_width[i]
-        nwe_lower_price = current_center[i] - current_env_width[i]
+        nwe_center_price = float(current_center[i])
+        nwe_upper_price = float(current_center[i] + current_env_width[i])
+        nwe_lower_price = float(current_center[i] - current_env_width[i])
 
         # Inclinação (Slope)
         if i > 0:
-            prev_c = current_center[i - 1]
+            prev_c = float(current_center[i - 1])
         elif history_prices:
-            prev_c = center[len(history_prices) - 1]
+            prev_c = float(center[len(history_prices) - 1])
         else:
-            prev_c = current_center[0]
+            prev_c = float(current_center[0])
 
-        nwe_slope_price = nwe_center_price - prev_c
+        nwe_slope_price = float(nwe_center_price - prev_c)
         is_up = nwe_slope_price >= 0.0
 
         # Transição posterior (próxima barra muda de direção?)
         if i < len(valid_data) - 1:
-            next_c = current_center[i + 1]
-            next_slope = next_c - nwe_center_price
+            next_c = float(current_center[i + 1])
+            next_slope = float(next_c - nwe_center_price)
         else:
             next_slope = nwe_slope_price
         is_transition = (nwe_slope_price >= 0.0) != (next_slope >= 0.0)
 
         # Transição anterior (barra anterior era direção diferente?)
         if i > 1:
-            prev_prev_c = current_center[i - 2]
+            prev_prev_c = float(current_center[i - 2])
         elif len(history_prices) > 1:
-            prev_prev_c = center[len(history_prices) - 2]
+            prev_prev_c = float(center[len(history_prices) - 2])
         else:
             prev_prev_c = prev_c
 
-        prev_slope_price = prev_c - prev_prev_c
+        prev_slope_price = float(prev_c - prev_prev_c)
         was_transition = (prev_slope_price >= 0.0) != (nwe_slope_price >= 0.0)
 
         # Preencher series para plotagem dinâmica de cor
