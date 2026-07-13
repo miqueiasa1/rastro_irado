@@ -9,7 +9,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | Fase | Título | Objetivo | Requisitos |
 |------|--------|----------|------------|
 | 1 | Implementação e Testes Unitários de NWE no Backend | Complete (0/0) | 2026-07-13 |
-| 2 | Integração de NWE no Endpoint da API | Acoplar o cálculo NWE às rotas do FastAPI (/api/irai/series) com cache ativo | NWE-API-01, NWE-API-02, NWE-API-03 |
+| 2 | Integração de NWE no Endpoint da API | Complete (0/0) | 2026-07-13 |
 | 3 | Refatoração do Frontend React | Remover cálculo local computeNWE e consumir dados prontos da API | NWE-UI-01, NWE-UI-02 |
 
 ---
