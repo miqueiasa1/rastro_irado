@@ -7,10 +7,11 @@ import TVNweChart from './components/TVNweChart'
 import TVKalmanWeightsChart from './components/TVKalmanWeightsChart'
 import TVPairwiseZScoreChart from './components/TVPairwiseZScoreChart'
 import TVPriceDivergeZScoreChart from './components/TVPriceDivergeZScoreChart'
+import TVGarchVolChart from './components/TVGarchVolChart'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
-const API = FIREBASE_URL ? null : 'http://localhost:8889'
-const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8889/ws/irai'
+const API = FIREBASE_URL ? null : 'http://localhost:8888'
+const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8888/ws/irai'
 
 // Mapa cosmético de labels para fatores conhecidos
 const FACTOR_DISPLAY = {
@@ -130,102 +131,106 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
   const isNweDivergentSell = isSell && nweUp === true;
 
   const hasAlert = isReturnDivergentBuy || isReturnDivergentSell;
-
   const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
 
   return (
     <div className={`gauge-container ${alertClass}`} style={{
       flex: '1 1 350px',
-      display: 'flex', gap: 20, padding: 24, borderRadius: 12,
+      display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 16px', borderRadius: 12,
       background: 'linear-gradient(180deg, #111116 0%, #09090B 100%)',
       border: `1px solid ${signalColor}33`,
       boxShadow: `0 4px 20px -10px ${signalColor}20`,
-      alignItems: 'center',
+      alignItems: 'stretch',
     }}>
-      {/* SVG Gauge */}
-      <div style={{ position: 'relative', width: 110, height: 62, flexShrink: 0 }}>
-        <svg viewBox="0 0 110 62" width="110" height="62">
-          <path d="M 8 58 A 48 48 0 0 1 102 58" fill="none" stroke="#1E293B" strokeWidth="6" strokeLinecap="round" />
-          <path d="M 8 58 A 48 48 0 0 1 22 20" fill="none" stroke="#F8717133" strokeWidth="6" strokeLinecap="round" />
-          <path d="M 88 20 A 48 48 0 0 1 102 58" fill="none" stroke="#4ADE8033" strokeWidth="6" strokeLinecap="round" />
-          <line
-            x1="55" y1="58"
-            x2={55 + 38 * Math.cos(angleRad)}
-            y2={58 - 38 * Math.sin(angleRad)}
-            stroke={signalColor} strokeWidth="2" strokeLinecap="round"
-          />
-          <circle cx="55" cy="58" r="3" fill={signalColor} />
-          <text x="6" y="56" fill="#F87171" fontSize="7" fontFamily="var(--font-mono)">↓</text>
-          <text x="49" y="10" fill="#64748B" fontSize="7" fontFamily="var(--font-mono)">50%</text>
-          <text x="96" y="56" fill="#4ADE80" fontSize="7" fontFamily="var(--font-mono)">↑</text>
-        </svg>
-      </div>
-
-      {/* Signal text */}
-      <div className="gauge-left">
-        {title && <div style={{
-          fontSize: 10, fontFamily: 'var(--font-serif)', color: '#C9A227', marginBottom: 6, fontStyle: 'italic'
-        }}>{title}</div>}
-        <div style={{
-          fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em',
-          color: '#64748B', textTransform: 'uppercase', marginBottom: 4,
-        }}>sinal IRAI</div>
-        <div style={{
-          fontFamily: 'var(--font-serif)', fontSize: 38, lineHeight: 1,
-          color: signalColor, fontWeight: 400,
-        }}>{signalText}</div>
-
-        {/* Conviction + stability row */}
-        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {/* Conviction */}
-          <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 11, color: '#64748B',
-          }}>
-            convicção{' '}
-            <span style={{ color: convColor, fontWeight: 600 }}>{conviction}%</span>
-            <span style={{ color: '#334155', fontSize: 9 }}> ({convLabel})</span>
-          </span>
-
-          {/* Divider */}
-          <span style={{ color: '#1E293B', fontSize: 11 }}>·</span>
-
-          {/* Stability badge */}
-          <span
-            title={stabilityTip}
-            style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10,
-              color: stabilityColor,
-              background: `${stabilityColor}18`,
-              border: `1px solid ${stabilityColor}33`,
-              borderRadius: 4, padding: '1px 7px',
-              cursor: 'help',
-              letterSpacing: '0.06em',
-            }}
-          >
-            {stabilityIcon} {stability}
-          </span>
+      {/* Top row: Gauge + Signal + Price */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 10, flexWrap: 'wrap' }}>
+        {/* SVG Gauge */}
+        <div style={{ position: 'relative', width: 90, height: 50, flexShrink: 0 }}>
+          <svg viewBox="0 0 110 62" width="90" height="50">
+            <path d="M 8 58 A 48 48 0 0 1 102 58" fill="none" stroke="#1E293B" strokeWidth="6" strokeLinecap="round" />
+            <path d="M 8 58 A 48 48 0 0 1 22 20" fill="none" stroke="#F8717133" strokeWidth="6" strokeLinecap="round" />
+            <path d="M 88 20 A 48 48 0 0 1 102 58" fill="none" stroke="#4ADE8033" strokeWidth="6" strokeLinecap="round" />
+            <line
+              x1="55" y1="58"
+              x2={55 + 38 * Math.cos(angleRad)}
+              y2={58 - 38 * Math.sin(angleRad)}
+              stroke={signalColor} strokeWidth="2" strokeLinecap="round"
+            />
+            <circle cx="55" cy="58" r="3" fill={signalColor} />
+            <text x="6" y="56" fill="#F87171" fontSize="7" fontFamily="var(--font-mono)">↓</text>
+            <text x="49" y="10" fill="#64748B" fontSize="7" fontFamily="var(--font-mono)">50%</text>
+            <text x="96" y="56" fill="#4ADE80" fontSize="7" fontFamily="var(--font-mono)">↑</text>
+          </svg>
         </div>
 
-        {/* Raw p_up — secondary, small */}
-        <div style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9, color: '#334155' }}>
-          P(↑) bruto: {pUp.toFixed(1)}% · acc modelo: {accuracy.toFixed(0)}%
+        {/* Signal text */}
+        <div className="gauge-left" style={{ flex: 1, minWidth: 100 }}>
+          {title && <div style={{
+            fontSize: 9, fontFamily: 'var(--font-sans)', color: '#C9A227', marginBottom: 1, fontWeight: 600
+          }}>{title}</div>}
+          <div style={{
+            fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em',
+            color: '#64748B', textTransform: 'uppercase', marginBottom: 1,
+          }}>sinal IRAI</div>
+          <div style={{
+            fontFamily: 'var(--font-sans)', fontSize: 20, lineHeight: 1,
+            color: signalColor, fontWeight: 700,
+          }}>{signalText}</div>
+
+          {/* Conviction + stability row */}
+          <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B',
+            }}>
+              convicção{' '}
+              <span style={{ color: convColor, fontWeight: 600 }}>{conviction}%</span>
+              <span style={{ color: '#334155', fontSize: 8 }}> ({convLabel})</span>
+            </span>
+            <span style={{ color: '#334155', fontSize: 9 }}>·</span>
+            <span
+              title={stabilityTip}
+              style={{
+                fontFamily: 'var(--font-mono)', fontSize: 8,
+                color: stabilityColor,
+                background: `${stabilityColor}12`,
+                border: `1px solid ${stabilityColor}22`,
+                borderRadius: 3, padding: '0px 5px',
+                cursor: 'help',
+              }}
+            >
+              {stabilityIcon} {stability}
+            </span>
+          </div>
+
+          {/* Raw stats */}
+          <div style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 8, color: '#334155' }}>
+            P(↑) bruto: {pUp.toFixed(1)}% · acc: {accuracy.toFixed(0)}%
+          </div>
+        </div>
+
+        {/* Price return */}
+        <div className="gauge-right" style={{ textAlign: 'right', minWidth: 80, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          <div style={{
+            fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em',
+            color: '#64748B', textTransform: 'uppercase', marginBottom: 1,
+          }}>{targetLabel || 'WIN'} agora</div>
+          <div style={{
+            fontFamily: 'var(--font-sans)', fontSize: 20, lineHeight: 1,
+            color: winReturn >= 0 ? '#4ADE80' : '#F87171',
+            fontWeight: 700,
+          }}>{winReturn >= 0 ? '+' : ''}{winReturn.toFixed(2)}%</div>
         </div>
       </div>
 
-      {/* Target return + flow */}
-      <div className="gauge-right">
-        <div style={{
-          fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em',
-          color: '#64748B', textTransform: 'uppercase', marginBottom: 3,
-        }}>{targetLabel || 'WIN'} agora</div>
-        <div style={{
-          fontFamily: 'var(--font-serif)', fontSize: 28, lineHeight: 1,
-          color: winReturn >= 0 ? '#4ADE80' : '#F87171',
-        }}>{winReturn >= 0 ? '+' : ''}{winReturn.toFixed(2)}%</div>
+      {/* Bottom row: Checkmarks */}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4,
+        borderTop: '1px solid #1E293B', paddingTop: 6,
+      }}>
         {/* D: DIVERGÊNCIA DE RETORNO */}
         <div style={{
-          marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 9,
-          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          fontFamily: 'var(--font-mono)', fontSize: 8,
+          padding: '1px 5px', borderRadius: 3,
           background: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
           color: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '#4ADE80' : '#F87171') : '#64748B',
           border: `1px solid ${(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
@@ -233,21 +238,21 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
           {(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '🟢 DIVERGÊNCIA %' : '🔴 DIVERGÊNCIA %') : '✓ DIVERGÊNCIA %'}
         </div>
 
-        {/* P: PULLBACK / NWE DIVERGENCE */}
+        {/* P: PULLBACK / GAUSS DIVERGENCE */}
         <div className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
-          marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
-          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          fontFamily: 'var(--font-mono)', fontSize: 8,
+          padding: '1px 5px', borderRadius: 3,
           background: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
           color: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '#4ADE80' : '#F87171') : '#64748B',
           border: `1px solid ${(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
         }}>
-          {(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '🟢 PULLBACK NWE' : '🔴 PULLBACK NWE') : '✓ PULLBACK NWE'}
+          {(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '🟢 PULLBACK GAUSS' : '🔴 PULLBACK GAUSS') : '✓ PULLBACK GAUSS'}
         </div>
 
         {/* Z: Z-SCORE SIGNAL */}
         <div className={priceDiverges ? 'badge-blink' : ''} style={{
-          marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
-          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          fontFamily: 'var(--font-mono)', fontSize: 8,
+          padding: '1px 5px', borderRadius: 3,
           background: priceDiverges ? (isBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
           color: priceDiverges ? (isBuy ? '#4ADE80' : '#F87171') : '#64748B',
           border: `1px solid ${priceDiverges ? (isBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
@@ -257,8 +262,8 @@ function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfi
 
         {/* E: EXAUSTÃO NWE */}
         <div className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
-          marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 9,
-          padding: '2px 6px', borderRadius: 4, display: 'inline-block', clear: 'both', float: 'left',
+          fontFamily: 'var(--font-mono)', fontSize: 8,
+          padding: '1px 5px', borderRadius: 3,
           background: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
           color: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? '#4ADE80' : '#F87171') : '#64748B',
           border: `1px solid ${(isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`,
@@ -507,6 +512,10 @@ export default function App() {
   const isFirstLoadRef = useRef(true)
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(false)
+  const [gexWalls, setGexWalls] = useState([])
+  const [availableRuns, setAvailableRuns] = useState([])
+  const [selectedRun, setSelectedRun] = useState(null)
+  const [garchData, setGarchData] = useState(null)
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
@@ -656,6 +665,10 @@ export default function App() {
             tz_offset: isB3 ? -3 : 0, 
             tz_label: 'BRT' 
           })
+          setGexWalls(GEX_LEVELS[target] || [])
+          setAvailableRuns([])
+          setSelectedRun(null)
+          setGarchData(null)
           setLoading(false)
           if (shouldFetchLastUpdate && lastUpdateData !== undefined && lastUpdateData !== null) {
             setLastUpdate(new Date(lastUpdateData * 1000))
@@ -664,9 +677,12 @@ export default function App() {
         })
         .catch(e => { setError(e.message); setLoading(false) })
     } else {
-      fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}`)
-        .then(r => r.json())
-        .then(data => {
+      const seriesPromise = fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}`).then(r => r.json());
+      const gexPromise = fetch(`${API}/api/gex?target=${encodeURIComponent(target)}&date=${date}`).then(r => r.json()).catch(() => null);
+      const garchPromise = fetch(`${API}/api/garch?symbol=${encodeURIComponent(target === 'WIN$N' ? 'IBOV' : target)}&date=${date}`).then(r => r.json()).catch(() => null);
+
+      Promise.all([seriesPromise, gexPromise, garchPromise])
+        .then(([data, gexData, garchRes]) => {
           if (data.error) { setError(data.error); setLoading(false); return }
           const isB3 = data.is_b3 || false;
           const processed = (data.series || []).map(s => {
@@ -691,6 +707,23 @@ export default function App() {
           setSeries(padSeriesToFullDay(sliced, isB3, timeframe))
           setSummary(data.summary)
           setSeriesInfo({ display_name: data.display_name, icon: data.icon, history_closes: data.history_closes || [], tz_offset: isB3 ? -3 : 0, tz_label: 'BRT', accuracy: data.summary?.accuracy })
+          
+          if (gexData && Array.isArray(gexData.levels)) {
+            setGexWalls(gexData.levels);
+            setAvailableRuns(gexData.available_runs || []);
+            setSelectedRun(gexData.selected_run || null);
+          } else {
+            setGexWalls(GEX_LEVELS[target] || []);
+            setAvailableRuns([]);
+            setSelectedRun(null);
+          }
+
+          if (garchRes && Array.isArray(garchRes.history)) {
+            setGarchData(garchRes);
+          } else {
+            setGarchData(null);
+          }
+
           setLoading(false)
           setLastUpdate(new Date())
           setError(null)
@@ -698,6 +731,19 @@ export default function App() {
         .catch(e => { setError(e.message); setLoading(false) })
     }
   }, [targetsMeta, timeframe])
+
+  const fetchGexForRun = useCallback((runName) => {
+    if (FIREBASE_URL) return;
+    fetch(`${API}/api/gex?target=${encodeURIComponent(selectedTarget)}&date=${effectiveDate}&run=${runName}`)
+      .then(r => r.json())
+      .then(gexData => {
+        if (gexData && Array.isArray(gexData.levels)) {
+          setGexWalls(gexData.levels);
+          setSelectedRun(gexData.selected_run || null);
+        }
+      })
+      .catch(() => {});
+  }, [selectedTarget, effectiveDate]);
 
   // Initial load on date/target/liveMode change + polling
   useEffect(() => {
@@ -774,8 +820,8 @@ export default function App() {
       const isLiveBar = (index === latestActiveIndex);
 
       // Determine if condition is met right now
-      const isPairBuy = entry.pair_signal === 'buy' && pUpDir >= 50;
-      const isPairSell = entry.pair_signal === 'sell' && pUpDir <= 50;
+      const isPairBuy = entry.pair_signal === 'buy';
+      const isPairSell = entry.pair_signal === 'sell';
 
       // Only save to signals memory if it's the live active bar
       if (isLiveBar) {
@@ -787,10 +833,12 @@ export default function App() {
       const activeSignal = isLiveBar ? pairSignalsMemory.current[memKey] : (isPairBuy ? 'buy' : isPairSell ? 'sell' : null);
       if (activeSignal === 'buy') {
         pair_compra = entry.win_current;
-        hm_color_pr = '#4ADE80';
+        const isCounterTrend = pUpDir < 45;
+        hm_color_pr = isCounterTrend ? '#EAB308' : '#4ADE80';
       } else if (activeSignal === 'sell') {
         pair_venda = entry.win_current;
-        hm_color_pr = '#F87171';
+        const isCounterTrend = pUpDir > 55;
+        hm_color_pr = isCounterTrend ? '#EAB308' : '#F87171';
       }
 
       // Z-Score (Quadrado no gráfico)
@@ -878,7 +926,9 @@ export default function App() {
 
   // Determine visibility of bottom charts
   const showKalman = now && now.factors && Object.keys(now.factors).length > 0;
-  const showPairZ = seriesWithNWE.some(s => s.pair_z != null);
+  // CRITICAL RULE: O gráfico de Pair Spread (WIN vs WDO) deve estar sempre visível para o WIN$N,
+  // mesmo se pair_z estiver temporariamente nulo (ex: início do pregão/pré-mercado).
+  const showPairZ = selectedTarget === 'WIN$N';
   const showPriceDivergeZ = seriesWithNWE.some(s => s.price_diverge_z != null);
 
   const lastActiveChart = useMemo(() => {
@@ -930,9 +980,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesWithNWE, chartType]);
 
-  // Synchronize timescale (zoom/pan) and crosshair (hover) for all TV charts
-  // Re-bind when chart instances appear/disappear or chartType changes
   const savedRangeRef = useRef(null);
+  const isSyncingRef = useRef(false);
+  const prevValidCountRef = useRef(0);
   useEffect(() => {
     let timeHandlers = [];
     let crosshairHandlers = [];
@@ -957,26 +1007,24 @@ export default function App() {
         });
       }
 
-      // Time scale synchronization with recursive protection based on range values
+      // CRITICAL RULE: Sincronização estrita de escala horizontal de tempo entre todos os gráficos.
+      // O flag isSyncingRef evita loops recursivos e oscilações indesejadas no zoom/pan dos múltiplos painéis.
       charts.forEach(c => {
         const handler = (logicalRange) => {
           if (!logicalRange) return;
+          if (isSyncingRef.current) return;
+          
+          isSyncingRef.current = true;
           savedRangeRef.current = logicalRange; // persist current range
           
           charts.forEach(other => {
             if (other.chart !== c.chart) {
               try {
-                const otherRange = other.chart.timeScale().getVisibleLogicalRange();
-                // If already extremely close to target range, skip updating to prevent loop
-                if (otherRange &&
-                    Math.abs(otherRange.from - logicalRange.from) < 0.05 &&
-                    Math.abs(otherRange.to - logicalRange.to) < 0.05) {
-                  return;
-                }
                 other.chart.timeScale().setVisibleLogicalRange(logicalRange);
               } catch (err) {}
             }
           });
+          isSyncingRef.current = false;
         };
         c.chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
         timeHandlers.push({ chart: c.chart, handler });
@@ -1058,7 +1106,7 @@ export default function App() {
         } catch (err) {}
       });
     };
-  }, [chartType, chartFingerprint]);
+  }, [chartType, seriesWithNWE, timeframe, selectedTarget, effectiveDate]);
 
   // Force timescale alignment on every data update to ensure they stay in sync
   const prevAlignKey = useRef('');
@@ -1070,6 +1118,7 @@ export default function App() {
     if (isContextChange) {
       prevAlignKey.current = alignKey;
       savedRangeRef.current = null; // clear saved zoom on context change
+      prevValidCountRef.current = 0;
     }
 
     const timer = setTimeout(() => {
@@ -1086,7 +1135,21 @@ export default function App() {
       const validCount = seriesWithNWE.filter(s => s.win_current !== undefined).length;
       if (validCount > 0) {
         let range = savedRangeRef.current;
-        if (!range) {
+        
+        // CRITICAL RULE: Preservação de zoom e posição (pan) contra resets automáticos nos ticks em tempo real.
+        // Se o usuário não estava ativamente na borda direita (to >= prevValidCountRef.current - 2),
+        // mantemos a janela visual intacta e não atualizamos sua visualização.
+        if (range && prevValidCountRef.current > 0) {
+          const isAtRightEdge = range.to >= prevValidCountRef.current - 2;
+          if (isAtRightEdge) {
+            const span = range.to - range.from;
+            range = {
+              from: Math.max(0, validCount - (span - 15)),
+              to: validCount + 15
+            };
+            savedRangeRef.current = range;
+          }
+        } else if (!range) {
           range = {
             from: Math.max(0, validCount - 100),
             to: validCount + 15
@@ -1094,11 +1157,15 @@ export default function App() {
           savedRangeRef.current = range;
         }
 
+        prevValidCountRef.current = validCount;
+
+        isSyncingRef.current = true;
         charts.forEach(chart => {
           try {
             chart.timeScale().setVisibleLogicalRange(range);
           } catch (err) {}
         });
+        isSyncingRef.current = false;
       }
     }, 300); // 300ms to let all child setData calls settle
 
@@ -1411,19 +1478,19 @@ export default function App() {
                 {/* ── STACKED CHARTS: same X axis ── */}
                 <div className="chart-container">
                   {/* TOP: WIN vs IRAI */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <div>
+                  <div className="chart-header">
+                    <div className="chart-header-title">
                       <div style={{
-                        fontFamily: 'var(--font-serif)', fontSize: 18, color: '#D0D0DC',
+                        fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 700, color: '#D0D0DC',
                       }}>
-                        {seriesInfo.display_name || selectedTarget} <span style={{ fontStyle: 'italic', color: '#3A3A4A' }}>vs</span> IRAI
+                        {seriesInfo.display_name || selectedTarget} <span style={{ fontStyle: 'italic', fontWeight: 400, color: '#64748B' }}>vs</span> IRAI
                       </div>
                       <div style={{
                         fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--amber-dim)', marginTop: 2,
                         letterSpacing: '0.1em', textTransform: 'uppercase',
                       }}>rastro macro · fatores externos</div>
                     </div>
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div className="chart-header-controls">
                       {now.pair_factor && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px', borderRadius: 4, background: '#0E0E11', border: '1px solid #1E293B' }}>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#64748B' }}>PAR ATIVO:</span>
@@ -1467,7 +1534,7 @@ export default function App() {
                     history={seriesWithNWE}
                     effectiveDate={effectiveDate}
                     selectedTarget={selectedTarget}
-                    hideXAxis={lastActiveChart !== 'prob'}
+                    hideXAxis={true}
                   />
 
                   {/* MOVIMENTO DO ÍNDICE — NWE (Nadaraya-Watson Envelope) */}
@@ -1506,7 +1573,7 @@ export default function App() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {/* GEX toggle buttons */}
                         {/* GEX toggle buttons */}
-                        {GEX_LEVELS[selectedTarget] && (
+                        {((gexWalls && gexWalls.length > 0) || GEX_LEVELS[selectedTarget]) && (
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                             <button
                               onClick={() => setShowGex(prev => !prev)}
@@ -1532,6 +1599,24 @@ export default function App() {
                                 }}
                               >MID</button>
                             )}
+                            {showGex && availableRuns.length > 1 && (
+                              <select
+                                value={selectedRun || ''}
+                                onChange={(e) => fetchGexForRun(e.target.value)}
+                                style={{
+                                  fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 600,
+                                  padding: '1px 3px', borderRadius: 3, cursor: 'pointer',
+                                  border: '1px solid #1E293B',
+                                  background: '#0E0E11',
+                                  color: '#ffd600',
+                                  outline: 'none',
+                                }}
+                              >
+                                {availableRuns.map(r => (
+                                  <option key={r} value={r}>{r}</option>
+                                ))}
+                              </select>
+                            )}
                           </div>
                         )}
                         <div style={{
@@ -1552,12 +1637,12 @@ export default function App() {
                     <TVNweChart
                       ref={nweChartRef}
                       history={seriesWithNWE}
-                      walls={GEX_LEVELS[selectedTarget] || []}
+                      walls={gexWalls}
                       showGex={showGex}
                       showMidWalls={showMidWalls}
                       effectiveDate={effectiveDate}
                       selectedTarget={selectedTarget}
-                      hideXAxis={lastActiveChart !== 'nwe'}
+                      hideXAxis={false}
                       chartType={chartType}
                     />
                   </div>
@@ -1567,7 +1652,8 @@ export default function App() {
 
 
                     {/* BOTTOM 1: Pairwise Z-Score (Pair Spread) */}
-                    {seriesWithNWE.some(s => s.pair_z != null) && (
+                    {/* CRITICAL RULE: Renderizado obrigatoriamente se target for WIN$N para evitar que o painel suma sem dados. */}
+                    {selectedTarget === 'WIN$N' && (
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
                           <div style={{
@@ -1581,7 +1667,7 @@ export default function App() {
                           ref={pairZChartRef}
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
-                          hideXAxis={lastActiveChart !== 'pairZ'}
+                          hideXAxis={true}
                         />
                       </div>
                     )}
@@ -1601,7 +1687,7 @@ export default function App() {
                           ref={priceDivergeZChartRef}
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
-                          hideXAxis={lastActiveChart !== 'priceDivergeZ'}
+                          hideXAxis={true}
                         />
                       </div>
                     )}
@@ -1622,7 +1708,7 @@ export default function App() {
                           history={seriesWithNWE}
                           factorKeys={Object.keys(now.factors_v2 || now.factors || {})}
                           effectiveDate={effectiveDate}
-                          hideXAxis={lastActiveChart !== 'kalman'}
+                          hideXAxis={true}
                         />
                       </div>
                     )}
@@ -1695,6 +1781,14 @@ export default function App() {
                     }}>{(now.score_v1 || now.score || 0) >= 0 ? '+' : ''}{(now.score_v1 || now.score || 0).toFixed(2)}</div>
                   </div>
                 </div>
+
+                {/* ── GARCH VOLATILITY PANEL ── */}
+                {garchData && garchData.history && garchData.history.length > 0 && (
+                  <TVGarchVolChart
+                    history={garchData.history}
+                    forecast={garchData.forecast}
+                  />
+                )}
 
                 {/* ── FOOTER ── */}
                 <div style={{

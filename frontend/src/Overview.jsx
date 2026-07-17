@@ -77,6 +77,22 @@ export default function Overview({ onSelectTarget }) {
   const [targets, setTargets] = useState([])
   const [overview, setOverview] = useState([])
   const [loading, setLoading] = useState(true)
+  const [health, setHealth] = useState(null)
+
+  useEffect(() => {
+    async function fetchHealth() {
+      try {
+        const res = await fetch(`${API}/api/health`)
+        const data = await res.json()
+        setHealth(data)
+      } catch (e) {
+        console.error("Error fetching system health:", e)
+      }
+    }
+    fetchHealth()
+    const timer = setInterval(fetchHealth, 30000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -198,17 +214,48 @@ export default function Overview({ onSelectTarget }) {
             INTRADAY RISK APPETITE INDEX · {calibrated.length} MODELOS ATIVOS
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10,
-            color: '#4ADE80', display: 'flex', alignItems: 'center', gap: 6,
-          }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* B3 Status */}
+          {health ? (
             <div style={{
-              width: 6, height: 6, borderRadius: '50%', background: '#4ADE80',
-              animation: 'pulse 2s infinite',
-            }} />
-            LIVE
-          </div>
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: '#1E293B', border: '1px solid #334155',
+              padding: '4px 8px', borderRadius: '4px',
+              fontFamily: 'var(--font-mono)', fontSize: 9,
+              color: health.b3_status === 'OK' ? '#4ADE80' : health.b3_status === 'DELAYED' ? '#EF4444' : '#94A3B8'
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: health.b3_status === 'OK' ? '#4ADE80' : health.b3_status === 'DELAYED' ? '#EF4444' : '#94A3B8',
+                animation: health.b3_status === 'OK' ? 'pulse 2s infinite' : 'none'
+              }} />
+              B3: {health.b3_status === 'OK' ? `REAL-TIME` : health.b3_status === 'DELAYED' ? `ATRASADO (${health.b3_delay_min}m)` : 'FECHADO'}
+              {health.b3_last_bar && <span style={{ color: '#64748B', marginLeft: 2 }}>({health.b3_last_bar.substring(11, 16)})</span>}
+            </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B' }}>Conectando B3...</div>
+          )}
+
+          {/* Global Status */}
+          {health ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: '#1E293B', border: '1px solid #334155',
+              padding: '4px 8px', borderRadius: '4px',
+              fontFamily: 'var(--font-mono)', fontSize: 9,
+              color: health.global_status === 'OK' ? '#4ADE80' : health.global_status === 'DELAYED' ? '#EF4444' : '#94A3B8'
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: '50%',
+                background: health.global_status === 'OK' ? '#4ADE80' : health.global_status === 'DELAYED' ? '#EF4444' : '#94A3B8',
+                animation: health.global_status === 'OK' ? 'pulse 2s infinite' : 'none'
+              }} />
+              GLOBAL: {health.global_status === 'OK' ? `REAL-TIME` : health.global_status === 'DELAYED' ? `ATRASADO (${health.global_delay_min}m)` : 'FECHADO'}
+              {health.global_last_bar && <span style={{ color: '#64748B', marginLeft: 2 }}>({health.global_last_bar.substring(11, 16)})</span>}
+            </div>
+          ) : (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B' }}>Conectando Global...</div>
+          )}
         </div>
       </header>
 
@@ -392,7 +439,7 @@ function AssetCard({ card, onClick }) {
           }}>D</div>
 
           {/* P: Pullback / NWE Divergence (Blink) */}
-          <div title="Pullback / Divergência NWE" className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
+          <div title="Pullback / Divergência Gauss" className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
             width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
             background: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
@@ -410,7 +457,7 @@ function AssetCard({ card, onClick }) {
           }}>Z</div>
 
           {/* E: Exaustão NWE (Blink) */}
-          <div title="Exaustão NWE" className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
+          <div title="Exaustão Gauss" className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
             width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
             background: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',

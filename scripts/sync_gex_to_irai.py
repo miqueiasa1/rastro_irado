@@ -67,7 +67,7 @@ def parse_pine(filepath):
                     level_type = 'max_gamma'
                 elif 'GAMMA FLIP' in label:
                     level_type = 'gamma_flip'
-                elif label == "MID WALL":
+                elif "MID" in label:
                     level_type = 'mid_wall'
 
                 results[current_target].append({
@@ -189,3 +189,28 @@ if __name__ == '__main__':
         f.write(js)
 
     print(f"Salvo em: {OUTPUT_PATH}")
+
+    # Persistir no banco de dados SQLite
+    import json
+    sys.path.insert(0, PROJECT_ROOT)
+    from backend.db import get_connection
+
+    session_date = datetime.now().strftime("%Y-%m-%d")
+    run_name = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%H:%M")
+    print(f"Persistindo niveis GEX no SQLite (Coleta: {run_name}) para a data {session_date}...")
+
+    conn = get_connection()
+    try:
+        for target, levels in data.items():
+            if levels:
+                levels_json = json.dumps(levels)
+                conn.execute(
+                    "INSERT OR REPLACE INTO gex_levels (session_date, target, run_name, levels_json) VALUES (?, ?, ?, ?)",
+                    (session_date, target, run_name, levels_json)
+                )
+        conn.commit()
+        print("Níveis GEX salvos com sucesso no SQLite!")
+    except Exception as e:
+        print(f"Erro ao salvar níveis GEX no banco: {e}")
+    finally:
+        conn.close()

@@ -100,6 +100,26 @@ CREATE TABLE IF NOT EXISTS kalman_state (
     timestamp_utc    TEXT NOT NULL,
     PRIMARY KEY (slug, timeframe, session_date)
 );
+
+-- Barreiras de GEX históricas por data e ativo
+CREATE TABLE IF NOT EXISTS gex_levels (
+    session_date    TEXT NOT NULL,
+    target          TEXT NOT NULL,
+    run_name        TEXT NOT NULL DEFAULT 'default',
+    levels_json     TEXT NOT NULL,
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (session_date, target, run_name)
+);
+
+-- Volatilidade condicional GARCH histórica e previsão
+CREATE TABLE IF NOT EXISTS garch_volatility (
+    session_date     TEXT NOT NULL,
+    symbol           TEXT NOT NULL,
+    history_json     TEXT NOT NULL,
+    forecast_json    TEXT NOT NULL,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (session_date, symbol)
+);
 """
 
 def get_connection(db_path=None):
@@ -124,6 +144,8 @@ def init_db(db_path=None):
     # Rodar migrações
     migrate_delta(db_path)
     migrate_kalman_state(db_path)
+    migrate_gex_levels(db_path)
+    migrate_garch_volatility(db_path)
     migrate_timeframe_constraint(db_path)
     migrate_kalman_state_timeframe(db_path)
     migrate_divergence_config(db_path)
@@ -152,17 +174,60 @@ def migrate_kalman_state(db_path=None):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS kalman_state (
             slug             TEXT NOT NULL,
+            timeframe        TEXT NOT NULL DEFAULT 'M5',
             session_date     TEXT NOT NULL,
-            state_mean       TEXT NOT NULL,
-            state_covariance TEXT NOT NULL,
+            state_mean       TEXT NOT NULL,         -- JSON array
+            state_covariance TEXT NOT NULL,         -- JSON 2D array
             johansen_p_value REAL,
-            is_cointegrated  INTEGER DEFAULT 1,
+            is_cointegrated  INTEGER DEFAULT 1,     -- 1=sim, 0=não
             timestamp_utc    TEXT NOT NULL,
-            PRIMARY KEY (slug, session_date)
+            PRIMARY KEY (slug, timeframe, session_date)
         )
     """)
     conn.commit()
     print("  + tabela kalman_state garantida")
+    conn.close()
+
+
+def migrate_gex_levels(db_path=None):
+    """Garante que a tabela gex_levels suporta múltiplas coletas (run_name)."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(gex_levels)")
+    cols = [r[1] for r in cursor.fetchall()]
+    if cols and "run_name" not in cols:
+        print("Migrando tabela gex_levels para suportar múltiplas coletas...")
+        cursor.execute("DROP TABLE IF EXISTS gex_levels")
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS gex_levels (
+            session_date    TEXT NOT NULL,
+            target          TEXT NOT NULL,
+            run_name        TEXT NOT NULL DEFAULT 'default',
+            levels_json     TEXT NOT NULL,
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (session_date, target, run_name)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def migrate_garch_volatility(db_path=None):
+    """Adiciona a tabela garch_volatility se não existir (migração GARCH)."""
+    conn = get_connection(db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS garch_volatility (
+            session_date     TEXT NOT NULL,
+            symbol           TEXT NOT NULL,
+            history_json     TEXT NOT NULL,
+            forecast_json    TEXT NOT NULL,
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (session_date, symbol)
+        )
+    """)
+    conn.commit()
+    print("  + tabela garch_volatility garantida")
     conn.close()
 
 

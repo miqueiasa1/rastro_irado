@@ -27,11 +27,7 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 TERMINALS = [
     {
         "name": "BR (XP)",
-        "paths": [
-            r"C:\Program Files\MetaTrader 5\terminal64.exe",
-            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
-            r"C:\Program Files\MetaTrader 5 Terminal - milhao - Copia\terminal64.exe",
-        ],
+        "path": r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
         "source": "br",
         "symbols": ["WIN$N", "WDO$N", "DI1$N"],
     },
@@ -170,8 +166,7 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_
                 pass
             time.sleep(0.5)
 
-            # Usar timeout mais curto se for uma lista de fallbacks
-            timeout_ms = 5000 if len(paths_to_try) > 1 else 15000
+            timeout_ms = 25000
             if mt5.initialize(path=path, timeout=timeout_ms):
                 connected = True
                 active_path = path
@@ -257,7 +252,7 @@ def main():
         # Notificar API sobre novos dados para push via WebSocket
         try:
             import requests
-            requests.post("http://127.0.0.1:8889/api/internal/notify_update", timeout=1.0)
+            requests.post("http://127.0.0.1:8888/api/internal/notify_update", timeout=1.0)
         except Exception as e:
             log.debug(f"Falha ao notificar API local: {e}")
 

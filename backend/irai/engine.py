@@ -123,7 +123,7 @@ class IRAIEngine:
             rows = conn.execute(
                 "SELECT target, slug, display_name, icon, factors, factor_labels, "
                 "session_start_h, session_end_h, data_proxy, accuracy, r_squared, active, divergence_config "
-                "FROM asset_models WHERE active=1"
+                "FROM asset_models WHERE active=1 AND target IN ('WIN$N', 'WDO$N', 'BTCUSD', 'XAUUSD', 'US500', 'US30', 'USTEC', 'EURUSD', 'USDJPY', 'GBPUSD')"
             ).fetchall()
         except Exception:
             rows = []
@@ -445,7 +445,7 @@ class IRAIEngine:
             ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             
             # Alinhar fuso horário: XP (BRT, UTC-3) para Tickmill (EEST, UTC+3) = +6 horas
-            if is_b3 and d["symbol"] == data_target:
+            if is_b3 and (d["symbol"] == data_target or d["symbol"].endswith("$N")):
                 ts_dt += timedelta(hours=6)
                 d["timestamp_utc"] = ts_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 

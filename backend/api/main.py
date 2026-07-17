@@ -146,19 +146,175 @@ async def notify_update():
 @app.get("/api/health")
 async def health():
     """Status do sistema."""
+    from datetime import timezone
     conn = get_connection()
     bar_count = conn.execute("SELECT COUNT(*) as c FROM market_bars").fetchone()["c"]
     last_bar = conn.execute(
         "SELECT MAX(timestamp_utc) as ts FROM market_bars WHERE timeframe='M5'"
     ).fetchone()["ts"]
+
+    now_utc = datetime.now(timezone.utc)
+    now_brt = now_utc - timedelta(hours=3)
+    now_tickmill = now_utc + timedelta(hours=3)
+
+    # 1. B3 Status (WIN$N)
+    b3_status = "CLOSED"
+    b3_last = None
+    b3_delay_min = 0
+
+    row_b3 = conn.execute(
+        "SELECT MAX(timestamp_utc) as ts FROM market_bars WHERE symbol='WIN$N' AND timeframe='M5'"
+    ).fetchone()
+    if row_b3 and row_b3["ts"]:
+        b3_last = row_b3["ts"]
+        try:
+            b3_dt = datetime.fromisoformat(b3_last.replace("Z", "+00:00"))
+            b3_dt = b3_dt.replace(tzinfo=None)  # naive
+            now_brt_naive = now_brt.replace(tzinfo=None)
+            
+            # Horário do pregão B3: Seg-Sex, 09:00 - 18:00 BRT
+            is_b3_day = now_brt_naive.weekday() < 5
+            is_b3_hours = 9 <= now_brt_naive.hour < 18
+            
+            if is_b3_day and is_b3_hours:
+                diff = now_brt_naive - b3_dt
+                b3_delay_min = int(diff.total_seconds() / 60)
+                if b3_delay_min > 15:
+                    b3_status = "DELAYED"
+                else:
+                    b3_status = "OK"
+            else:
+                b3_status = "CLOSED"
+        except Exception as e:
+            print(f"Error parsing B3 timestamp: {e}")
+
+    # 2. Forex Status (EURUSD)
+    forex_status = "CLOSED"
+    forex_last = None
+    forex_delay_min = 0
+
+    row_forex = conn.execute(
+        "SELECT MAX(timestamp_utc) as ts FROM market_bars WHERE symbol='EURUSD' AND timeframe='M5'"
+    ).fetchone()
+    if row_forex and row_forex["ts"]:
+        forex_last = row_forex["ts"]
+        try:
+            forex_dt = datetime.fromisoformat(forex_last.replace("Z", "+00:00"))
+            forex_dt = forex_dt.replace(tzinfo=None)  # naive
+            now_tickmill_naive = now_tickmill.replace(tzinfo=None)
+            
+            # Forex mercado aberto: Dom 22:00 UTC até Sex 22:00 UTC
+            day = now_utc.weekday()
+            hour = now_utc.hour
+            is_forex_open = True
+            if day == 5:  # Sábado
+                is_forex_open = False
+            elif day == 6 and hour < 22:  # Domingo antes das 22h UTC
+                is_forex_open = False
+            elif day == 4 and hour >= 22:  # Sexta após as 22h UTC
+                is_forex_open = False
+                
+            if is_forex_open:
+                diff = now_tickmill_naive - forex_dt
+                forex_delay_min = int(diff.total_seconds() / 60)
+                if forex_delay_min > 15:
+                    forex_status = "DELAYED"
+                else:
+                    forex_status = "OK"
+            else:
+                forex_status = "CLOSED"
+        except Exception as e:
+            print(f"Error parsing Forex timestamp: {e}")
+
     conn.close()
+
     return {
         "status": "ok",
         "bars_total": bar_count,
         "last_bar": last_bar,
         "models_loaded": len(engine.models),
         "targets": [t["target"] for t in engine.registered_targets],
+        "b3_status": b3_status,
+        "b3_last_bar": b3_last,
+        "b3_delay_min": b3_delay_min,
+        "global_status": forex_status,
+        "global_last_bar": forex_last,
+        "global_delay_min": forex_delay_min,
     }
+@app.get("/api/gex")
+async def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(None)):
+    """Retorna os níveis de GEX para um ativo, data e run específicos."""
+    conn = get_connection()
+    try:
+        # Get all available runs for this date/target
+        runs = [r[0] for r in conn.execute(
+            "SELECT DISTINCT run_name FROM gex_levels WHERE target = ? AND session_date = ? ORDER BY run_name DESC",
+            (target, date)
+        ).fetchall()]
+
+        if not runs:
+            return {"target": target, "date": date, "levels": [], "available_runs": [], "selected_run": None}
+
+        selected_run = run if (run and run in runs) else runs[0]
+
+        row = conn.execute(
+            "SELECT levels_json FROM gex_levels WHERE target = ? AND session_date = ? AND run_name = ?",
+            (target, date, selected_run)
+        ).fetchone()
+
+        if row:
+            return {
+                "target": target,
+                "date": date,
+                "selected_run": selected_run,
+                "available_runs": runs,
+                "levels": json.loads(row["levels_json"])
+            }
+    except Exception as e:
+        print(f"Error querying gex_levels: {e}")
+    finally:
+        conn.close()
+    return {"target": target, "date": date, "levels": [], "available_runs": [], "selected_run": None}
+
+
+@app.get("/api/garch")
+async def get_garch(symbol: str = Query("IBOV"), date: str = Query(None)):
+    """Retorna a volatilidade condicional GARCH e forecast para um símbolo."""
+    conn = get_connection()
+    try:
+        if date:
+            row = conn.execute(
+                "SELECT history_json, forecast_json, updated_at FROM garch_volatility WHERE symbol = ? AND session_date = ?",
+                (symbol, date)
+            ).fetchone()
+            if row:
+                return {
+                    "symbol": symbol,
+                    "session_date": date,
+                    "history": json.loads(row["history_json"]),
+                    "forecast": json.loads(row["forecast_json"]),
+                    "updated_at": row["updated_at"]
+                }
+        
+        # Fallback to the latest run for this symbol
+        row = conn.execute(
+            "SELECT session_date, history_json, forecast_json, updated_at FROM garch_volatility WHERE symbol = ? ORDER BY session_date DESC LIMIT 1",
+            (symbol,)
+        ).fetchone()
+
+        if row:
+            return {
+                "symbol": symbol,
+                "session_date": row["session_date"],
+                "history": json.loads(row["history_json"]),
+                "forecast": json.loads(row["forecast_json"]),
+                "updated_at": row["updated_at"]
+            }
+    except Exception as e:
+        print(f"Error querying garch_volatility: {e}")
+    finally:
+        conn.close()
+    return {"symbol": symbol, "session_date": date, "history": [], "forecast": [], "updated_at": None}
 
 
 @app.get("/api/irai/targets")
