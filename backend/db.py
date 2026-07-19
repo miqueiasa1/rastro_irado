@@ -27,23 +27,6 @@ CREATE TABLE IF NOT EXISTS market_bars (
 CREATE INDEX IF NOT EXISTS idx_bars_sym_tf_time ON market_bars(symbol, timeframe, timestamp_utc);
 CREATE INDEX IF NOT EXISTS idx_bars_time ON market_bars(timestamp_utc);
 
--- Cache de snapshots IRAI computados
-CREATE TABLE IF NOT EXISTS irai_snapshots (
-    session_date    TEXT NOT NULL,          -- YYYY-MM-DD em BRT
-    timestamp_utc   TEXT NOT NULL,
-    bar_idx         INTEGER NOT NULL,       -- 0..95
-    p_up            REAL NOT NULL,
-    score           REAL NOT NULL,
-    z_dol           REAL, z_di REAL, z_vix REAL, z_dxy REAL,
-    z_brent         REAL, z_us500 REAL, z_btcusd REAL,
-    c_dol           REAL, c_di REAL, c_vix REAL, c_dxy REAL,
-    c_brent         REAL, c_us500 REAL, c_btcusd REAL,
-    win_return      REAL,                   -- retorno % WIN desde open
-    stale_flags     TEXT,                   -- JSON array com fatores stale
-    computed_at     TEXT NOT NULL,
-    PRIMARY KEY (session_date, timestamp_utc)
-);
-
 -- Parâmetros do modelo (versionados)
 CREATE TABLE IF NOT EXISTS model_params (
     param_name      TEXT NOT NULL,
@@ -149,6 +132,23 @@ def init_db(db_path=None):
     migrate_timeframe_constraint(db_path)
     migrate_kalman_state_timeframe(db_path)
     migrate_divergence_config(db_path)
+    migrate_drop_snapshots(db_path)
+
+
+def _add_column(conn, sql):
+    """Executa ALTER TABLE ADD COLUMN de forma idempotente.
+
+    Captura 'duplicate column' silenciosamente para suportar
+    inicialização concorrente (API + Collector em boot simultâneo).
+    Retorna True se a coluna foi adicionada, False se já existia.
+    """
+    try:
+        conn.execute(sql)
+        return True
+    except sqlite3.OperationalError as exc:
+        if "duplicate column" not in str(exc).lower():
+            raise
+        return False
 
 
 def migrate_delta(db_path=None):
@@ -158,11 +158,11 @@ def migrate_delta(db_path=None):
     cols = {row["name"] for row in cursor}
 
     if "real_volume" not in cols:
-        conn.execute("ALTER TABLE market_bars ADD COLUMN real_volume REAL DEFAULT 0")
-        print("  + coluna real_volume adicionada")
+        if _add_column(conn, "ALTER TABLE market_bars ADD COLUMN real_volume REAL DEFAULT 0"):
+            print("  + coluna real_volume adicionada")
     if "delta" not in cols:
-        conn.execute("ALTER TABLE market_bars ADD COLUMN delta REAL DEFAULT 0")
-        print("  + coluna delta adicionada")
+        if _add_column(conn, "ALTER TABLE market_bars ADD COLUMN delta REAL DEFAULT 0"):
+            print("  + coluna delta adicionada")
 
     conn.commit()
     conn.close()
@@ -210,6 +210,15 @@ def migrate_gex_levels(db_path=None):
         )
     """)
     conn.commit()
+
+    # Audit log: contagem de registros por estado
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM gex_levels").fetchone()[0]
+        sessions = conn.execute("SELECT COUNT(DISTINCT session_date) FROM gex_levels").fetchone()[0]
+        print(f"  + tabela gex_levels ok ({total} registros em {sessions} sessões)")
+    except Exception:
+        print("  + tabela gex_levels ok (vazia)")
+
     conn.close()
 
 
@@ -260,10 +269,11 @@ def save_kalman_state(conn, slug: str, timeframe: str, session_date: str, state_
     conn.commit()
 
 
-def load_kalman_state(conn, slug: str, timeframe: str, session_date: str):
+def load_kalman_state(conn, slug: str, timeframe: str, session_date: str, expected_dim: int = None):
     """Carrega o último estado do filtro de Kalman para o ativo e timeframe anterior à data informada."""
     import json
     import numpy as np
+    import logging
     
     row = conn.execute("""
         SELECT state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc
@@ -275,13 +285,28 @@ def load_kalman_state(conn, slug: str, timeframe: str, session_date: str):
     if not row:
         return None
         
-    return {
-        "state_mean": np.array(json.loads(row["state_mean"])),
-        "state_covariance": np.array(json.loads(row["state_covariance"])),
-        "johansen_p_value": row["johansen_p_value"],
-        "is_cointegrated": bool(row["is_cointegrated"]),
-        "timestamp_utc": row["timestamp_utc"]
-    }
+    try:
+        state_mean = np.array(json.loads(row["state_mean"]))
+        state_covariance = np.array(json.loads(row["state_covariance"]))
+        
+        # Guard de dimensão: descartar estado incompatível se o modelo foi recalibrado com outro número de fatores
+        if expected_dim is not None and len(state_mean) != expected_dim:
+            logging.warning(
+                f"[Kalman Robustness] Estado salvo descartado para {slug}/{timeframe}: "
+                f"dim={len(state_mean)} vs esperado={expected_dim}"
+            )
+            return None
+            
+        return {
+            "state_mean": state_mean,
+            "state_covariance": state_covariance,
+            "johansen_p_value": row["johansen_p_value"],
+            "is_cointegrated": bool(row["is_cointegrated"]),
+            "timestamp_utc": row["timestamp_utc"]
+        }
+    except Exception as e:
+        logging.error(f"[Kalman Error] Falha ao carregar estado para {slug}/{timeframe}: {e}")
+        return None
 
 
 def migrate_timeframe_constraint(db_path=None):
@@ -394,20 +419,28 @@ def migrate_divergence_config(db_path=None):
     conn = get_connection(db_path)
     cursor = conn.execute("PRAGMA table_info(asset_models)")
     cols = {row["name"] for row in cursor}
-    
+
     if "divergence_config" not in cols:
-        print("Adicionando coluna divergence_config à tabela asset_models...")
-        try:
-            conn.execute("ALTER TABLE asset_models ADD COLUMN divergence_config TEXT")
-            conn.commit()
-            print("Coluna divergence_config adicionada com sucesso!")
-        except Exception as e:
-            print(f"Erro ao adicionar coluna divergence_config: {e}")
+        if _add_column(conn, "ALTER TABLE asset_models ADD COLUMN divergence_config TEXT"):
+            print("  + coluna divergence_config adicionada")
+
+    conn.commit()
     conn.close()
+
+
+def migrate_drop_snapshots(db_path=None):
+    """Remove a tabela antiga irai_snapshots que não é mais utilizada."""
+    conn = get_connection(db_path)
+    try:
+        conn.execute("DROP TABLE IF EXISTS irai_snapshots")
+        conn.commit()
+        print("  - tabela antiga irai_snapshots removida/ausente")
+    except Exception as e:
+        print(f"Erro ao remover tabela irai_snapshots: {e}")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
     init_db()
-    migrate_delta()
-    migrate_kalman_state()
-    migrate_divergence_config()
+    print("Todas as migrações aplicadas com sucesso.")

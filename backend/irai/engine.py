@@ -426,7 +426,7 @@ class IRAIEngine:
         
         # Load previous Kalman state if valid
         slug = cfg.get("slug", self.target_slugs.get(target, "win"))
-        saved_state = load_kalman_state(conn, slug, timeframe, session_date)
+        saved_state = load_kalman_state(conn, slug, timeframe, session_date, expected_dim=1 + len(active_factors))
         
         conn.close()
 

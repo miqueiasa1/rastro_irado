@@ -54,3 +54,20 @@ frontend/.firebase/
 .claude/
 query
 start
+
+# Data (produção)
+data/irai_live.db
+data/market_data.db
+
+# Secrets
+serviceAccountKey.json
+
+# Output de debug (raiz)
+api_crash.log
+api_out.json
+test_api.json
+result*.json
+*.csv
+
+# Scratch
+scratch/

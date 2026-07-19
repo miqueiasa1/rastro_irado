@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from backend.db import get_connection, DB_PATH
+from backend.db import get_connection, DB_PATH, init_db
 from backend.irai.engine import IRAIEngine, FACTOR_LABELS, TARGET
 
 # ── Engine singleton ──────────────────────────────────────
@@ -98,13 +98,7 @@ async def ws_broadcast_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine
-    import backend
-    import backend.api.main
-    import backend.irai.engine
-    print("SYS PATH IN API:", sys.path, flush=True)
-    print("BACKEND FILE IN API:", backend.__file__, flush=True)
-    print("API MAIN FILE IN API:", backend.api.main.__file__, flush=True)
-    print("ENGINE FILE IN API:", backend.irai.engine.__file__, flush=True)
+    init_db()  # Auto-heal schema no boot
     engine = IRAIEngine()
     print(f"IRAI Engine loaded: {len(engine.models)} models, {len(engine.registered_targets)} targets")
     task = asyncio.create_task(ws_broadcast_loop())

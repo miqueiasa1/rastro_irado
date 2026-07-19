@@ -19,7 +19,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from backend.db import get_connection, DB_PATH
+from backend.db import get_connection, DB_PATH, init_db
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -57,6 +57,9 @@ TERMINALS = [
         ],
     },
 ]
+
+# Controle de status offline para redução de ruído de logs
+OFFLINE_TERMINALS = {}
 
 # Setup logging
 logging.basicConfig(
@@ -173,15 +176,33 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_
                 break
             else:
                 last_error = mt5.last_error()
-                log.info(f"{terminal['name']}: Falha ao conectar em {path} ({last_error}). Tentando fallback...")
+                # Loga o fallback apenas no primeiro ciclo offline para não poluir
+                if OFFLINE_TERMINALS.get(terminal['name'], 0) == 0:
+                    log.info(f"{terminal['name']}: Falha ao conectar em {path} ({last_error}). Tentando fallback...")
+
+        if terminal['name'] not in OFFLINE_TERMINALS:
+            OFFLINE_TERMINALS[terminal['name']] = 0
 
         if not connected:
-            log.warning(f"{terminal['name']}: todas as tentativas de conexao falharam. Ultimo erro: {last_error}")
+            offline_count = OFFLINE_TERMINALS[terminal['name']]
+            OFFLINE_TERMINALS[terminal['name']] += 1
+
+            if offline_count == 0:
+                log.warning(f"{terminal['name']}: Todas as tentativas de conexão falharam (último erro: {last_error}). Suprimindo logs repetidos até reconectar.")
+            elif offline_count % 30 == 0:
+                log.warning(f"{terminal['name']}: Continua offline há {offline_count} ciclos (último erro: {last_error}).")
+
             for sym in terminal["symbols"]:
                 results[sym] = {"status": "error", "error": str(last_error)}
             continue
 
-        log.info(f"{terminal['name']}: conectado com sucesso usando {active_path}")
+        offline_count = OFFLINE_TERMINALS[terminal['name']]
+        if offline_count > 0:
+            log.info(f"{terminal['name']}: Reconectado com sucesso após {offline_count} ciclos offline usando {active_path}")
+        else:
+            log.info(f"{terminal['name']}: Conectado com sucesso usando {active_path}")
+
+        OFFLINE_TERMINALS[terminal['name']] = 0
 
         for sym in terminal["symbols"]:
             total_inserted = 0
@@ -225,6 +246,8 @@ def main():
     log.info("IRAI Collector v1.0")
     log.info(f"Intervalo: {args.interval}s | DB: {args.db}")
     log.info("=" * 50)
+
+    init_db(args.db)  # Auto-heal schema no boot
 
     cycle = 0
 
