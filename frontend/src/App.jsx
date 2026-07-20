@@ -9,271 +9,16 @@ import TVPairwiseZScoreChart from './components/TVPairwiseZScoreChart'
 import TVPriceDivergeZScoreChart from './components/TVPriceDivergeZScoreChart'
 import TVGarchVolChart from './components/TVGarchVolChart'
 
+// Importações Refatoradas
+import { useIraiData } from './hooks/useIraiData'
+import SignalGauge from './components/SignalGauge'
+import { FACTOR_DISPLAY, getFactorMeta } from './utils/constants'
+import { parseTimeToTimestamp } from './utils/time'
+
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
-const API = FIREBASE_URL ? null : 'http://localhost:8888'
-const WS_URL = FIREBASE_URL ? null : 'ws://localhost:8888/ws/irai'
-
-// Mapa cosmético de labels para fatores conhecidos
-const FACTOR_DISPLAY = {
-  win: { label: 'WIN', icon: 'BR' }, dol: { label: 'DÓLAR', icon: 'US' },
-  di1: { label: 'JUROS', icon: 'BR' }, dxy: { label: 'DXY', icon: 'DX' },
-  brent: { label: 'PETRÓLEO', icon: 'PT' }, china50: { label: 'CHINA50', icon: 'CN' },
-  usdmxn: { label: 'USDMXN', icon: 'MX' }, vix: { label: 'VIX', icon: 'VX' },
-  btcusd: { label: 'BITCOIN', icon: '₿' }, us500: { label: 'S&P 500', icon: 'US' },
-  us30: { label: 'DOW 30', icon: 'DJ' }, ustec: { label: 'NASDAQ', icon: 'NQ' },
-  xauusd: { label: 'OURO', icon: 'GL' }, eurusd: { label: 'EUR/USD', icon: 'EU' },
-  gbpusd: { label: 'GBP/USD', icon: 'GB' }, usdjpy: { label: 'USD/JPY', icon: 'JP' },
-  audusd: { label: 'AUD/USD', icon: 'AU' }, usdcad: { label: 'USD/CAD', icon: 'CA' },
-  usdchf: { label: 'USD/CHF', icon: 'CH' }, nzdusd: { label: 'NZD/USD', icon: 'NZ' },
-  eurgbp: { label: 'EUR/GBP', icon: 'EG' }, eurchf: { label: 'EUR/CHF', icon: 'EC' },
-  eurjpy: { label: 'EUR/JPY', icon: 'EJ' }, gbpjpy: { label: 'GBP/JPY', icon: 'GJ' },
-  euraud: { label: 'EUR/AUD', icon: 'EA' },
-}
-
-// Gera meta de fator dinamicamente a partir da key
-function getFactorMeta(fkey) {
-  const known = FACTOR_DISPLAY[fkey]
-  if (known) return { label: known.label, icon: known.icon, desc: known.label }
-  return { label: fkey.toUpperCase(), icon: '📊', desc: fkey }
-}
-
-const FACTOR_COLORS = [
-  '#4ADE80', '#60A5FA', '#FBBF24', '#C084FC',
-  '#F87171', '#2DD4BF', '#F472B6', '#A3E635',
-  '#FCD34D', '#A78BFA', '#34D399', '#FB923C'
-];
 
 
-/* ── Big Gauge ────────────────────────────────────── */
-function SignalGauge({ title, pUp = 50, verdict, score = 0, winReturn, flowConfirms, cumDeltaNorm, targetLabel, hasFlow = true, accuracy = 80, recentPUp = [], priceDiverges, nweUp, nweUpper, nweLower, isPreview, winCurrent }) {
-  const isBuy = pUp >= 60
-  const isSell = pUp <= 40
 
-  const signalText = isBuy ? 'ALTA' : isSell ? 'BAIXA' : 'NEUTRO'
-  const signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#94A3B8'
-
-  // ── Convicção calibrada por Shrinkage ──────────────────────────────
-  // P_shrunk = 50 + (P_raw - 50) × (2×acc - 1)
-  // Convicção = distância do ponto neutro após calibração, normalizada 0–100%
-  const acc = Math.min(Math.max(accuracy, 50), 100) // garante 50–100%
-  const shrinkFactor = (2 * acc / 100) - 1           // 0 (acc=50%) … 1 (acc=100%)
-  const pShrunk = 50 + (pUp - 50) * shrinkFactor
-  const conviction = Math.round(Math.abs(pShrunk - 50) * 2) // 0–max(acc)%
-
-  // Teto de convicção para este modelo: acc=80% → max=60%, acc=91% → max=82%
-  // Labels são relativos ao teto — 3 faixas apenas
-  //   forte:   convRatio ≥ 55%  →  P(↑) ≥ ~78% num modelo de acc=80%
-  //   moderada: convRatio ≥ 25%  →  P(↑) ≥ ~62% num modelo de acc=80%
-  //   fraca:   qualquer sinal acima do neutro
-  const maxConviction = Math.round((acc - 50) * 2)
-  const convRatio = maxConviction > 0 ? conviction / maxConviction : 0
-
-  const convLabel = isPreview ? 'pré-mercado' :
-    convRatio >= 0.55 ? 'forte' :
-      convRatio >= 0.25 ? 'moderada' : 'fraca'
-  const convColor = isPreview ? '#EAB308' :
-    convRatio >= 0.55 ? signalColor :
-      convRatio >= 0.25 ? '#C9A227' :
-        '#475569'
-
-  // ── Estabilidade (últimas 8 barras) ───────────────────────────────
-  // Mede quanto o P(↑) variou e se cruzou o neutro (50)
-  let stability = 'sem dados'
-  let stabilityIcon = '○'
-  let stabilityColor = '#334155'
-  let stabilityTip = ''
-
-  if (recentPUp.length >= 4) {
-    const vals = recentPUp.slice(-8)
-    const mean = vals.reduce((a, b) => a + b, 0) / vals.length
-    const std = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length)
-
-    // Cruzamento de neutro: alguma barra acima e alguma abaixo de 50
-    const hasCross = vals.some(v => v > 50) && vals.some(v => v < 50)
-
-    // Trend: P(↑) nas últimas 4 barras vs. 4 barras anteriores
-    const half = Math.floor(vals.length / 2)
-    const early = vals.slice(0, half).reduce((a, b) => a + b, 0) / half
-    const late = vals.slice(half).reduce((a, b) => a + b, 0) / (vals.length - half)
-    const trending = Math.abs(late - early) > 6  // deslocamento > 6pp entre metades
-
-    if (hasCross || std > 18) {
-      stability = 'oscilando'
-      stabilityIcon = '⟆'
-      stabilityColor = '#FBBF24'
-      stabilityTip = `Sinal instável — P(↑) cruzou o neutro nas últimas ${vals.length} barras (σ=${std.toFixed(1)}pp). Aguarde confirmação.`
-    } else if (trending && std > 6) {
-      stability = 'formando'
-      stabilityIcon = '◈'
-      stabilityColor = '#60A5FA'
-      stabilityTip = `Sinal em formação — ${late > early ? 'ganhando' : 'perdendo'} convicção nas últimas ${vals.length} barras (σ=${std.toFixed(1)}pp).`
-    } else if (std <= 6) {
-      stability = 'estável'
-      stabilityIcon = '▬'
-      stabilityColor = '#4ADE80'
-      stabilityTip = `Sinal estável — baixa variação nas últimas ${vals.length} barras (σ=${std.toFixed(1)}pp).`
-    } else {
-      stability = 'variando'
-      stabilityIcon = '~'
-      stabilityColor = '#94A3B8'
-      stabilityTip = `Variação moderada (σ=${std.toFixed(1)}pp).`
-    }
-  }
-
-  // ── Gauge needle ──────────────────────────────────────────────────
-  const angleRad = Math.PI * (1 - pUp / 100)
-
-  const isReturnDivergentBuy = isBuy && winReturn < 0;
-  const isReturnDivergentSell = isSell && winReturn > 0;
-  const isNweExhaustionDown = nweUpper !== undefined && nweUpper !== null && winCurrent !== undefined && winCurrent !== null && winCurrent > nweUpper;
-  const isNweExhaustionUp = nweLower !== undefined && nweLower !== null && winCurrent !== undefined && winCurrent !== null && winCurrent < nweLower;
-  const isNweDivergentBuy = isBuy && nweUp === false;
-  const isNweDivergentSell = isSell && nweUp === true;
-
-  const hasAlert = isReturnDivergentBuy || isReturnDivergentSell;
-  const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
-
-  return (
-    <div className={`gauge-container ${alertClass}`} style={{
-      flex: '1 1 350px',
-      display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 16px', borderRadius: 12,
-      background: 'linear-gradient(180deg, #111116 0%, #09090B 100%)',
-      border: `1px solid ${signalColor}33`,
-      boxShadow: `0 4px 20px -10px ${signalColor}20`,
-      alignItems: 'stretch',
-    }}>
-      {/* Top row: Gauge + Signal + Price */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: 10, flexWrap: 'wrap' }}>
-        {/* SVG Gauge */}
-        <div style={{ position: 'relative', width: 90, height: 50, flexShrink: 0 }}>
-          <svg viewBox="0 0 110 62" width="90" height="50">
-            <path d="M 8 58 A 48 48 0 0 1 102 58" fill="none" stroke="#1E293B" strokeWidth="6" strokeLinecap="round" />
-            <path d="M 8 58 A 48 48 0 0 1 22 20" fill="none" stroke="#F8717133" strokeWidth="6" strokeLinecap="round" />
-            <path d="M 88 20 A 48 48 0 0 1 102 58" fill="none" stroke="#4ADE8033" strokeWidth="6" strokeLinecap="round" />
-            <line
-              x1="55" y1="58"
-              x2={55 + 38 * Math.cos(angleRad)}
-              y2={58 - 38 * Math.sin(angleRad)}
-              stroke={signalColor} strokeWidth="2" strokeLinecap="round"
-            />
-            <circle cx="55" cy="58" r="3" fill={signalColor} />
-            <text x="6" y="56" fill="#F87171" fontSize="7" fontFamily="var(--font-mono)">↓</text>
-            <text x="49" y="10" fill="#64748B" fontSize="7" fontFamily="var(--font-mono)">50%</text>
-            <text x="96" y="56" fill="#4ADE80" fontSize="7" fontFamily="var(--font-mono)">↑</text>
-          </svg>
-        </div>
-
-        {/* Signal text */}
-        <div className="gauge-left" style={{ flex: 1, minWidth: 100 }}>
-          {title && <div style={{
-            fontSize: 9, fontFamily: 'var(--font-sans)', color: '#C9A227', marginBottom: 1, fontWeight: 600
-          }}>{title}</div>}
-          <div style={{
-            fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em',
-            color: '#64748B', textTransform: 'uppercase', marginBottom: 1,
-          }}>sinal IRAI</div>
-          <div style={{
-            fontFamily: 'var(--font-sans)', fontSize: 20, lineHeight: 1,
-            color: signalColor, fontWeight: 700,
-          }}>{signalText}</div>
-
-          {/* Conviction + stability row */}
-          <div style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{
-              fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B',
-            }}>
-              convicção{' '}
-              <span style={{ color: convColor, fontWeight: 600 }}>{conviction}%</span>
-              <span style={{ color: '#334155', fontSize: 8 }}> ({convLabel})</span>
-            </span>
-            <span style={{ color: '#334155', fontSize: 9 }}>·</span>
-            <span
-              title={stabilityTip}
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 8,
-                color: stabilityColor,
-                background: `${stabilityColor}12`,
-                border: `1px solid ${stabilityColor}22`,
-                borderRadius: 3, padding: '0px 5px',
-                cursor: 'help',
-              }}
-            >
-              {stabilityIcon} {stability}
-            </span>
-          </div>
-
-          {/* Raw stats */}
-          <div style={{ marginTop: 2, fontFamily: 'var(--font-mono)', fontSize: 8, color: '#334155' }}>
-            P(↑) bruto: {pUp.toFixed(1)}% · acc: {accuracy.toFixed(0)}%
-          </div>
-        </div>
-
-        {/* Price return */}
-        <div className="gauge-right" style={{ textAlign: 'right', minWidth: 80, display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-          <div style={{
-            fontSize: 8, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em',
-            color: '#64748B', textTransform: 'uppercase', marginBottom: 1,
-          }}>{targetLabel || 'WIN'} agora</div>
-          <div style={{
-            fontFamily: 'var(--font-sans)', fontSize: 20, lineHeight: 1,
-            color: winReturn >= 0 ? '#4ADE80' : '#F87171',
-            fontWeight: 700,
-          }}>{winReturn >= 0 ? '+' : ''}{winReturn.toFixed(2)}%</div>
-        </div>
-      </div>
-
-      {/* Bottom row: Checkmarks */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4,
-        borderTop: '1px solid #1E293B', paddingTop: 6,
-      }}>
-        {/* D: DIVERGÊNCIA DE RETORNO */}
-        <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 8,
-          padding: '1px 5px', borderRadius: 3,
-          background: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
-          color: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '#4ADE80' : '#F87171') : '#64748B',
-          border: `1px solid ${(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
-        }}>
-          {(isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? '🟢 DIVERGÊNCIA %' : '🔴 DIVERGÊNCIA %') : '✓ DIVERGÊNCIA %'}
-        </div>
-
-        {/* P: PULLBACK / GAUSS DIVERGENCE */}
-        <div className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
-          fontFamily: 'var(--font-mono)', fontSize: 8,
-          padding: '1px 5px', borderRadius: 3,
-          background: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
-          color: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '#4ADE80' : '#F87171') : '#64748B',
-          border: `1px solid ${(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
-        }}>
-          {(isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? '🟢 PULLBACK GAUSS' : '🔴 PULLBACK GAUSS') : '✓ PULLBACK GAUSS'}
-        </div>
-
-        {/* Z: Z-SCORE SIGNAL */}
-        <div className={priceDiverges ? 'badge-blink' : ''} style={{
-          fontFamily: 'var(--font-mono)', fontSize: 8,
-          padding: '1px 5px', borderRadius: 3,
-          background: priceDiverges ? (isBuy ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
-          color: priceDiverges ? (isBuy ? '#4ADE80' : '#F87171') : '#64748B',
-          border: `1px solid ${priceDiverges ? (isBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.1)'}`,
-        }}>
-          {priceDiverges ? (isBuy ? '🟢 Z-SCORE COMPRA' : '🔴 Z-SCORE VENDA') : '✓ Z-SCORE'}
-        </div>
-
-        {/* E: EXAUSTÃO NWE */}
-        <div className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
-          fontFamily: 'var(--font-mono)', fontSize: 8,
-          padding: '1px 5px', borderRadius: 3,
-          background: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)') : 'rgba(148,163,184,0.08)',
-          color: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? '#4ADE80' : '#F87171') : '#64748B',
-          border: `1px solid ${(isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`,
-        }}>
-          {(isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? '🟢 EXAUSTÃO NWE' : '🔴 EXAUSTÃO NWE') : '✓ EXAUSTÃO NWE'}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 /* ── Factor signal card ──────────────────────────── */
 function FactorSignal({ fkey, data }) {
@@ -407,101 +152,14 @@ const renderZScoreSquare = (fillColor) => (props) => {
 
 
 /* ── Main App ────────────────────────────────────── */
-const REFRESH_INTERVAL = 30_000 // 30 seconds (fallback polling)
 
-// Helper: compute local time from UTC time string + offset in hours
-function toLocalTime(utcTimeStr, offsetH) {
-  if (!utcTimeStr || !offsetH) return null;
-  const [hStr, mStr] = utcTimeStr.split(':');
-  let h = (parseInt(hStr, 10) + offsetH + 24) % 24;
-  return `${h.toString().padStart(2, '0')}:${mStr}`;
-}
-
-const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5') => {
-  if (!series || series.length === 0) return series;
-
-  const lastTimeStr = series[series.length - 1].time; // ex: "18:05"
-  if (!lastTimeStr) return series;
-
-  const [hStr, mStr] = lastTimeStr.split(":");
-  let currentH = parseInt(hStr, 10);
-  let currentM = parseInt(mStr, 10);
-
-  const padded = [...series];
-
-  let stepMinutes = 5;
-  if (timeframe === 'M1') stepMinutes = 1;
-  else if (timeframe === 'M2') stepMinutes = 2;
-  else if (timeframe === 'M5') stepMinutes = 5;
-  else if (timeframe === 'M15') stepMinutes = 15;
-  else if (timeframe === 'M30') stepMinutes = 30;
-  else if (timeframe === 'H1') stepMinutes = 60;
-
-  let targetEndH = isB3 ? 0 : 23;
-  let targetEndM = isB3 ? 30 : 59;
-  
-  if (timeframe === 'H1') {
-    targetEndM = 0;
-    if (isB3) targetEndH = 0;
-  } else if (timeframe === 'M30') {
-    targetEndM = 30;
-  } else if (timeframe === 'M15') {
-    targetEndM = 45;
-  }
-
-  const maxPaddedLength = series.length + Math.ceil(24 * 60 / stepMinutes);
-
-  while (true) {
-    if (currentH === targetEndH && currentM >= targetEndM) break;
-    if (padded.length > maxPaddedLength) break; 
-
-    currentM += stepMinutes;
-    if (currentM >= 60) {
-      currentH = (currentH + Math.floor(currentM / 60)) % 24;
-      currentM = currentM % 60;
-    }
-
-    const h = currentH.toString().padStart(2, '0');
-    const m = currentM.toString().padStart(2, '0');
-    const timeTickmill = `${h}:${m}`;
-
-    padded.push({
-      time: timeTickmill,
-      time_local: isB3 ? toLocalTime(timeTickmill, -6) : null
-    });
-  }
-  return padded;
-};
-
-function parseTimeToTimestamp(dateStr, timeStr) {
-  if (!timeStr) return 0;
-  let year = 2026, month = 6, day = 26;
-  if (dateStr && dateStr.includes("-")) {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length === 3 && !parts.some(isNaN)) {
-      [year, month, day] = parts;
-    }
-  }
-  const [hour, minute] = timeStr.split(":").map(Number);
-  if (isNaN(hour) || isNaN(minute)) return 0;
-  return Math.floor(Date.UTC(year, month - 1, day, hour, minute) / 1000);
-}
 
 export default function App() {
   const [page, setPage] = useState('overview')
-  const [dates, setDates] = useState([])
-  const [selectedDate, setSelectedDate] = useState(null)
-  const [liveMode, setLiveMode] = useState(true) // Start in LIVE mode
+  const [liveMode, setLiveMode] = useState(true)
   const [selectedTarget, setSelectedTarget] = useState('WIN$N')
   const [timeframe, setTimeframe] = useState('M5')
   const [chartType, setChartType] = useState('line') // 'line' | 'candle'
-  const [targetsMeta, setTargetsMeta] = useState([]) // From /api/irai/targets
-  const [seriesInfo, setSeriesInfo] = useState({}) // display_name, icon from series response
-  const [series, setSeries] = useState([])
-  const [summary, setSummary] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [lastUpdate, setLastUpdate] = useState(null)
   const [rastroView, setRastroView] = useState('both') // 'v1', 'v2', 'both'
   const [panOffsetY, setPanOffsetY] = useState(0)
   const [isDraggingY, setIsDraggingY] = useState(false)
@@ -509,20 +167,9 @@ export default function App() {
   const lastPanOffsetY = useRef(0)
   const pairSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
   const zscoreSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
-  const isFirstLoadRef = useRef(true)
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(true)
   const [showGarchBands, setShowGarchBands] = useState(false)
-  const [gexWalls, setGexWalls] = useState([])
-  const [availableRuns, setAvailableRuns] = useState([])
-  const [selectedRun, setSelectedRun] = useState(null)
-  const [garchData, setGarchData] = useState(null)
-
-  const garchVolPct = useMemo(() => {
-    if (!garchData || !Array.isArray(garchData.forecast)) return null;
-    const h1 = garchData.forecast.find(f => f.step === 'h+1');
-    return h1 ? h1.vol_forecast_pct : null;
-  }, [garchData]);
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
@@ -531,8 +178,31 @@ export default function App() {
   const pairZChartRef = useRef(null)
   const priceDivergeZChartRef = useRef(null)
 
-  // The effective date: LIVE = today (from backend), or manually selected
-  const effectiveDate = liveMode ? (dates.length > 0 ? dates[0] : selectedDate) : selectedDate
+  // Consumindo dados via Custom Hook
+  const {
+    dates,
+    selectedDate,
+    setSelectedDate,
+    effectiveDate,
+    targetsMeta,
+    series,
+    summary,
+    loading,
+    error,
+    lastUpdate,
+    gexWalls,
+    availableRuns,
+    selectedRun,
+    garchData,
+    seriesInfo,
+    fetchGexForRun,
+  } = useIraiData({ selectedTarget, liveMode, timeframe });
+
+  const garchVolPct = useMemo(() => {
+    if (!garchData || !Array.isArray(garchData.forecast)) return null;
+    const h1 = garchData.forecast.find(f => f.step === 'h+1');
+    return h1 ? h1.vol_forecast_pct : null;
+  }, [garchData]);
 
   // Swipe Handlers
   const handleNextTarget = useCallback(() => {
@@ -561,242 +231,13 @@ export default function App() {
     trackMouse: false
   });
 
-  // Fetch dates + targets list once (and poll every 120s in live mode to detect new sessions)
-  useEffect(() => {
-    function loadDates() {
-      if (FIREBASE_URL) {
-        const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
-        fetch(`${baseUrl}/dates.json`)
-          .then(r => r.json())
-          .then(data => {
-            const d = data?.dates || []
-            setDates(d)
-            if (d.length > 0) setSelectedDate(prev => prev || d[0])
-          })
-          .catch(e => setError(e.message))
-      } else {
-        fetch(`${API}/api/irai/dates`)
-          .then(r => r.json())
-          .then(data => {
-            const d = data.dates || []
-            setDates(d)
-            if (d.length > 0) setSelectedDate(prev => prev || d[0])
-          })
-          .catch(e => setError(e.message))
-      }
-    }
-    loadDates()
-    const poll = setInterval(loadDates, FIREBASE_URL ? 120_000 : 60_000)
-    return () => clearInterval(poll)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (FIREBASE_URL) {
-      const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
-      fetch(`${baseUrl}/targets.json`)
-        .then(r => r.json())
-        .then(data => setTargetsMeta((data?.targets || []).filter(t => t.calibrated)))
-        .catch(() => { })
-    } else {
-      fetch(`${API}/api/irai/targets`)
-        .then(r => r.json())
-        .then(data => setTargetsMeta((data.targets || []).filter(t => t.calibrated)))
-        .catch(() => { })
-    }
-  }, [])
-
-  // Fetch series data (silent = no loading spinner on auto-refresh)
-  const fetchSeries = useCallback((date, target, silent = false) => {
-    if (!date) return
-    if (!silent) {
-      setLoading(true)
-      // Clear previous data so we don't show ghost data from a previously selected target
-      setSeries([])
-      setSummary(null)
-      setSeriesInfo({})
-      setError(null)
-      pairSignalsMemory.current = {}
-      zscoreSignalsMemory.current = {}
-    }
-
-    if (FIREBASE_URL) {
-      const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
-      const safeTarget = target.replace('$', '_').replace('.', '_')
-      
-      const fetches = [
-        fetch(`${baseUrl}/series/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/summaries/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json())
-      ]
-      
-      const shouldFetchLastUpdate = silent || isFirstLoadRef.current
-      if (shouldFetchLastUpdate) {
-        isFirstLoadRef.current = false
-        fetches.push(fetch(`${baseUrl}/last_update.json`).then(r => r.json()).catch(() => null))
-      }
-
-      Promise.all(fetches)
-        .then(([seriesData, summariesData, historyData, lastUpdateData]) => {
-          const tMeta = targetsMeta.find(t => t.target === target) || {}
-          const s = seriesData || []
-          const sum = summariesData || {}
-          const history_closes = historyData || []
-
-          const isB3 = tMeta.session_start_h && tMeta.session_start_h !== 0;
-          const processed = s.map(x => {
-            const timeDb = x.timestamp ? x.timestamp.substring(11, 16) : '00:00';
-            const timeTickmill = timeDb;
-            const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
-            return {
-              ...x,
-              time: timeTickmill,
-              time_local: timeBrt,
-            };
-          });
-
-          let sliced = processed;
-          if (isB3) {
-            sliced = processed.filter(s => {
-              if (!s.time) return true;
-              return s.time >= "09:00";
-            });
-            if (sliced.length === 0) sliced = processed;
-          }
-
-          setSeries(padSeriesToFullDay(sliced, isB3, timeframe))
-          setSummary(sum)
-          setSeriesInfo({ 
-            display_name: tMeta.display_name, 
-            icon: tMeta.icon, 
-            history_closes, 
-            tz_offset: isB3 ? -3 : 0, 
-            tz_label: 'BRT' 
-          })
-          setGexWalls(GEX_LEVELS[target] || [])
-          setAvailableRuns([])
-          setSelectedRun(null)
-          setGarchData(null)
-          setLoading(false)
-          if (shouldFetchLastUpdate && lastUpdateData !== undefined && lastUpdateData !== null) {
-            setLastUpdate(new Date(lastUpdateData * 1000))
-          }
-          setError(null)
-        })
-        .catch(e => { setError(e.message); setLoading(false) })
-    } else {
-      const seriesPromise = fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}`).then(r => r.json());
-      const gexPromise = fetch(`${API}/api/gex?target=${encodeURIComponent(target)}&date=${date}`).then(r => r.json()).catch(() => null);
-      const garchPromise = fetch(`${API}/api/garch?symbol=${encodeURIComponent(target === 'WIN$N' ? 'IBOV' : target)}&date=${date}`).then(r => r.json()).catch(() => null);
-
-      Promise.all([seriesPromise, gexPromise, garchPromise])
-        .then(([data, gexData, garchRes]) => {
-          if (data.error) { setError(data.error); setLoading(false); return }
-          const isB3 = data.is_b3 || false;
-          const processed = (data.series || []).map(s => {
-            const timeDb = s.timestamp ? s.timestamp.substring(11, 16) : '00:00';
-            const timeTickmill = timeDb;
-            const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
-            return {
-              ...s,
-              time: timeTickmill,
-              time_local: timeBrt,
-            };
-          })
-          let sliced = processed;
-          if (isB3) {
-            sliced = processed.filter(s => {
-              if (!s.time) return true;
-              return s.time >= "09:00";
-            });
-            if (sliced.length === 0) sliced = processed; // fallback
-          }
-
-          setSeries(padSeriesToFullDay(sliced, isB3, timeframe))
-          setSummary(data.summary)
-          setSeriesInfo({ display_name: data.display_name, icon: data.icon, history_closes: data.history_closes || [], tz_offset: isB3 ? -3 : 0, tz_label: 'BRT', accuracy: data.summary?.accuracy })
-          
-          if (gexData && Array.isArray(gexData.levels)) {
-            setGexWalls(gexData.levels);
-            setAvailableRuns(gexData.available_runs || []);
-            setSelectedRun(gexData.selected_run || null);
-          } else {
-            setGexWalls(GEX_LEVELS[target] || []);
-            setAvailableRuns([]);
-            setSelectedRun(null);
-          }
-
-          if (garchRes && Array.isArray(garchRes.history)) {
-            setGarchData(garchRes);
-          } else {
-            setGarchData(null);
-          }
-
-          setLoading(false)
-          setLastUpdate(new Date())
-          setError(null)
-        })
-        .catch(e => { setError(e.message); setLoading(false) })
-    }
-  }, [targetsMeta, timeframe])
-
-  const fetchGexForRun = useCallback((runName) => {
-    if (FIREBASE_URL) return;
-    fetch(`${API}/api/gex?target=${encodeURIComponent(selectedTarget)}&date=${effectiveDate}&run=${runName}`)
-      .then(r => r.json())
-      .then(gexData => {
-        if (gexData && Array.isArray(gexData.levels)) {
-          setGexWalls(gexData.levels);
-          setSelectedRun(gexData.selected_run || null);
-        }
-      })
-      .catch(() => {});
-  }, [selectedTarget, effectiveDate]);
-
-  // Initial load on date/target/liveMode change + polling
-  useEffect(() => {
-    fetchSeries(effectiveDate, selectedTarget, false)
-
-    if (!liveMode) return
-
-    let mounted = true
-    let pollTimer = null
-
-    // Poll for updates (Firebase: every 120s, local: every 60s)
-    pollTimer = setInterval(() => {
-      if (mounted) fetchSeries(effectiveDate, selectedTarget, true)
-    }, FIREBASE_URL ? 120_000 : 60_000)
-    
-    return () => {
-      mounted = false
-      if (pollTimer) clearInterval(pollTimer)
-    }
-  }, [effectiveDate, selectedTarget, liveMode, fetchSeries])
-
   const validSeries = useMemo(() => series.filter(s => s.win_current !== undefined), [series]);
   const now = validSeries.length > 0 ? validSeries[validSeries.length - 1] : null
   const hasFlow = now && 'flow_confirms' in now
 
   const isOffline = error && (error.includes('Failed to fetch') || error.includes('NetworkError') || error.includes('Load failed'));
 
-  if (error && !series.length && isOffline && page === 'overview' && !FIREBASE_URL) {
-    return (
-      <div style={{
-        minHeight: '100vh', background: '#0F172A', color: '#E2E8F0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: 'JetBrains Mono, monospace',
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
-          <div style={{ fontSize: 16, color: '#F87171', marginBottom: 8 }}>
-            Backend offline
-          </div>
-          <div style={{ fontSize: 12, color: '#64748B' }}>
-            Inicie o servidor: python -m uvicorn backend.api.main:app --port 8888
-          </div>
-        </div>
-      </div>
-    )
-  }
+
 
   // Applica NWE na série
   const seriesWithNWE = useMemo(() => {
@@ -849,8 +290,14 @@ export default function App() {
       }
 
       // Z-Score (Quadrado no gráfico)
-      const isZBuy = entry.price_diverges && pUpDir > 55 && Math.abs(entry.price_diverge_z || 0) >= 2.0;
-      const isZSell = entry.price_diverges && pUpDir < 45 && Math.abs(entry.price_diverge_z || 0) >= 2.0;
+      const threshold = seriesInfo.divergence_threshold || 0.75;
+      const prevEntry = index > 0 ? rawNwe[index - 1] : null;
+      const prevZ = prevEntry ? (prevEntry.price_diverge_z || 0) : 0;
+      const currZ = entry.price_diverge_z || 0;
+
+      // Crossover para evitar pintura contínua
+      const isZBuy = currZ <= -threshold && prevZ > -threshold;
+      const isZSell = currZ >= threshold && prevZ < threshold;
 
       // Only save to signals memory if it's the live active bar
       if (isLiveBar) {
@@ -888,8 +335,15 @@ export default function App() {
       const isNweDivergentSell = isSell && nweUp === true;
       let hm_color_p = isNweDivergentBuy ? '#4ADE80' : isNweDivergentSell ? '#F87171' : '#1E293B';
 
-      // Z: Z-Score
-      let hm_color_z = entry.price_diverges ? (entry.p_up > 55 ? '#4ADE80' : (entry.p_up < 45 ? '#F87171' : '#1E293B')) : '#1E293B';
+      // Z: Z-Score (estado de divergência)
+      let hm_color_z = '#1E293B';
+      if (currZ <= -threshold) {
+        const isCounterTrend = pUpDir < 45;
+        hm_color_z = isCounterTrend ? '#EAB308' : '#4ADE80';
+      } else if (currZ >= threshold) {
+        const isCounterTrend = pUpDir > 55;
+        hm_color_z = isCounterTrend ? '#EAB308' : '#F87171';
+      }
 
       // E: Exaustão NWE
       let hm_color_e = isNweExhaustionUp ? '#4ADE80' : isNweExhaustionDown ? '#F87171' : '#1E293B';
@@ -933,9 +387,9 @@ export default function App() {
 
   // Determine visibility of bottom charts
   const showKalman = now && now.factors && Object.keys(now.factors).length > 0;
-  // CRITICAL RULE: O gráfico de Pair Spread (WIN vs WDO) deve estar sempre visível para o WIN$N,
+  // CRITICAL RULE: O gráfico de Pair Spread (WIN vs WDO) deve estar sempre visível para todos os ativos,
   // mesmo se pair_z estiver temporariamente nulo (ex: início do pregão/pré-mercado).
-  const showPairZ = selectedTarget === 'WIN$N';
+  const showPairZ = true;
   const showPriceDivergeZ = seriesWithNWE.some(s => s.price_diverge_z != null);
 
   const lastActiveChart = useMemo(() => {
@@ -1089,7 +543,7 @@ export default function App() {
 
                 try {
                   other.chart.setCrosshairPosition(price, targetTime, other.series);
-                } catch (err) {}
+                } catch { /* ignore */ }
               }
             });
           }
@@ -1105,12 +559,12 @@ export default function App() {
       timeHandlers.forEach(h => {
         try {
           h.chart.timeScale().unsubscribeVisibleLogicalRangeChange(h.handler);
-        } catch (err) {}
+        } catch { /* ignore */ }
       });
       crosshairHandlers.forEach(h => {
         try {
           h.chart.unsubscribeCrosshairMove(h.handler);
-        } catch (err) {}
+        } catch { /* ignore */ }
       });
     };
   }, [chartType, seriesWithNWE, timeframe, selectedTarget, effectiveDate]);
@@ -1170,7 +624,9 @@ export default function App() {
         charts.forEach(chart => {
           try {
             chart.timeScale().setVisibleLogicalRange(range);
-          } catch (err) {}
+          } catch {
+            // ignore
+          }
         });
         isSyncingRef.current = false;
       }
@@ -1179,6 +635,26 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [seriesWithNWE, timeframe, selectedTarget, effectiveDate]);
 
+
+  if (error && !series.length && isOffline && page === 'overview' && !FIREBASE_URL) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: '#0F172A', color: '#E2E8F0',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'JetBrains Mono, monospace',
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
+          <div style={{ fontSize: 16, color: '#F87171', marginBottom: 8 }}>
+            Backend offline
+          </div>
+          <div style={{ fontSize: 12, color: '#64748B' }}>
+            Inicie o servidor: python -m uvicorn backend.api.main:app --port 8888
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -1641,7 +1117,7 @@ export default function App() {
                           fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600,
                           color: (nweNow?.nwe_slope || 0) >= 0 ? '#4ADE80' : '#F87171',
                         }}>
-                          {(nweNow?.nwe_slope || 0) >= 0 ? '▲ NWE ALTA' : '▼ NWE BAIXA'}
+                          {(nweNow?.nwe_slope || 0) >= 0 ? '▲ Gauss ALTA' : '▼ Gauss BAIXA'}
                           <span style={{ fontSize: 9, color: '#475569', marginLeft: 6, fontWeight: 400 }}>
                             {`bw=8`} &middot; {
                               nweNow?.nwe_center_price >= 1000 
@@ -1715,6 +1191,7 @@ export default function App() {
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
+                          threshold={seriesInfo.divergence_threshold || 0.75}
                         />
                       </div>
                     )}
@@ -1825,7 +1302,7 @@ export default function App() {
 
                       // Base daily volatility (absolute price difference)
                       let baseVol = openPrice * (garchVolPct / 100);
-                      let multiplier = 1;
+                      let multiplier;
                       let unit = 'pts';
                       let decimalPlaces = 0;
 

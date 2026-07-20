@@ -1,80 +1,24 @@
-import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import { createChart, LineSeries, LineStyle, CrosshairMode } from "lightweight-charts";
+import { useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from "react";
+import { LineSeries, LineStyle } from "lightweight-charts";
+import BaseLightweightChart from "./BaseLightweightChart";
+import { parseTimeToTimestamp } from "../utils/time";
 
-function parseTimeToTimestamp(dateStr, timeStr) {
-  if (!timeStr) return 0;
-  let year = 2026, month = 6, day = 26;
-  if (dateStr && dateStr.includes("-")) {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length === 3 && !parts.some(isNaN)) {
-      [year, month, day] = parts;
-    }
-  }
-  const [hour, minute] = timeStr.split(":").map(Number);
-  if (isNaN(hour) || isNaN(minute)) return 0;
-  return Math.floor(Date.UTC(year, month - 1, day, hour, minute) / 1000);
-}
-
-const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true }, ref) => {
-  const containerRef = useRef();
-  const chartRef = useRef(null);
+const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true, threshold = 0.75 }, ref) => {
+  const baseChartRef = useRef(null);
   const seriesRefs = useRef({});
+  const priceLinesRef = useRef([]);
+
+  const thresholdRef = useRef(threshold);
+  useEffect(() => {
+    thresholdRef.current = threshold;
+  }, [threshold]);
 
   useImperativeHandle(ref, () => ({
-    getChart: () => chartRef.current,
+    getChart: () => baseChartRef.current?.getChart(),
     getMainSeries: () => seriesRefs.current.zSeries,
   }));
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: "solid", color: "#0c1218" },
-        textColor: "#4a6070",
-        fontSize: 9,
-        attributionLogo: false,
-      },
-      localization: {
-        timeFormatter: (time) => {
-          const d = new Date(time * 1000);
-          return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-        },
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#c8a444" },
-        horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#c8a444" },
-      },
-      timeScale: {
-        visible: !hideXAxis,
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 15,
-        tickMarkFormatter: (time) => {
-          const d = new Date(time * 1000);
-          return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-        },
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: "#1a2530",
-        autoScale: true,
-        minimumWidth: 45,
-      },
-      leftPriceScale: {
-        visible: false, // hidden spacer
-        minimumWidth: 55,
-      },
-      autoSize: true,
-    });
-
-    chartRef.current = chart;
-
+  const handleChartCreated = useCallback((chart) => {
     const zSeries = chart.addSeries(LineSeries, {
       color: "#38BDF8",
       lineWidth: 1.5,
@@ -82,30 +26,50 @@ const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hid
       crosshairMarkerVisible: true,
       autoscaleInfoProvider: () => ({
         priceRange: {
-          minValue: -4,
-          maxValue: 4,
+          minValue: -thresholdRef.current * 1.3,
+          maxValue: thresholdRef.current * 1.3,
         },
       }),
     });
 
-    // Reference lines
-    zSeries.createPriceLine({
-      price: 2.0,
+    seriesRefs.current = { zSeries };
+  }, []);
+
+  useEffect(() => {
+    const { zSeries } = seriesRefs.current;
+    if (!zSeries) return;
+
+    // Remove existing price lines
+    if (priceLinesRef.current.length > 0) {
+      priceLinesRef.current.forEach(line => {
+        try {
+          zSeries.removePriceLine(line);
+        } catch (e) {
+          // ignore
+        }
+      });
+    }
+
+    // Create new dynamic price lines based on current threshold
+    const line1 = zSeries.createPriceLine({
+      price: threshold,
       color: "#F87171",
       lineWidth: 1,
       lineStyle: LineStyle.Dotted,
       axisLabelVisible: true,
       title: "venda",
     });
-    zSeries.createPriceLine({
-      price: -2.0,
+
+    const line2 = zSeries.createPriceLine({
+      price: -threshold,
       color: "#4ADE80",
       lineWidth: 1,
       lineStyle: LineStyle.Dotted,
       axisLabelVisible: true,
       title: "compra",
     });
-    zSeries.createPriceLine({
+
+    const line3 = zSeries.createPriceLine({
       price: 0,
       color: "#475569",
       lineWidth: 1,
@@ -113,24 +77,16 @@ const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hid
       axisLabelVisible: false,
     });
 
-    seriesRefs.current = { zSeries };
-
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-    };
-  }, []);
+    priceLinesRef.current = [line1, line2, line3];
+  }, [threshold, seriesRefs.current.zSeries]);
 
   useEffect(() => {
-    if (chartRef.current) {
-      chartRef.current.timeScale().applyOptions({ visible: !hideXAxis });
-    }
-  }, [hideXAxis]);
-
-  useEffect(() => {
-    if (!chartRef.current || !history.length) return;
+    const chart = baseChartRef.current?.getChart();
+    if (!chart || !history.length) return;
 
     const { zSeries } = seriesRefs.current;
+    if (!zSeries) return;
+
     const zData = [];
 
     history.forEach((d) => {
@@ -152,14 +108,18 @@ const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hid
   }, [history, effectiveDate]);
 
   return (
-    <div style={{ background: "#0c1218", borderRadius: hideXAxis ? "0" : "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
-      <div ref={containerRef} style={{ width: "100%", height: "100px" }} />
+    <BaseLightweightChart
+      ref={baseChartRef}
+      hideXAxis={hideXAxis}
+      height="100px"
+      onChartCreated={handleChartCreated}
+    >
       {(!history || history.length === 0) && (
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
           <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
         </div>
       )}
-    </div>
+    </BaseLightweightChart>
   );
 });
 

@@ -1,93 +1,48 @@
-import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import { createChart, LineSeries, LineStyle, CrosshairMode } from "lightweight-charts";
-
-const FACTOR_COLORS = [
-  "#4ADE80", "#60A5FA", "#FBBF24", "#C084FC",
-  "#F87171", "#2DD4BF", "#F472B6", "#A3E635",
-  "#FCD34D", "#A78BFA", "#34D399", "#FB923C"
-];
-
-function parseTimeToTimestamp(dateStr, timeStr) {
-  if (!timeStr) return 0;
-  let year = 2026, month = 6, day = 26;
-  if (dateStr && dateStr.includes("-")) {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length === 3 && !parts.some(isNaN)) {
-      [year, month, day] = parts;
-    }
-  }
-  const [hour, minute] = timeStr.split(":").map(Number);
-  if (isNaN(hour) || isNaN(minute)) return 0;
-  return Math.floor(Date.UTC(year, month - 1, day, hour, minute) / 1000);
-}
+import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from "react";
+import { LineSeries, LineStyle } from "lightweight-charts";
+import BaseLightweightChart from "./BaseLightweightChart";
+import { parseTimeToTimestamp } from "../utils/time";
+import { FACTOR_COLORS } from "../utils/constants";
 
 const TVKalmanWeightsChart = forwardRef(({ history = [], factorKeys = [], effectiveDate, hideXAxis = true }, ref) => {
-  const containerRef = useRef();
-  const chartRef = useRef(null);
+  const baseChartRef = useRef(null);
+  const [chartInstance, setChartInstance] = useState(null);
   const seriesRefs = useRef({});
+  const zeroRefLineRef = useRef(null);
 
   useImperativeHandle(ref, () => ({
-    getChart: () => chartRef.current,
+    getChart: () => baseChartRef.current?.getChart(),
     getMainSeries: () => {
       const keys = Object.keys(seriesRefs.current);
       return keys.length > 0 ? seriesRefs.current[keys[0]] : null;
     },
   }));
 
+  // Re-create series when factorKeys or chartInstance changes
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!chartInstance || !factorKeys.length) return;
 
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: "solid", color: "#0c1218" },
-        textColor: "#4a6070",
-        fontSize: 9,
-        attributionLogo: false,
-      },
-      localization: {
-        timeFormatter: (time) => {
-          const d = new Date(time * 1000);
-          return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-        },
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#c8a444" },
-        horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#c8a444" },
-      },
-      timeScale: {
-        visible: !hideXAxis,
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 15,
-        tickMarkFormatter: (time) => {
-          const d = new Date(time * 1000);
-          return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-        },
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: "#1a2530",
-        autoScale: true,
-        minimumWidth: 45,
-      },
-      leftPriceScale: {
-        visible: false, // hidden spacer
-        minimumWidth: 55,
-      },
-      autoSize: true,
+    // Clean up old series
+    Object.values(seriesRefs.current).forEach((series) => {
+      try {
+        chartInstance.removeSeries(series);
+      } catch {
+        // ignore
+      }
     });
 
-    chartRef.current = chart;
+    if (zeroRefLineRef.current) {
+      try {
+        chartInstance.removeSeries(zeroRefLineRef.current);
+      } catch {
+        // ignore
+      }
+    }
 
     // Create a LineSeries for each factor key
     const seriesMap = {};
     factorKeys.forEach((key, idx) => {
-      seriesMap[key] = chart.addSeries(LineSeries, {
+      seriesMap[key] = chartInstance.addSeries(LineSeries, {
         color: FACTOR_COLORS[idx % FACTOR_COLORS.length],
         lineWidth: 1.5,
         priceLineVisible: false,
@@ -96,8 +51,8 @@ const TVKalmanWeightsChart = forwardRef(({ history = [], factorKeys = [], effect
     });
 
     // Zero reference line
-    const firstSeries = chart.addSeries(LineSeries, { visible: false }); // hidden dummy to add reference line to
-    firstSeries.createPriceLine({
+    const zeroRefSeries = chartInstance.addSeries(LineSeries, { visible: false });
+    zeroRefSeries.createPriceLine({
       price: 0,
       color: "#475569",
       lineWidth: 1,
@@ -106,21 +61,12 @@ const TVKalmanWeightsChart = forwardRef(({ history = [], factorKeys = [], effect
     });
 
     seriesRefs.current = seriesMap;
+    zeroRefLineRef.current = zeroRefSeries;
+  }, [chartInstance, factorKeys]);
 
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-    };
-  }, [factorKeys]);
-
+  // Set weights data when history updates
   useEffect(() => {
-    if (chartRef.current) {
-      chartRef.current.timeScale().applyOptions({ visible: !hideXAxis });
-    }
-  }, [hideXAxis]);
-
-  useEffect(() => {
-    if (!chartRef.current || !history.length || !factorKeys.length) return;
+    if (!chartInstance || !history.length || !factorKeys.length) return;
 
     const seriesMap = seriesRefs.current;
     const dataMaps = {};
@@ -150,17 +96,21 @@ const TVKalmanWeightsChart = forwardRef(({ history = [], factorKeys = [], effect
         seriesMap[key].setData(sortData(dataMaps[key]));
       }
     });
-  }, [history, factorKeys, effectiveDate]);
+  }, [history, factorKeys, effectiveDate, chartInstance]);
 
   return (
-    <div style={{ background: "#0c1218", borderRadius: hideXAxis ? "0" : "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
-      <div ref={containerRef} style={{ width: "100%", height: "140px" }} />
+    <BaseLightweightChart
+      ref={baseChartRef}
+      hideXAxis={hideXAxis}
+      height="140px"
+      onChartCreated={setChartInstance}
+    >
       {(!history || history.length === 0) && (
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
           <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
         </div>
       )}
-    </div>
+    </BaseLightweightChart>
   );
 });
 

@@ -326,6 +326,7 @@ async def irai_targets():
                 "calibrated": t.get("accuracy") is not None,
                 "session_start_h": t.get("session_start_h", 0),
                 "session_hours": f"{t['session_start_h']:02d}h-{t['session_end_h']:02d}h",
+                "divergence_config": t.get("divergence_config"),
             }
             for t in engine.registered_targets
         ]
@@ -366,6 +367,9 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
     except Exception as e:
         print(f"Error computing NWE in API: {e}", flush=True)
 
+    div_cfg = target_info.get("divergence_config", {})
+    divergence_threshold = div_cfg.get("threshold", 0.75)
+
     result = {
         "session_date": session_date,
         "target": target,
@@ -375,6 +379,7 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
         "series": series_data,
         "history_closes": history_closes,
         "is_b3": is_b3,
+        "divergence_threshold": divergence_threshold,
         "summary": {
             "p_up_min": min(s.p_up for s in snapshots),
             "p_up_max": max(s.p_up for s in snapshots),
@@ -436,7 +441,8 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
                 t_frac = last_dict.get("t_frac", 0.0)
                 if target_div_sigma > 0 and t_frac > 0:
                     ret_frac = win_return / 100.0
-                    ret_z = ret_frac / (target_div_sigma * math.sqrt(t_frac))
+                    t_frac_clamped = max(t_frac, 0.05)
+                    ret_z = ret_frac / (target_div_sigma * math.sqrt(t_frac_clamped))
                     price_diverge_z = round(ret_z, 2)
 
                     if p_up > 55 and ret_z < -target_div_threshold:

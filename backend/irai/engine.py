@@ -771,7 +771,8 @@ class IRAIEngine:
             # Price Divergence
             if target_div_sigma > 0 and snap.t_frac > 0:
                 ret_frac = snap.win_return / 100.0
-                ret_z = ret_frac / (target_div_sigma * math.sqrt(snap.t_frac))
+                t_frac_clamped = max(snap.t_frac, 0.05)
+                ret_z = ret_frac / (target_div_sigma * math.sqrt(t_frac_clamped))
                 snap.price_diverge_z = round(ret_z, 2)
                 if snap.p_up > 55 and ret_z < -target_div_threshold:
                     snap.price_diverges = True
@@ -792,17 +793,18 @@ class IRAIEngine:
                 # Note: win_ret is a percentage here, so residual is a percentage.
                 residuo = win_ret - (beta_max * f_ret_max)
                 recent_residuals.append(residuo)
-                if len(recent_residuals) > 20:
+                if len(recent_residuals) > 100:
                     recent_residuals.pop(0)
                     
-                # Need minimum 5 bars to have a meaningful sigma estimate
-                if len(recent_residuals) >= 5:
-                    pair_sigma = float(np.std(recent_residuals))
+                # Need minimum 6 bars (5 past residuals + 1 current) to have a meaningful sigma estimate
+                if len(recent_residuals) >= 6:
+                    past_residuals = recent_residuals[:-1]
+                    pair_sigma = float(np.std(past_residuals))
                     if pair_sigma < 0.0001:
                         pair_sigma = 0.0001
                     
                     # Detrend to calculate Z-Score against the rolling mean
-                    residuo_mean = float(np.mean(recent_residuals))
+                    residuo_mean = float(np.mean(past_residuals))
                     pair_z = (residuo - residuo_mean) / pair_sigma
                     
                     # Clamp to prevent chart-breaking outliers

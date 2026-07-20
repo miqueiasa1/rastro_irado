@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "IRAI (Intraday Risk Appetite Index) Backend Architecture",
+    "subtitle": "Detailed breakdown of the FastAPI API, Collector Worker, and irai/ Math Engine",
+    "output": "rastro-irado-backend.html"
+  },
+  "components": [
+    {
+      "id": "mt5_terminals",
+      "type": "external",
+      "label": "MT5 Terminals",
+      "sublabel": "XP / Tickmill / Axi feeds",
+      "pos": [40, 300],
+      "size": [130, 60]
+    },
+    {
+      "id": "collector_loop",
+      "type": "backend",
+      "label": "Collector Loop",
+      "sublabel": "Interval = 60s",
+      "pos": [230, 150],
+      "size": [130, 60],
+      "tag": "collector.py"
+    },
+    {
+      "id": "delta_calc",
+      "type": "backend",
+      "label": "Delta Calculator",
+      "sublabel": "Tick Volume delta",
+      "pos": [230, 300],
+      "size": [130, 60],
+      "tag": "compute_bar_delta"
+    },
+    {
+      "id": "sqlite_db",
+      "type": "database",
+      "label": "SQLite Database",
+      "sublabel": "market_bars & kalman_state",
+      "pos": [230, 450],
+      "size": [130, 60],
+      "tag": "irai_live.db"
+    },
+    {
+      "id": "api_router",
+      "type": "backend",
+      "label": "FastAPI Router",
+      "sublabel": "REST HTTP endpoints",
+      "pos": [440, 150],
+      "size": [130, 60],
+      "tag": "main.py"
+    },
+    {
+      "id": "ws_broadcast",
+      "type": "backend",
+      "label": "WS Broadcaster",
+      "sublabel": "Push server (/ws/irai)",
+      "pos": [440, 300],
+      "size": [130, 60]
+    },
+    {
+      "id": "cache_manager",
+      "type": "backend",
+      "label": "In-Memory Cache",
+      "sublabel": "Fast query lookup",
+      "pos": [440, 450],
+      "size": [130, 60]
+    },
+    {
+      "id": "irai_engine",
+      "type": "backend",
+      "label": "IRAI Math Engine",
+      "sublabel": "Sigmoid map & score",
+      "pos": [650, 150],
+      "size": [130, 60],
+      "tag": "engine.py"
+    },
+    {
+      "id": "kalman_filter",
+      "type": "backend",
+      "label": "Kalman Filter",
+      "sublabel": "Rolling beta states",
+      "pos": [650, 300],
+      "size": [130, 60],
+      "tag": "kalman.py"
+    },
+    {
+      "id": "johansen_test",
+      "type": "backend",
+      "label": "Johansen Test",
+      "sublabel": "Trace stats p-value",
+      "pos": [840, 150],
+      "size": [130, 60],
+      "tag": "johansen.py"
+    },
+    {
+      "id": "nwe_estimator",
+      "type": "backend",
+      "label": "NWE Estimator",
+      "sublabel": "Kernel regression",
+      "pos": [840, 300],
+      "size": [130, 60],
+      "tag": "nwe.py"
+    },
+    {
+      "id": "frontend_clients",
+      "type": "frontend",
+      "label": "React Frontend",
+      "sublabel": "Vite app UI clients",
+      "pos": [1030, 300],
+      "size": [130, 60]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Collector Ingestion Service",
+      "wraps": ["collector_loop", "delta_calc"]
+    },
+    {
+      "kind": "region",
+      "label": "FastAPI Application Server",
+      "wraps": ["api_router", "ws_broadcast", "cache_manager"]
+    },
+    {
+      "kind": "region",
+      "label": "IRAI Calculations Engine (irai/)",
+      "wraps": ["irai_engine", "kalman_filter", "johansen_test", "nwe_estimator"]
+    }
+  ],
+  "connections": [
+    {
+      "from": "mt5_terminals",
+      "to": "collector_loop",
+      "label": "Rates feed",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "from": "collector_loop",
+      "to": "delta_calc",
+      "label": "Volume & prices",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "from": "delta_calc",
+      "to": "sqlite_db",
+      "label": "Insert bars",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "from": "collector_loop",
+      "to": "api_router",
+      "label": "HTTP POST notify",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "api_router",
+      "to": "cache_manager",
+      "label": "Flush cache",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "from": "api_router",
+      "to": "irai_engine",
+      "label": "Query metrics",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "ws_broadcast",
+      "to": "api_router",
+      "label": "Get latest state",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "ws_broadcast",
+      "to": "frontend_clients",
+      "label": "WS push frames",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "irai_engine",
+      "to": "kalman_filter",
+      "label": "Update state",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "from": "irai_engine",
+      "to": "johansen_test",
+      "label": "Trace stats",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "irai_engine",
+      "to": "nwe_estimator",
+      "label": "NWE probability",
+      "fromSide": "right",
+      "toSide": "top",
+      "labelAt": [790, 260]
+    },
+    {
+      "from": "irai_engine",
+      "to": "sqlite_db",
+      "fromSide": "top",
+      "toSide": "left",
+      "via": [[715, 100], [180, 100], [180, 480]],
+      "label": "DB fetch bars",
+      "labelAt": [180, 220]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingestion Worker",
+      "items": [
+        "Collector polls XP, Tickmill, Axi terminals in 60s loops",
+        "Order flow tick delta: Real Vol * (2 * Close Pct - 1)",
+        "Notifies FastAPI API with internal POST request on save"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "FastAPI App Server",
+      "items": [
+        "REST API endpoints return health, metadata, and data series",
+        "WebSocket server pushes real-time updates to React clients",
+        "Maintains threadpool and in-memory caches to optimize response times"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "IRAI Math Engine",
+      "items": [
+        "Solves Kalman Filter recursive steps for parameter updates",
+        "Calculates trace statistic p-values for Johansen cointegration",
+        "Estimates non-parametric kernel regression using Nadaraya-Watson"
+      ]
+    }
+  ]
+}

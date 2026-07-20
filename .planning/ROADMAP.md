@@ -11,6 +11,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | 1 | Implementação e Testes Unitários de NWE no Backend | Complete (0/0) | 2026-07-13 |
 | 2 | Integração de NWE no Endpoint da API | Complete (0/0) | 2026-07-13 |
 | 3 | Refatoração do Frontend React | Complete (0/0) | 2026-07-13 |
+| 4 | Robustez de Infraestrutura (Concorrência e Persistência) | Pendente | INFRA-01, INFRA-02, INFRA-03 |
 
 ---
 
@@ -35,7 +36,13 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
   1. Função `computeNWE` removida com sucesso do frontend React.
   2. Exibição do gráfico Nadaraya-Watson Envelope funcionando perfeitamente em `http://localhost:5175` com cores dinâmicas e sem lag de rendering.
 
----
+### Phase 4: Robustez de Infraestrutura (Concorrência e Persistência)
+* **Goal:** Aplicar melhorias de robustez identificadas no fork `brenoperucchi/rastro_irado` para eliminar race conditions de boot, proteger a persistência do Kalman contra replays acidentais, e auditar a tabela GEX — tudo sem alterar as fórmulas de P Dinâmico ou Pair Spread.
+* **Requirements:** INFRA-01, INFRA-02, INFRA-03
+* **Success Criteria:**
+  1. Migrações de banco rodam sem crash quando API e Collector iniciam simultaneamente (guard `_add_column` idempotente).
+  2. Replays históricos via `compute_from_db()` não sobrescrevem o estado Kalman de sessões mais recentes (guard monotônico de timestamp).
+  3. Tabela `gex_levels` possui schema atualizado com coluna `run_name` e dados legados estão íntegros.
 
 ## ✅ Concluídos
 

@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "IRAI P(up) — Dynamic Probability Lifecycle Workflow",
+    "subtitle": "Conceptual flow: How market pricing dynamics and tick volumes translate into stable trade signals",
+    "output": "p-dinamico-concept.html",
+    "viewBox": [780, 800]
+  },
+  "lanes": [
+    { "id": "market", "label": "Market Context (Assets)" },
+    { "id": "processing", "label": "Dynamic Processing (IRAI)" },
+    { "id": "indicators", "label": "Indicator Panel (Trader View)" },
+    { "id": "action", "label": "Action Gates (Execution)" }
+  ],
+  "phases": [
+    { "id": "ingest", "label": "Ingestion & Alignment", "fromCol": 0, "toCol": 1 },
+    { "id": "math", "label": "Mathematical Filtration", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "verdict", "label": "Decision & Verdict", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "core_engine", "label": "IRAI Processing Core", "lane": "processing", "fromCol": 0, "toCol": 4, "variant": "emphasis" },
+    { "id": "trader_panel", "label": "Dashboard Display Stats", "lane": "indicators", "fromCol": 0, "toCol": 4, "variant": "dashed" }
+  ],
+  "nodes": [
+    { "id": "market_prices", "lane": "market", "col": 0, "type": "external", "label": "Market", "sublabel": "WIN/WDO & factors" },
+    { "id": "tick_volume", "lane": "market", "col": 2, "type": "messagebus", "label": "Order Flow", "sublabel": "Raw tick delta" },
+    { "id": "cointegration", "lane": "processing", "col": 0, "type": "backend", "label": "Structure", "sublabel": "Johansen status", "tag": "Structural link" },
+    { "id": "kalman_drift", "lane": "processing", "col": 2, "type": "backend", "label": "Kalman", "sublabel": "Rolling beta drift", "tag": "Dynamic weights" },
+    { "id": "sigmoid_mapping", "lane": "processing", "col": 4, "type": "backend", "label": "Sigmoid", "sublabel": "Maps score to P(up)", "tag": "0% to 100% Prob" },
+    { "id": "divergence", "lane": "indicators", "col": 0, "type": "frontend", "label": "Diverge", "sublabel": "Price deviation", "tag": "Exhaustion alerts" },
+    { "id": "conviction", "lane": "indicators", "col": 2, "type": "frontend", "label": "Conviction", "sublabel": "Forte/Mod/Fraca", "tag": "Shrinkage adjusted" },
+    { "id": "stability", "lane": "indicators", "col": 4, "type": "frontend", "label": "Stability", "sublabel": "Estável/Oscilando", "tag": "Variance check" },
+    { "id": "trader_action", "lane": "action", "col": 2, "type": "security", "label": "Action", "sublabel": "Buy / Sell / Wait", "tag": "Manual execution" }
+  ],
+  "edges": [
+    {
+      "from": "market_prices",
+      "to": "cointegration",
+      "label": "Check structure",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "drop",
+      "labelDy": 24
+    },
+    {
+      "from": "tick_volume",
+      "to": "sigmoid_mapping",
+      "label": "Tick delta vol",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "market_prices",
+      "to": "kalman_drift",
+      "label": "Asset returns",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "cointegration",
+      "to": "kalman_drift",
+      "label": "Valid basis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "kalman_drift",
+      "to": "sigmoid_mapping",
+      "label": "Raw Z-score",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "from": "sigmoid_mapping",
+      "to": "conviction",
+      "label": "Sigmoid prob",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "drop",
+      "labelDy": 24
+    },
+    {
+      "from": "sigmoid_mapping",
+      "to": "stability",
+      "label": "Rolling variance",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "drop",
+      "labelDy": 24
+    },
+    {
+      "from": "sigmoid_mapping",
+      "to": "divergence",
+      "label": "Diverge check",
+      "fromSide": "left",
+      "toSide": "top",
+      "route": "drop",
+      "labelAt": [271, 291]
+    },
+    {
+      "from": "conviction",
+      "to": "trader_action",
+      "label": "Assess conviction",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "drop",
+      "labelDy": 24
+    },
+    {
+      "from": "stability",
+      "to": "trader_action",
+      "label": "Verify stability",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "drop",
+      "labelDy": 24
+    },
+    {
+      "from": "divergence",
+      "to": "trader_action",
+      "label": "Exhaustion filters",
+      "fromSide": "right",
+      "toSide": "left"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Pricing & Cointegration",
+      "items": [
+        "Tracks the dynamic relationship between targets and factor groups",
+        "Johansen Cointegration test verifies if the combination remains statistically stable",
+        "Provides the baseline for Kalman Filter parameter estimation"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Probability Formulation",
+      "items": [
+        "Kalman Filter dynamically shifts weights based on pricing returns",
+        "Tick-level delta volume applies immediate pressure to the score",
+        "Sigmoid mapping converts raw scores into a normalized 0-100% P(up) index"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Decision Outputs",
+      "items": [
+        "Conviction combines signal strength with calibrated historical model accuracy",
+        "Stability checks rolling standard deviations to avoid entry during volatile whipsaws",
+        "Divergence identifies return deviations to signal potential price exhaustion zones"
+      ]
+    }
+  ]
+}

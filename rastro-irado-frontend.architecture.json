@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "IRAI (Intraday Risk Appetite Index) Frontend Architecture",
+    "subtitle": "Detailed breakdown of the React Dashboard, State Controllers, and TradingView Lightweight Charts Components",
+    "output": "rastro-irado-frontend.html"
+  },
+  "components": [
+    {
+      "id": "ws_connector",
+      "type": "frontend",
+      "label": "WS / REST Client",
+      "sublabel": "API Connection handler",
+      "pos": [40, 300],
+      "size": [130, 60],
+      "tag": "ws://localhost:8888/ws/irai"
+    },
+    {
+      "id": "state_store",
+      "type": "frontend",
+      "label": "State Store",
+      "sublabel": "useState / useMemo Hooks",
+      "pos": [230, 300],
+      "size": [130, 60],
+      "tag": "App.jsx"
+    },
+    {
+      "id": "gauge_proc",
+      "type": "frontend",
+      "label": "Signal Gauge",
+      "sublabel": "Conviction & Stability",
+      "pos": [420, 150],
+      "size": [130, 60],
+      "tag": "SignalGauge()"
+    },
+    {
+      "id": "overview_grid",
+      "type": "frontend",
+      "label": "Overview Cards",
+      "sublabel": "Multi-asset grid view",
+      "pos": [420, 450],
+      "size": [130, 60],
+      "tag": "Overview.jsx"
+    },
+    {
+      "id": "chart_prob",
+      "type": "frontend",
+      "label": "Probability Chart",
+      "sublabel": "Target P_up(t) series",
+      "pos": [610, 150],
+      "size": [130, 60],
+      "tag": "TVProbabilityChart.jsx"
+    },
+    {
+      "id": "chart_nwe",
+      "type": "frontend",
+      "label": "NWE Estimator Chart",
+      "sublabel": "Kernel regression band",
+      "pos": [610, 300],
+      "size": [130, 60],
+      "tag": "TVNweChart.jsx"
+    },
+    {
+      "id": "chart_zscores",
+      "type": "frontend",
+      "label": "Z-Score Charts",
+      "sublabel": "Pairwise & Divergence",
+      "pos": [610, 450],
+      "size": [130, 60],
+      "tag": "TVPairwiseZScoreChart.jsx"
+    },
+    {
+      "id": "chart_kalman",
+      "type": "frontend",
+      "label": "Kalman Weights",
+      "sublabel": "Rolling asset betas",
+      "pos": [800, 150],
+      "size": [130, 60],
+      "tag": "TVKalmanWeightsChart.jsx"
+    },
+    {
+      "id": "chart_garch",
+      "type": "frontend",
+      "label": "GARCH Vol Chart",
+      "sublabel": "Forecast volatility",
+      "pos": [800, 300],
+      "size": [130, 60],
+      "tag": "TVGarchVolChart.jsx"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "App Controller Context",
+      "wraps": ["ws_connector", "state_store", "gauge_proc"]
+    },
+    {
+      "kind": "region",
+      "label": "Lightweight Charts Dashboard (components/)",
+      "wraps": ["chart_prob", "chart_nwe", "chart_zscores", "chart_kalman", "chart_garch"]
+    }
+  ],
+  "connections": [
+    {
+      "from": "ws_connector",
+      "to": "state_store",
+      "label": "WS events",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "state_store",
+      "to": "gauge_proc",
+      "label": "Target state",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "from": "state_store",
+      "to": "overview_grid",
+      "label": "Overview stats",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "from": "gauge_proc",
+      "to": "chart_prob",
+      "label": "P_up series",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "chart_prob",
+      "to": "chart_nwe",
+      "label": "NWE fit",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "from": "chart_nwe",
+      "to": "chart_zscores",
+      "label": "Z-scores feed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    },
+    {
+      "from": "chart_prob",
+      "to": "chart_kalman",
+      "label": "Betas",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "chart_kalman",
+      "to": "chart_garch",
+      "label": "GARCH fit",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingress & State",
+      "items": [
+        "WebSocket client registers with Uvicorn backend, receiving real-time JSON frames on update events",
+        "React hooks manage target active state, overview grids, accuracy metrics, and visual thresholds"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Signal Processing Panel",
+      "items": [
+        "SignalGauge calculates conviction indices using Shrinkage adjustments against calibrated accuracy parameters",
+        "Matures signal stability ratings (estável, formando, oscilando) by checking historical standard deviation and mean crossings",
+        "Triggers alert cards if asset prices diverge from expected cointegrated Kalman returns"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Lightweight Charts View",
+      "items": [
+        "Renders responsive timeseries plots using high-performance HTML5 canvas graphics",
+        "TVProbabilityChart & TVNweChart display probability envelopes and kernel regressions",
+        "TVKalmanWeightsChart & TVGarchVolChart plot dynamic co-efficients and forecasted GARCH volatility curves"
+      ]
+    }
+  ]
+}

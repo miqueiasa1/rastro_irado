@@ -1,23 +1,11 @@
-import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import { createChart, LineSeries, CandlestickSeries, LineStyle, CrosshairMode, createSeriesMarkers } from "lightweight-charts";
-
-function parseTimeToTimestamp(dateStr, timeStr) {
-  if (!timeStr) return 0;
-  let year = 2026, month = 6, day = 26;
-  if (dateStr && dateStr.includes("-")) {
-    const parts = dateStr.split("-").map(Number);
-    if (parts.length === 3 && !parts.some(isNaN)) {
-      [year, month, day] = parts;
-    }
-  }
-  const [hour, minute] = timeStr.split(":").map(Number);
-  if (isNaN(hour) || isNaN(minute)) return 0;
-  return Math.floor(Date.UTC(year, month - 1, day, hour, minute) / 1000);
-}
+import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from "react";
+import { LineSeries, CandlestickSeries, LineStyle, createSeriesMarkers } from "lightweight-charts";
+import BaseLightweightChart from "./BaseLightweightChart";
+import { parseTimeToTimestamp } from "../utils/time";
 
 const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, showMidWalls = false, effectiveDate, selectedTarget, hideXAxis = true, chartType = 'line', showGarchBands = false, garchVolPct = null }, ref) => {
-  const containerRef = useRef();
-  const chartRef = useRef(null);
+  const baseChartRef = useRef(null);
+  const [chartInstance, setChartInstance] = useState(null);
   const seriesRefs = useRef({});
   const hasFittedRef = useRef(false);
 
@@ -27,62 +15,31 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
   }, [selectedTarget, effectiveDate]);
 
   useImperativeHandle(ref, () => ({
-    getChart: () => chartRef.current,
+    getChart: () => baseChartRef.current?.getChart(),
     getMainSeries: () => seriesRefs.current.winSeries,
   }));
 
+  // Re-create series when chartInstance or chartType changes
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!chartInstance) return;
 
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: "solid", color: "#0c1218" },
-        textColor: "#4a6070",
-        fontSize: 9,
-        attributionLogo: false,
-      },
-      localization: {
-        timeFormatter: (time) => {
-          const d = new Date(time * 1000);
-          return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-        },
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: "#c8a444", width: 1, style: LineStyle.Solid, labelBackgroundColor: "#c8a444" },
-        horzLine: { visible: false, labelVisible: true, labelBackgroundColor: "#c8a444" },
-      },
-      timeScale: {
-        visible: !hideXAxis,
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 15,
-        tickMarkFormatter: (time) => {
-          const d = new Date(time * 1000);
-          return String(d.getUTCHours()).padStart(2, "0") + ":" + String(d.getUTCMinutes()).padStart(2, "0");
-        },
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: "#1a2530",
-        scaleMargins: { top: 0.15, bottom: 0.15 },
-        minimumWidth: 45,
-      },
-      leftPriceScale: {
-        visible: false, // hidden spacer scale
-        minimumWidth: 55,
-      },
-      autoSize: true,
-    });
-
-    chartRef.current = chart;
+    // Clean up old series
+    const oldRefs = seriesRefs.current;
+    if (oldRefs.winSeries) {
+      try { chartInstance.removeSeries(oldRefs.winSeries); } catch { /* ignore */ }
+    }
+    if (oldRefs.nweUpperSeries) {
+      try { chartInstance.removeSeries(oldRefs.nweUpperSeries); } catch { /* ignore */ }
+    }
+    if (oldRefs.nweLowerSeries) {
+      try { chartInstance.removeSeries(oldRefs.nweLowerSeries); } catch { /* ignore */ }
+    }
+    if (oldRefs.nweCenterSeries) {
+      try { chartInstance.removeSeries(oldRefs.nweCenterSeries); } catch { /* ignore */ }
+    }
 
     // NWE Upper Band (Red Dashed)
-    const nweUpperSeries = chart.addSeries(LineSeries, {
+    const nweUpperSeries = chartInstance.addSeries(LineSeries, {
       color: "#F87171",
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
@@ -91,7 +48,7 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     });
 
     // NWE Lower Band (Green Dashed)
-    const nweLowerSeries = chart.addSeries(LineSeries, {
+    const nweLowerSeries = chartInstance.addSeries(LineSeries, {
       color: "#4ADE80",
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
@@ -100,7 +57,7 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     });
 
     // NWE Center Line (Sky Blue Solid)
-    const nweCenterSeries = chart.addSeries(LineSeries, {
+    const nweCenterSeries = chartInstance.addSeries(LineSeries, {
       color: "#38BDF8",
       lineWidth: 1.5,
       crosshairMarkerVisible: false,
@@ -109,7 +66,7 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
 
     // Price Line (Top z-index)
     const winSeries = chartType === 'candle'
-      ? chart.addSeries(CandlestickSeries, {
+      ? chartInstance.addSeries(CandlestickSeries, {
           upColor: "#22c55e",
           downColor: "#ef4444",
           borderVisible: false,
@@ -118,33 +75,22 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
           crosshairMarkerVisible: true,
           priceLineVisible: false,
         })
-      : chart.addSeries(LineSeries, {
+      : chartInstance.addSeries(LineSeries, {
           color: "#E2E8F0",
           lineWidth: 1.5,
           crosshairMarkerVisible: true,
           priceLineVisible: false,
         });
 
-    seriesRefs.current = { winSeries, nweUpperSeries, nweLowerSeries, nweCenterSeries };
-
-    return () => {
-      chart.remove();
-      chartRef.current = null;
-      seriesRefs.current = {};
-    };
-  }, [chartType]);
-
-  useEffect(() => {
-    if (chartRef.current) {
-      chartRef.current.timeScale().applyOptions({ visible: !hideXAxis });
-    }
-  }, [hideXAxis]);
+    seriesRefs.current = { winSeries, nweUpperSeries, nweLowerSeries, nweCenterSeries, markersApi: null };
+  }, [chartInstance, chartType]);
 
   // Set Data & Markers
   useEffect(() => {
-    if (!chartRef.current || !history.length) return;
+    if (!chartInstance || !history.length) return;
 
     const { winSeries, nweUpperSeries, nweLowerSeries, nweCenterSeries } = seriesRefs.current;
+    if (!winSeries || !nweUpperSeries || !nweLowerSeries || !nweCenterSeries) return;
     
     const winData = [];
     const nweUpperData = [];
@@ -226,20 +172,22 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
 
       // Z-Score signals (Squares)
       if (d.z_compra_val != null && isFinite(d.z_compra_val)) {
+        const isCounterTrend = d.p_up != null && d.p_up < 45;
         markers.push({
           time: t,
           position: "belowBar",
           shape: "square",
-          color: "#4ADE80",
+          color: isCounterTrend ? "rgba(234, 179, 8, 0.45)" : "#4ADE80",
           text: "",
           size: 1.2,
         });
       } else if (d.z_venda_val != null && isFinite(d.z_venda_val)) {
+        const isCounterTrend = d.p_up != null && d.p_up > 55;
         markers.push({
           time: t,
           position: "aboveBar",
           shape: "square",
-          color: "#F87171",
+          color: isCounterTrend ? "rgba(234, 179, 8, 0.45)" : "#F87171",
           text: "",
           size: 1.2,
         });
@@ -264,21 +212,24 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     // Auto-fit timeline zoom only once per session/target load
     if (!hasFittedRef.current) {
       setTimeout(() => {
-        if (chartRef.current) {
-          chartRef.current.timeScale().fitContent();
+        const currentChart = baseChartRef.current?.getChart();
+        if (currentChart) {
+          currentChart.timeScale().fitContent();
           hasFittedRef.current = true;
         }
       }, 50);
     }
-  }, [history, effectiveDate, chartType]);
+  }, [history, effectiveDate, chartType, chartInstance]);
 
   // Set GEX Walls
   useEffect(() => {
     const { winSeries } = seriesRefs.current;
-    if (!winSeries) return;
+    if (!winSeries || !chartInstance) return;
 
     if (seriesRefs.current.dynamicWalls) {
-      seriesRefs.current.dynamicWalls.forEach((line) => winSeries.removePriceLine(line));
+      seriesRefs.current.dynamicWalls.forEach((line) => {
+        try { winSeries.removePriceLine(line); } catch { /* ignore */ }
+      });
     }
 
     const newLines = [];
@@ -300,15 +251,17 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       });
     }
     seriesRefs.current.dynamicWalls = newLines;
-  }, [walls, showGex, showMidWalls, chartType]);
+  }, [walls, showGex, showMidWalls, chartInstance, chartType]);
 
   // Set GARCH Volatility Bands
   useEffect(() => {
     const { winSeries } = seriesRefs.current;
-    if (!winSeries) return;
+    if (!winSeries || !chartInstance) return;
 
     if (seriesRefs.current.garchLines) {
-      seriesRefs.current.garchLines.forEach((line) => winSeries.removePriceLine(line));
+      seriesRefs.current.garchLines.forEach((line) => {
+        try { winSeries.removePriceLine(line); } catch { /* ignore */ }
+      });
     }
 
     const newLines = [];
@@ -320,6 +273,8 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       const levels = [
         { price: openPrice * (1 + 2 * vol), color: "#EF4444", title: "GARCH +2σ (95%)", style: LineStyle.Solid },
         { price: openPrice * (1 + vol), color: "#F97316", title: "GARCH +1σ (68%)", style: LineStyle.Dashed },
+        { price: openPrice * (1 + 0.5 * vol), color: "#EAB308", title: "GARCH +0.5σ (38%)", style: LineStyle.Dashed },
+        { price: openPrice * (1 - 0.5 * vol), color: "#8B5CF6", title: "GARCH -0.5σ (38%)", style: LineStyle.Dashed },
         { price: openPrice * (1 - vol), color: "#10B981", title: "GARCH -1σ (68%)", style: LineStyle.Dashed },
         { price: openPrice * (1 - 2 * vol), color: "#06B6D4", title: "GARCH -2σ (95%)", style: LineStyle.Solid },
       ];
@@ -337,17 +292,35 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       });
     }
     seriesRefs.current.garchLines = newLines;
-  }, [history, showGarchBands, garchVolPct, chartType]);
+  }, [history, showGarchBands, garchVolPct, chartInstance, chartType]);
+
+  const chartOptions = {
+    rightPriceScale: {
+      visible: true,
+      borderColor: "#1a2530",
+      scaleMargins: { top: 0.15, bottom: 0.15 },
+      minimumWidth: 45,
+    },
+    leftPriceScale: {
+      visible: false,
+      minimumWidth: 55,
+    },
+  };
 
   return (
-    <div style={{ background: "#0c1218", borderRadius: hideXAxis ? "0" : "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
-      <div ref={containerRef} style={{ width: "100%", height: "240px" }} />
+    <BaseLightweightChart
+      ref={baseChartRef}
+      hideXAxis={hideXAxis}
+      height="240px"
+      chartOptions={chartOptions}
+      onChartCreated={setChartInstance}
+    >
       {(!history || history.length === 0) && (
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
           <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
         </div>
       )}
-    </div>
+    </BaseLightweightChart>
   );
 });
 

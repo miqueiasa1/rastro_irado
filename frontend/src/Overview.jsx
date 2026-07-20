@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { calculateConviction } from './utils/signalAnalyzer'
 
 const OVERVIEW_STYLES = `
   @keyframes borderGlowGreen {
@@ -349,19 +350,13 @@ function AssetCard({ card, onClick }) {
   const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
 
   // Convicção calibrada por Shrinkage (mesmo algoritmo do SignalGauge)
-  const acc = Math.min(Math.max(accuracy, 50), 100)
-  const shrinkFactor = (2 * acc / 100) - 1
-  
-  // Conviction
-  const pShrunk = 50 + (pUp - 50) * shrinkFactor
-  const conviction = Math.round(Math.abs(pShrunk - 50) * 2)
-  const maxConviction = Math.round((acc - 50) * 2)
-  const convRatio = maxConviction > 0 ? conviction / maxConviction : 0
-  const convLabel = card.is_preview ? 'pré-mercado' : (convRatio >= 0.55 ? 'forte' : convRatio >= 0.25 ? 'moderada' : 'fraca')
-
-  const convColor = card.is_preview ? '#EAB308' : (convRatio >= 0.55 ? signalColor : convRatio >= 0.25 ? '#C9A227' : '#334155')
-
-  const ret = card.win_return || 0
+  const { conviction, convLabel, convColor } = calculateConviction(
+    pUp,
+    accuracy,
+    card.is_preview,
+    signalColor,
+    '#334155'
+  );
 
   return (
     <div

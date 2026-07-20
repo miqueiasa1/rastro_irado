@@ -1,12 +1,36 @@
-import { useEffect, useRef } from "react";
-import { createChart, LineSeries, CrosshairMode } from "lightweight-charts";
+import { useEffect, useRef, useState } from "react";
+import { LineSeries } from "lightweight-charts";
+import BaseLightweightChart from "./BaseLightweightChart";
 
 export default function TVGarchVolChart({ history = [], forecast = [] }) {
-  const containerRef = useRef();
-  const chartRef = useRef(null);
+  const baseChartRef = useRef(null);
+  const [chartInstance, setChartInstance] = useState(null);
+  const volSeriesRef = useRef(null);
+
+  // Parse and set data when history or series is ready
+  useEffect(() => {
+    if (!chartInstance) return;
+
+    // Clean up old series
+    if (volSeriesRef.current) {
+      try {
+        chartInstance.removeSeries(volSeriesRef.current);
+      } catch {
+        // ignore
+      }
+    }
+
+    const series = chartInstance.addSeries(LineSeries, {
+      color: "#ffd600",
+      lineWidth: 1.5,
+      priceLineVisible: false,
+    });
+
+    volSeriesRef.current = series;
+  }, [chartInstance]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!chartInstance || !volSeriesRef.current || !history.length) return;
 
     // Filter out invalid/empty items
     const chartData = history
@@ -17,60 +41,36 @@ export default function TVGarchVolChart({ history = [], forecast = [] }) {
       .filter(item => item.time && !isNaN(item.value))
       .sort((a, b) => a.time.localeCompare(b.time));
 
-    if (chartData.length === 0) return;
+    if (chartData.length > 0) {
+      volSeriesRef.current.setData(chartData);
+      chartInstance.timeScale().fitContent();
+    }
+  }, [history, chartInstance]);
 
-    // Create the chart
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: "solid", color: "#0E0E11" },
-        textColor: "#64748B",
-        fontSize: 9,
-        attributionLogo: false,
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { visible: true, labelVisible: true },
-        horzLine: { visible: true, labelVisible: true }
-      },
-      timeScale: {
-        visible: true,
-        borderColor: "#1E293B",
-      },
-      rightPriceScale: {
-        visible: true,
-        borderColor: "#1E293B",
-      },
-      width: containerRef.current.clientWidth,
-      height: 120,
-    });
-
-    const volSeries = chart.addSeries(LineSeries, {
-      color: "#ffd600",
-      lineWidth: 1.5,
-      priceLineVisible: false,
-    });
-
-    volSeries.setData(chartData);
-    chart.timeScale().fitContent();
-
-    chartRef.current = chart;
-
-    const handleResize = () => {
-      if (chartRef.current && containerRef.current) {
-        chartRef.current.resize(containerRef.current.clientWidth, 120);
-      }
-    };
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [history]);
+  const chartOptions = {
+    layout: {
+      background: { type: "solid", color: "#0E0E11" },
+      textColor: "#64748B",
+      fontSize: 9,
+      attributionLogo: false,
+    },
+    grid: {
+      vertLines: { visible: false },
+      horzLines: { visible: false },
+    },
+    crosshair: {
+      vertLine: { visible: true, labelVisible: true },
+      horzLine: { visible: true, labelVisible: true }
+    },
+    timeScale: {
+      visible: true,
+      borderColor: "#1E293B",
+    },
+    rightPriceScale: {
+      visible: true,
+      borderColor: "#1E293B",
+    },
+  };
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 16, background: "#0E0E11", border: "1px solid #1C1C22", borderRadius: 6, padding: 12, marginTop: 16 }}>
@@ -79,7 +79,13 @@ export default function TVGarchVolChart({ history = [], forecast = [] }) {
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "#64748B", marginBottom: 6, letterSpacing: "0.1em", textTransform: "uppercase" }}>
           Histórico Volatilidade Condicional (GARCH)
         </div>
-        <div ref={containerRef} style={{ width: "100%", height: 120 }} />
+        <BaseLightweightChart
+          ref={baseChartRef}
+          hideXAxis={false}
+          height="120px"
+          chartOptions={chartOptions}
+          onChartCreated={setChartInstance}
+        />
       </div>
 
       {/* Forecast Section */}

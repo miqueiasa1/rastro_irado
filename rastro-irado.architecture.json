@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "IRAI (Intraday Risk Appetite Index) Detailed Architecture",
+    "subtitle": "Process level breakdown of Multi-Terminal Data Collection, Cointegration Engine, Database Schema, and Chart Components",
+    "output": "rastro-irado.html"
+  },
+  "components": [
+    {
+      "id": "mt5_xp",
+      "type": "external",
+      "label": "XP MT5 Terminal",
+      "sublabel": "WIN$N, WDO$N, DI1$N",
+      "pos": [40, 150],
+      "size": [130, 60]
+    },
+    {
+      "id": "mt5_tickmill",
+      "type": "external",
+      "label": "Tickmill MT5",
+      "sublabel": "DXY, BRENT, VIX, US500...",
+      "pos": [40, 300],
+      "size": [130, 60]
+    },
+    {
+      "id": "mt5_axi",
+      "type": "external",
+      "label": "Axi MT5 Terminal",
+      "sublabel": "EWZ, TLT, TLH, SHY...",
+      "pos": [40, 450],
+      "size": [130, 60]
+    },
+    {
+      "id": "collector",
+      "type": "backend",
+      "label": "Collector Worker",
+      "sublabel": "Multiplexed MT5 Client",
+      "pos": [220, 300],
+      "size": [130, 60],
+      "tag": "workers/collector.py"
+    },
+    {
+      "id": "db_bars",
+      "type": "database",
+      "label": "SQLite Bars DB",
+      "sublabel": "M1-D1 OHLCV & Delta Vol",
+      "pos": [410, 220],
+      "size": [130, 60],
+      "tag": "Raw rates"
+    },
+    {
+      "id": "db_state",
+      "type": "database",
+      "label": "SQLite State DB",
+      "sublabel": "kalman_state, params",
+      "pos": [410, 380],
+      "size": [130, 60],
+      "tag": "Model config"
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI Controller",
+      "sublabel": "REST APIs & WS Broadcast",
+      "pos": [600, 300],
+      "size": [130, 60],
+      "tag": "Uvicorn :8888"
+    },
+    {
+      "id": "engine_calc",
+      "type": "backend",
+      "label": "IRAI Math Engine",
+      "sublabel": "Kalman / Johansen / NWE",
+      "pos": [600, 150],
+      "size": [130, 60],
+      "tag": "irai/engine.py"
+    },
+    {
+      "id": "frontend_app",
+      "type": "frontend",
+      "label": "React Dashboard",
+      "sublabel": "State & WS Receiver",
+      "pos": [790, 300],
+      "size": [130, 60],
+      "tag": "Vite :5175"
+    },
+    {
+      "id": "frontend_charts",
+      "type": "frontend",
+      "label": "TV Chart Components",
+      "sublabel": "NWE, Kalman, GARCH plots",
+      "pos": [970, 300],
+      "size": [130, 60],
+      "tag": "Lightweight Charts"
+    },
+    {
+      "id": "user",
+      "type": "external",
+      "label": "Browser View",
+      "sublabel": "Trader Interface",
+      "pos": [1150, 300],
+      "size": [120, 60]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "Local MT5 Terminals",
+      "wraps": ["mt5_xp", "mt5_tickmill", "mt5_axi"]
+    },
+    {
+      "kind": "region",
+      "label": "IRAI Services & Storage (backend/)",
+      "wraps": ["collector", "db_bars", "db_state", "api", "engine_calc"]
+    },
+    {
+      "kind": "region",
+      "label": "IRAI Frontend Application (frontend/)",
+      "wraps": ["frontend_app", "frontend_charts"]
+    }
+  ],
+  "connections": [
+    {
+      "from": "collector",
+      "to": "mt5_xp",
+      "label": "XP M5 bars",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "from": "collector",
+      "to": "mt5_tickmill",
+      "label": "Tickmill M5",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelDy": -24
+    },
+    {
+      "from": "collector",
+      "to": "mt5_axi",
+      "label": "Axi M5 bars",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "from": "collector",
+      "to": "db_bars",
+      "label": "Save bars",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "collector",
+      "to": "api",
+      "label": "Notify update",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "route": "orthogonal-h",
+      "labelDy": 24
+    },
+    {
+      "from": "api",
+      "to": "engine_calc",
+      "label": "Request score",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "from": "engine_calc",
+      "to": "db_bars",
+      "label": "Read bars",
+      "fromSide": "left",
+      "toSide": "top"
+    },
+    {
+      "from": "engine_calc",
+      "to": "db_state",
+      "label": "Read/Write Kalman",
+      "fromSide": "bottom",
+      "toSide": "right",
+      "labelAt": [490, 294]
+    },
+    {
+      "from": "api",
+      "to": "db_state",
+      "label": "Read params",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelDy": -24
+    },
+    {
+      "from": "api",
+      "to": "frontend_app",
+      "label": "WS / REST",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "frontend_app",
+      "to": "frontend_charts",
+      "label": "Data props",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -24
+    },
+    {
+      "from": "user",
+      "to": "frontend_app",
+      "label": "HTTPS",
+      "variant": "emphasis",
+      "fromSide": "left",
+      "toSide": "top",
+      "labelDy": -40
+    },
+    {
+      "from": "user",
+      "to": "frontend_charts",
+      "label": "Inspect plots",
+      "fromSide": "left",
+      "toSide": "right",
+      "labelDy": -24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Ingress & Dashboard",
+      "items": [
+        "React Frontend (Vite, Port 5175) manages app state, user preferences, and real-time feeds",
+        "Lightweight Charts components plot rolling GARCH forecasts, Kalman betas, Nadaraya-Watson estimations, and probability series",
+        "FastAPI Server (Uvicorn, Port 8888) handles API requests and pushes websocket frames every 5s"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Collector Pipeline",
+      "items": [
+        "Collector thread pools XP, Tickmill, and Axi MT5 terminals for live M5 rates",
+        "Calculates delta volume and commits OHLCV arrays to SQLite market_bars table",
+        "Triggers API notify endpoint to reload engine configuration and broadcast changes"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Database Schema & Math Engine",
+      "items": [
+        "market_bars: stores raw price history and tick delta volumes",
+        "kalman_state & asset_models: stores rolling means, covariance matrices, and Johansen parameters",
+        "IRAI Engine: solves cointegration equations and filters pricing divergences dynamically"
+      ]
+    }
+  ]
+}

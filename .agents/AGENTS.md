@@ -3,9 +3,9 @@
 Este arquivo contém as regras e restrições críticas do projeto. Qualquer agente de IA ou desenvolvedor deve ler e seguir estritamente estas diretrizes antes de realizar qualquer alteração no repositório.
 
 ## 1. Preservação do Gráfico de Pair Spread (Z-Score dinâmico)
-- **Regra**: O gráfico de Pair Spread (`TVPairwiseZScoreChart`) **deve estar sempre visível** na tela de detalhes quando o ativo selecionado for o Mini Índice (`WIN$N`).
-- **Comportamento Esperado**: Mesmo durante horários de pré-mercado ou em dias sem dados ativos (onde o array de pontos de dados está em branco ou com `pair_z` nulo), o componente deve ser renderizado e exibir os eixos vazios na interface, em vez de sumir completamente.
-- **Implementação**: A visibilidade do gráfico deve depender do ativo (`selectedTarget === 'WIN$N'`) e não apenas da presença física de valores não-nulos (`seriesWithNWE.some(...)`).
+- **Regra**: O gráfico de Pair Spread (`TVPairwiseZScoreChart`) **deve estar sempre visível** na tela de detalhes para todos os ativos.
+- **Comportamento Esperado**: Mesmo durante horários de pré-mercado ou em dias sem dados ativos (onde o array de pontos de dados está em branco ou com `pair_z` nulo), o componente deve ser renderizado e exibir os eixos vazios na interface para todos os ativos, em vez de sumir completamente.
+- **Implementação**: A visibilidade do gráfico deve ser garantida (ex: `showPairZ = true`) e não depender apenas da presença física de valores não-nulos (`seriesWithNWE.some(...)`) ou de filtros específicos de ativos.
 
 ## 2. Sincronização Estrita dos Gráficos
 - **Regra**: Todos os gráficos de série temporal na visualização de detalhes (Gráfico principal NWE, Pair Spread, Divergência de Preço, Pesos Kalman, Volatilidade GARCH) devem ter suas escalas horizontais sincronizadas em tempo real.
