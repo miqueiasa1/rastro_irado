@@ -129,8 +129,8 @@ O controle de risco do sistema IRAI é baseado diretamente no desvio padrão di�
 *   **Stop por Trade (10% | 12%)**: $4,3 \text{ a } 5,2 \text{ pontos}$ ($R\$ 43,00 \text{ a } R\$ 52,00$ por mini-contrato).
 *   **Limite de Perda do Dia (50% GARCH)**: $21,6 \text{ pontos}$ de prejuízo acumulado ($R\$ 216,00$ por mini-contrato).
 
-#### C. Índices Americanos (S&P 500, Dow Jones, Nasdaq) & Ouro (XAUUSD)
-*   *Regra de Medida*: No MetaTrader 5, esses ativos são mostrados em pontos com duas casas decimais. Multiplicamos a variação por **100** para expressar em pontos inteiros corretos de corretora (1 pt = 0.01 de preço).
+#### C. Índices Americanos (S&P 500, Dow Jones, Nasdaq), Ouro (XAUUSD) & Bitcoin (BTCUSD)
+*   *Regra de Medida*: No MetaTrader 5, esses ativos são cotados com duas casas decimais. Multiplicamos a variação por **100** para expressar em pontos inteiros corretos de corretora (1 pt = 0.01 de preço).
 *   *Exemplo Ouro*: Abertura: $2.400 | GARCH: 1.25%
     *   **Volatilidade Estimada (1σ)**: $3.000 \text{ pontos}$ ($30 \text{ dólares}$).
     *   **Stop por Trade (10% | 12%)**: $300 \text{ a } 360 \text{ pontos}$ ($3,00 \text{ a } 3,60 \text{ dólares}$).

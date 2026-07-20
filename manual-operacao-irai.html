@@ -1146,10 +1146,9 @@
               <select id="calcAtivo" style="padding: 0.75rem; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: var(--font-sans); outline: none;">
                 <option value="WIN">Mini Índice (WIN)</option>
                 <option value="WDO">Mini Dólar (WDO)</option>
-                <option value="US_INDEX_GOLD">Índices Americanos & Ouro (US30, US500, USTEC, XAUUSD)</option>
+                <option value="US_INDEX_GOLD_BTC">Índices Americanos, Ouro & Bitcoin (US30, US500, USTEC, XAUUSD, BTCUSD)</option>
                 <option value="FOREX_STANDARD">Forex Pips (EURUSD, GBPUSD)</option>
                 <option value="FOREX_JPY">Forex JPY Pips (USDJPY)</option>
-                <option value="BTCUSD">Bitcoin (BTCUSD)</option>
                 <option value="CUSTOM">Customizado / Ações</option>
               </select>
             </div>
@@ -1466,7 +1465,7 @@
         const finStop = stopTrade * 10;
         const finMax = dailyMax * 10;
         outFinancialNote.innerText = `💰 R$ \`\${finStop.toFixed(2)}\` por mini-contrato de stop. Limite diário (50%): R$ \`\${finMax.toFixed(2)}\` (\`\${attempts}\` tentativas).`;
-      } else if (ativo === 'US_INDEX_GOLD') {
+      } else if (ativo === 'US_INDEX_GOLD_BTC') {
         const ptsVol = Math.round(volDia * 100);
         const ptsStop = Math.round(stopTrade * 100);
         const ptsMax = Math.round(dailyMax * 100);
@@ -1490,14 +1489,6 @@
         outStopTrade.innerText = `${pipsStop} pips`;
         outStopDiario.innerText = `${pipsMax} pips`;
         outFinancialNote.innerText = `📈 Medida convertida para Pips JPY (2ª casa decimal = 0.01).`;
-      } else if (ativo === 'BTCUSD') {
-        const btcVol = Math.round(volDia);
-        const btcStop = Math.round(stopTrade);
-        const btcMax = Math.round(dailyMax);
-        outVolDia.innerText = `$${btcVol.toLocaleString('pt-BR')} USD`;
-        outStopTrade.innerText = `$${btcStop.toLocaleString('pt-BR')} USD`;
-        outStopDiario.innerText = `$${btcMax.toLocaleString('pt-BR')} USD`;
-        outFinancialNote.innerText = `🪙 Volatilidade e stops cotados em dólares (USD).`;
       } else {
         outVolDia.innerText = `${(garch * 100).toFixed(2)}% (\`\${volDia.toFixed(2)}\` pts)`;
         outStopTrade.innerText = `${(garch * 100 * stopPct).toFixed(2)}% (\`\${stopTrade.toFixed(2)}\` pts)`;
@@ -1514,7 +1505,7 @@
       } else if (val === 'WDO') {
         calcAbertura.value = "5100";
         calcGarch.value = "0.85";
-      } else if (val === 'US_INDEX_GOLD') {
+      } else if (val === 'US_INDEX_GOLD_BTC') {
         calcAbertura.value = "5400";
         calcGarch.value = "0.95";
       } else if (val === 'FOREX_STANDARD') {
@@ -1523,9 +1514,6 @@
       } else if (val === 'FOREX_JPY') {
         calcAbertura.value = "157.50";
         calcGarch.value = "0.65";
-      } else if (val === 'BTCUSD') {
-        calcAbertura.value = "60000";
-        calcGarch.value = "2.20";
       }
       updateCalculator();
     });

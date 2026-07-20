@@ -1819,10 +1819,9 @@ export default function App() {
                       // Identify Asset Categories
                       const isWin = selectedTarget.includes('WIN');
                       const isWdo = selectedTarget.includes('WDO') || selectedTarget.includes('DOL');
-                      const isUSIndexOrGold = ['US500', 'US30', 'USTEC', 'XAUUSD'].some(t => selectedTarget.includes(t));
+                      const isUSIndexOrGoldOrBtc = ['US500', 'US30', 'USTEC', 'XAUUSD', 'BTCUSD'].some(t => selectedTarget.includes(t));
                       const isStandardForex = ['EURUSD', 'GBPUSD'].some(t => selectedTarget.includes(t));
                       const isJpyForex = ['USDJPY', 'GBPJPY', 'EURJPY'].some(t => selectedTarget.includes(t));
-                      const isBtc = selectedTarget.includes('BTC');
 
                       // Base daily volatility (absolute price difference)
                       let baseVol = openPrice * (garchVolPct / 100);
@@ -1838,7 +1837,7 @@ export default function App() {
                         multiplier = 1;
                         unit = 'pts';
                         decimalPlaces = 1;
-                      } else if (isUSIndexOrGold) {
+                      } else if (isUSIndexOrGoldOrBtc) {
                         multiplier = 100;
                         unit = 'pts';
                         decimalPlaces = 0;
@@ -1850,10 +1849,6 @@ export default function App() {
                         multiplier = 100;
                         unit = 'pips';
                         decimalPlaces = 1;
-                      } else if (isBtc) {
-                        multiplier = 1;
-                        unit = 'USD';
-                        decimalPlaces = 0;
                       } else {
                         // Fallback generic
                         multiplier = 1;
@@ -1885,7 +1880,7 @@ export default function App() {
                         financialNote = `💰 R$ ${(baseVol * 0.10 * 0.20).toFixed(2)} a R$ ${(baseVol * 0.12 * 0.20).toFixed(2)} por contrato de stop. Limite diário: R$ ${(baseVol * 0.50 * 0.20).toFixed(2)}.`;
                       } else if (isWdo) {
                         financialNote = `💰 R$ ${(baseVol * 0.10 * 10).toFixed(2)} a R$ ${(baseVol * 0.12 * 10).toFixed(2)} por contrato de stop. Limite diário: R$ ${(baseVol * 0.50 * 10).toFixed(2)}.`;
-                      } else if (isUSIndexOrGold) {
+                      } else if (isUSIndexOrGoldOrBtc) {
                         financialNote = `📈 Multiplicador de pontos por 100 aplicado para exibição padrão do MetaTrader 5 (1 pt = 0.01 do preço).`;
                       } else if (isStandardForex || isJpyForex) {
                         financialNote = `📈 Exibição convertida para Pips (${isStandardForex ? '4ª casa decimal 0.0001' : '2ª casa decimal 0.01'}).`;
