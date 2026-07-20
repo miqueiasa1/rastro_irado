@@ -876,6 +876,10 @@
           <div class="step-num">5</div>
           <span>5. Entrada (O Flip)</span>
         </a>
+        <a href="#gestao-risco" class="nav-item">
+          <div class="step-num">6</div>
+          <span>6. Gestão de Risco</span>
+        </a>
         
         <h3 style="margin-top: 2rem;">Recursos</h3>
         <a href="#exemplos" class="nav-item">
@@ -1103,6 +1107,95 @@
       </div>
     </section>
 
+    <!-- 6. GESTAO DE RISCO -->
+    <section id="gestao-risco">
+      <div class="section-title">
+        <div class="section-number">6</div>
+        <span>6. Gestão de Risco: GARCH & Stops</span>
+      </div>
+      <div class="card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 2rem;">
+          O controle de risco operacional do sistema IRAI é parametrizado com base na volatilidade projetada pelo modelo **GARCH** para o dia de hoje. Isso adapta o tamanho do stop de cada operação à volatilidade real do mercado.
+        </p>
+
+        <div class="card-grid" style="margin-bottom: 2.5rem;">
+          <div class="indicator-box">
+            <div class="indicator-title">🎯 Stop por Operação</div>
+            <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+              Definido entre <strong>20% e 25%</strong> do desvio padrão diário do GARCH (`h+1`). Em dias muito voláteis, seu stop se alarga para evitar violinadas; em dias calmos, o stop fica curto para otimizar o ganho.
+            </p>
+          </div>
+          <div class="indicator-box success">
+            <div class="indicator-title">🛑 Limite Diário (Stop Total)</div>
+            <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+              Definido em <strong>100% do GARCH</strong>. Isso garante ao operador exatamente <strong>4 tentativas de 25%</strong> ou <strong>5 tentativas de 20%</strong> no dia. Atingir 100% encerra o pregão.
+            </p>
+          </div>
+        </div>
+
+        <!-- RISK CALCULATOR WIDGET -->
+        <h4 style="margin-bottom: 1.5rem; color: #ffffff; display: flex; align-items: center; gap: 0.5rem;">
+          <span>🧮</span> Calculadora de Risco GARCH
+        </h4>
+        
+        <div class="simulator-container" style="grid-template-columns: 1fr 1fr; gap: 2rem; align-items: stretch;">
+          <!-- Inputs -->
+          <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Ativo Operado</label>
+              <select id="calcAtivo" style="padding: 0.75rem; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: var(--font-sans); outline: none;">
+                <option value="WIN">Mini Índice (WIN)</option>
+                <option value="WDO">Mini Dólar (WDO)</option>
+                <option value="CUSTOM">Customizado / Ações</option>
+              </select>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Preço de Abertura do Dia</label>
+              <input type="number" id="calcAbertura" value="120000" style="padding: 0.75rem; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: var(--font-mono); outline: none;">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Projeção Volatilidade GARCH (h+1) %</label>
+              <input type="number" step="0.01" id="calcGarch" value="1.07" style="padding: 0.75rem; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: var(--font-mono); outline: none;">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Tamanho do Stop da Operação</label>
+              <select id="calcStopPct" style="padding: 0.75rem; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: var(--font-sans); outline: none;">
+                <option value="0.25">25% da Vol Diária (4 Tentativas)</option>
+                <option value="0.20">20% da Vol Diária (5 Tentativas)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Outputs -->
+          <div style="background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem;">
+            <div>
+              <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Volatilidade Estimada do Dia (1σ GARCH)</div>
+              <div id="outVolDia" style="font-size: 1.8rem; font-weight: 800; color: var(--accent-blue); font-family: var(--font-mono);">1.284 pts</div>
+            </div>
+            
+            <div>
+              <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Stop Loss por Operação Sugerido</div>
+              <div id="outStopTrade" style="font-size: 1.8rem; font-weight: 800; color: var(--accent-red); font-family: var(--font-mono);">321 pts</div>
+            </div>
+
+            <div>
+              <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.25rem;">Limite Máximo de Perda no Dia</div>
+              <div id="outStopDiario" style="font-size: 1.8rem; font-weight: 800; color: #ffffff; font-family: var(--font-mono);">1.284 pts</div>
+            </div>
+
+            <div style="border-top: 1px solid var(--border-color); padding-top: 1rem;">
+              <span id="outFinancialNote" style="font-size: 0.85rem; color: var(--accent-green); font-weight: 600; display: block;">
+                💰 Perda máxima estimada: R$ 256,80 por mini-contrato.
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- EXEMPLOS VISUAIS -->
     <section id="exemplos">
       <div class="section-title">
@@ -1326,6 +1419,68 @@
         animationRunning = false;
       }, 12000);
     });
+
+    // 6. Risk Calculator Logic
+    const calcAtivo = document.getElementById('calcAtivo');
+    const calcAbertura = document.getElementById('calcAbertura');
+    const calcGarch = document.getElementById('calcGarch');
+    const calcStopPct = document.getElementById('calcStopPct');
+
+    const outVolDia = document.getElementById('outVolDia');
+    const outStopTrade = document.getElementById('outStopTrade');
+    const outStopDiario = document.getElementById('outStopDiario');
+    const outFinancialNote = document.getElementById('outFinancialNote');
+
+    function updateCalculator() {
+      const ativo = calcAtivo.value;
+      const abertura = parseFloat(calcAbertura.value) || 0;
+      const garch = (parseFloat(calcGarch.value) || 0) / 100;
+      const stopPct = parseFloat(calcStopPct.value) || 0.25;
+
+      const volDia = abertura * garch;
+      const stopTrade = volDia * stopPct;
+      const attempts = Math.round(1 / stopPct);
+
+      if (ativo === 'WIN') {
+        const ptsVol = Math.round(volDia);
+        const ptsStop = Math.round(stopTrade);
+        outVolDia.innerText = `${ptsVol.toLocaleString('pt-BR')} pts`;
+        outStopTrade.innerText = `${ptsStop.toLocaleString('pt-BR')} pts`;
+        outStopDiario.innerText = `${ptsVol.toLocaleString('pt-BR')} pts`;
+        const finStop = ptsStop * 0.20;
+        const finMax = ptsVol * 0.20;
+        outFinancialNote.innerText = `💰 R$ \${finStop.toFixed(2)} por mini-contrato de stop. Limite diário: R$ \${finMax.toFixed(2)} (\${attempts} tentativas).`;
+      } else if (ativo === 'WDO') {
+        const ptsVol = volDia.toFixed(1);
+        const ptsStop = stopTrade.toFixed(1);
+        outVolDia.innerText = `${ptsVol} pts`;
+        outStopTrade.innerText = `${ptsStop} pts`;
+        outStopDiario.innerText = `${ptsVol} pts`;
+        const finStop = stopTrade * 10;
+        const finMax = volDia * 10;
+        outFinancialNote.innerText = `💰 R$ \${finStop.toFixed(2)} por mini-contrato de stop. Limite diário: R$ \${finMax.toFixed(2)} (\${attempts} tentativas).`;
+      } else {
+        outVolDia.innerText = `${(garch * 100).toFixed(2)}% (\${volDia.toFixed(2)} pts)`;
+        outStopTrade.innerText = `${(garch * 100 * stopPct).toFixed(2)}% (\${stopTrade.toFixed(2)} pts)`;
+        outStopDiario.innerText = `${(garch * 100).toFixed(2)}% (\${volDia.toFixed(2)} pts)`;
+        outFinancialNote.innerText = `📈 Limite de Risco baseado em \${(stopPct*100).toFixed(0)}% da volatilidade diária (\${attempts} tentativas).`;
+      }
+    }
+
+    calcAtivo.addEventListener('change', () => {
+      if (calcAtivo.value === 'WIN') {
+        calcAbertura.value = "120000";
+      } else if (calcAtivo.value === 'WDO') {
+        calcAbertura.value = "5100";
+      }
+      updateCalculator();
+    });
+
+    calcAbertura.addEventListener('input', updateCalculator);
+    calcGarch.addEventListener('input', updateCalculator);
+    calcStopPct.addEventListener('change', updateCalculator);
+
+    updateCalculator();
   </script>
 </body>
 </html>

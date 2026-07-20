@@ -30,10 +30,20 @@ Este documento especifica os requisitos funcionais e não-funcionais que devem s
 
 ---
 
+### 4. Robustez de Infraestrutura (INFRA)
+
+- [ ] **INFRA-01**: O sistema deve suportar inicialização concorrente (API + Collector em boot simultâneo) sem crashes de migração, usando wrapper idempotente `_add_column` que captura `duplicate column` silenciosamente.
+- [ ] **INFRA-02**: O `save_kalman_state()` deve garantir monotonicidade temporal: replays históricos via `compute_from_db(persist_state=True)` não podem sobrescrever um estado de Kalman com `timestamp_utc` mais recente já persistido no banco.
+- [ ] **INFRA-03**: A tabela `gex_levels` deve ter seu schema auditado e garantido consistente (coluna `run_name` presente e funcional, sem dados órfãos).
+
+---
+
 ## Requisitos Futuros (Backlog)
 
 - **NWE-DYN-01**: Bandwidth auto-adaptativo baseado na volatilidade do mercado em tempo real.
 - **NWE-ALRT-01**: Disparo de alertas no Telegram caso o preço cruze as bandas extremas do envelope.
+- **GARCH-RISK-01**: O dashboard deve calcular e exibir dinamicamente os limites de Stop Loss por operação (20%-25% do GARCH) e o Stop Diário Máximo (100% do GARCH) em pontos do ativo e financeiro com base na abertura.
+- **GARCH-BAND-01**: O gráfico de preços principal deve conter um botão de alternância (toggle) para plotar/ocultar as Bandas de Volatilidade GARCH (Abertura ± 1σ e Abertura ± 2σ) como linhas horizontais de suporte/resistência estáticos para o dia.
 
 ---
 

@@ -104,6 +104,26 @@ Abaixo está a representação visual de um setup completo de Venda (Sell Setup)
 
 ---
 
+## 6. Gestão de Risco Quantitativa (GARCH)
+O controle de risco do sistema IRAI é baseado diretamente no desvio padrão diário projetado pelo modelo **GARCH** (`h+1`). Isso assegura um stop dinâmico e matematicamente alinhado com a volatilidade do dia.
+
+### Regra do Stop por Operação
+*   **Tamanho do Stop**: Ajustado para **20% a 25%** da volatilidade esperada diária (`h+1`).
+*   *Lógica*: Evita ser violinado por ruídos em dias voláteis e reduz financeiramente o stop em dias muito direcionais ou parados.
+
+### Regra do Limite Diário (Stop Total)
+*   **Limite Total**: Definido como **100% da volatilidade esperada (1σ GARCH)**.
+*   *Lógica*: Equivale a exatamente **4 operações cheias** com stop de 25%, ou **5 operações** com stop de 20%. Atingir o limite de 100% do GARCH encerra as operações do dia.
+
+### Exemplo Prático de Cálculo (Mini Índice - WIN)
+Considerando abertura teórica a $120.000$ pontos e Projeção GARCH (`h+1`) de $1.07\%$:
+*   **Volatilidade Diária Estimada (100% GARCH)**: $120.000 \times 1.07\% = 1.284 \text{ pontos}$.
+*   **Stop Sugerido por Trade (25% GARCH)**: $1.284 \times 25\% = 321 \text{ pontos}$.
+*   **Stop Sugerido por Trade (20% GARCH)**: $1.284 \times 20\% = 257 \text{ pontos}$.
+*   **Limite de Perda do Dia (100% GARCH)**: $1.284 \text{ pontos}$ de prejuízo acumulado.
+
+---
+
 ## Checklist Rápido de Execução
 
 - [ ] **Contexto Alinhado?** (Se não, aguardar exaustão extrema)
