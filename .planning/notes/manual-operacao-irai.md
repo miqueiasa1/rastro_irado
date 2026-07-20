@@ -88,6 +88,22 @@ O **Flip** é um micro pivot configurado no candle de entrada:
 
 ---
 
+## Exemplos Visuais de Operações
+
+### 1. Operação de Compra (Buy Setup)
+Abaixo está a representação visual de um setup completo de Compra (Buy Setup). O preço testa a zona de liquidez inferior (GEX/Ajuste), ativa o sinal de exaustão na banda inferior, forma um Martelo de confirmação e aciona a entrada no **Flip** (abertura contrária seguida de rompimento da abertura).
+
+![Exemplo de Compra (Buy Setup)](file:///C:/Users/ryzen/.gemini/antigravity-ide/brain/d8a581ac-c549-4a31-bb81-28bc390f6dab/buy_setup_diagram_1784563509678.png)
+
+---
+
+### 2. Operação de Venda (Sell Setup)
+Abaixo está a representação visual de um setup completo de Venda (Sell Setup). O preço testa a zona de liquidez superior, ativa o sinal de exaustão na banda superior de Gauss, forma uma Estrela Cadente de confirmação e aciona a entrada no **Flip** de venda (candle seguinte abre subindo contra o trade, reverte e rompe a própria abertura para baixo).
+
+![Exemplo de Venda (Sell Setup)](file:///C:/Users/ryzen/.gemini/antigravity-ide/brain/d8a581ac-c549-4a31-bb81-28bc390f6dab/sell_setup_diagram_1784563521737.png)
+
+---
+
 ## Checklist Rápido de Execução
 
 - [ ] **Contexto Alinhado?** (Se não, aguardar exaustão extrema)
