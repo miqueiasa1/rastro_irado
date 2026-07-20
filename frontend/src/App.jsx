@@ -512,10 +512,17 @@ export default function App() {
   const isFirstLoadRef = useRef(true)
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(false)
+  const [showGarchBands, setShowGarchBands] = useState(false)
   const [gexWalls, setGexWalls] = useState([])
   const [availableRuns, setAvailableRuns] = useState([])
   const [selectedRun, setSelectedRun] = useState(null)
   const [garchData, setGarchData] = useState(null)
+
+  const garchVolPct = useMemo(() => {
+    if (!garchData || !Array.isArray(garchData.forecast)) return null;
+    const h1 = garchData.forecast.find(f => f.step === 'h+1');
+    return h1 ? h1.vol_forecast_pct : null;
+  }, [garchData]);
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
@@ -1576,6 +1583,17 @@ export default function App() {
                         {((gexWalls && gexWalls.length > 0) || GEX_LEVELS[selectedTarget]) && (
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                             <button
+                              onClick={() => setShowGarchBands(prev => !prev)}
+                              style={{
+                                fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+                                padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
+                                border: `1px solid ${showGarchBands ? '#38ef7d' : '#1E293B'}`,
+                                background: showGarchBands ? 'rgba(56,239,125,0.1)' : 'transparent',
+                                color: showGarchBands ? '#38ef7d' : '#334155',
+                                transition: 'all 0.15s', lineHeight: 1,
+                              }}
+                            >GARCH</button>
+                            <button
                               onClick={() => setShowGex(prev => !prev)}
                               style={{
                                 fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
@@ -1644,6 +1662,8 @@ export default function App() {
                       selectedTarget={selectedTarget}
                       hideXAxis={false}
                       chartType={chartType}
+                      showGarchBands={showGarchBands}
+                      garchVolPct={garchVolPct}
                     />
                   </div>
 
@@ -1791,10 +1811,56 @@ export default function App() {
 
                 {/* ── GARCH VOLATILITY PANEL ── */}
                 {garchData && garchData.history && garchData.history.length > 0 && (
-                  <TVGarchVolChart
-                    history={garchData.history}
-                    forecast={garchData.forecast}
-                  />
+                  <>
+                    {(() => {
+                      const openPrice = now.win_open;
+                      if (!garchVolPct || !openPrice) return null;
+
+                      const volDia = openPrice * (garchVolPct / 100);
+                      const stop25 = volDia * 0.25;
+                      const stop20 = volDia * 0.20;
+
+                      return (
+                        <div style={{
+                          background: '#0E0E11', border: '1px solid #1C1C22', borderRadius: 6,
+                          padding: '12px 16px', marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10
+                        }}>
+                          <div style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 9, color: '#38ef7d',
+                            letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700,
+                            display: 'flex', alignItems: 'center', gap: 6
+                          }}>
+                            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#38ef7d' }}></span>
+                            Gestão de Risco Quantitativa (GARCH)
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
+                            <div>
+                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Volatilidade Esperada (1σ)</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: '#60A5FA' }}>
+                                {Math.round(volDia).toLocaleString('pt-BR')} pts <span style={{ fontSize: 9, color: '#64748B', fontWeight: 400 }}>({garchVolPct.toFixed(2)}%)</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Stop por Trade (25% | 20%)</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: '#F87171' }}>
+                                {Math.round(stop25)} | {Math.round(stop20)} pts
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Prejuízo Diário (100% GARCH)</div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: '#FFFFFF' }}>
+                                {Math.round(volDia).toLocaleString('pt-BR')} pts <span style={{ fontSize: 8, color: '#64748B', fontWeight: 400 }}>(4 ops)</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    <TVGarchVolChart
+                      history={garchData.history}
+                      forecast={garchData.forecast}
+                    />
+                  </>
                 )}
 
                 {/* ── FOOTER ── */}

@@ -15,7 +15,7 @@ function parseTimeToTimestamp(dateStr, timeStr) {
   return Math.floor(Date.UTC(year, month - 1, day, hour, minute) / 1000);
 }
 
-const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, showMidWalls = false, effectiveDate, selectedTarget, hideXAxis = true, chartType = 'line' }, ref) => {
+const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, showMidWalls = false, effectiveDate, selectedTarget, hideXAxis = true, chartType = 'line', showGarchBands = false, garchVolPct = null }, ref) => {
   const containerRef = useRef();
   const chartRef = useRef(null);
   const seriesRefs = useRef({});
@@ -301,6 +301,43 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     }
     seriesRefs.current.dynamicWalls = newLines;
   }, [walls, showGex, showMidWalls, chartType]);
+
+  // Set GARCH Volatility Bands
+  useEffect(() => {
+    const { winSeries } = seriesRefs.current;
+    if (!winSeries) return;
+
+    if (seriesRefs.current.garchLines) {
+      seriesRefs.current.garchLines.forEach((line) => winSeries.removePriceLine(line));
+    }
+
+    const newLines = [];
+    const firstValidBar = history.find(d => d.win_open != null && d.win_open > 0);
+    const openPrice = firstValidBar ? firstValidBar.win_open : null;
+
+    if (showGarchBands && openPrice && garchVolPct) {
+      const vol = garchVolPct / 100;
+      const levels = [
+        { price: openPrice * (1 + 2 * vol), color: "#EF4444", title: "GARCH +2σ (95%)", style: LineStyle.Solid },
+        { price: openPrice * (1 + vol), color: "#F97316", title: "GARCH +1σ (68%)", style: LineStyle.Dashed },
+        { price: openPrice * (1 - vol), color: "#10B981", title: "GARCH -1σ (68%)", style: LineStyle.Dashed },
+        { price: openPrice * (1 - 2 * vol), color: "#06B6D4", title: "GARCH -2σ (95%)", style: LineStyle.Solid },
+      ];
+
+      levels.forEach((lvl) => {
+        const line = winSeries.createPriceLine({
+          price: lvl.price,
+          color: lvl.color,
+          lineWidth: 1,
+          lineStyle: lvl.style,
+          axisLabelVisible: true,
+          title: lvl.title,
+        });
+        newLines.push(line);
+      });
+    }
+    seriesRefs.current.garchLines = newLines;
+  }, [history, showGarchBands, garchVolPct, chartType]);
 
   return (
     <div style={{ background: "#0c1218", borderRadius: hideXAxis ? "0" : "0 0 8px 8px", paddingBottom: 4, position: "relative" }}>
