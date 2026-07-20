@@ -105,22 +105,35 @@ Abaixo está a representação visual de um setup completo de Venda (Sell Setup)
 ---
 
 ## 6. Gestão de Risco Quantitativa (GARCH)
-O controle de risco do sistema IRAI é baseado diretamente no desvio padrão diário projetado pelo modelo **GARCH** (`h+1`). Isso assegura um stop dinâmico e matematicamente alinhado com a volatilidade do dia.
+O controle de risco do sistema IRAI é baseado diretamente no desvio padrão diário projetado pelo modelo **GARCH** (`h+1`). Isso assegura um stop dinâmico e matematicamente alinhado com a volatilidade real do ativo operado.
 
 ### Regra do Stop por Operação
-*   **Tamanho do Stop**: Ajustado para **20% a 25%** da volatilidade esperada diária (`h+1`).
-*   *Lógica*: Evita ser violinado por ruídos em dias voláteis e reduz financeiramente o stop em dias muito direcionais ou parados.
+*   **Tamanho do Stop**: Ajustado para **10% a 12%** da volatilidade esperada diária (`h+1`).
+*   *Lógica*: Protege a conta contra excesso de ruído em dias altamente voláteis e reduz financeiramente o stop em dias muito lentos.
 
 ### Regra do Limite Diário (Stop Total)
-*   **Limite Total**: Definido como **100% da volatilidade esperada (1σ GARCH)**.
-*   *Lógica*: Equivale a exatamente **4 operações cheias** com stop de 25%, ou **5 operações** com stop de 20%. Atingir o limite de 100% do GARCH encerra as operações do dia.
+*   **Limite Total (Drawdown)**: Definido como **50% da volatilidade esperada (0.5σ GARCH)**.
+*   *Lógica*: Equivale a exatamente **4 tentativas cheias** com stop de 12%, ou **5 tentativas** com stop de 10%. Atingir o limite de 50% do GARCH encerra as operações do dia, pois o mercado mudou de comportamento ou as condições do setup falharam.
 
-### Exemplo Prático de Cálculo (Mini Índice - WIN)
-Considerando abertura teórica a $120.000$ pontos e Projeção GARCH (`h+1`) de $1.07\%$:
-*   **Volatilidade Diária Estimada (100% GARCH)**: $120.000 \times 1.07\% = 1.284 \text{ pontos}$.
-*   **Stop Sugerido por Trade (25% GARCH)**: $1.284 \times 25\% = 321 \text{ pontos}$.
-*   **Stop Sugerido por Trade (20% GARCH)**: $1.284 \times 20\% = 257 \text{ pontos}$.
-*   **Limite de Perda do Dia (100% GARCH)**: $1.284 \text{ pontos}$ de prejuízo acumulado.
+### Exemplos Práticos de Cálculo
+
+#### A. Mini Índice (WIN)
+*   *Abertura*: $120.000$ pontos | *Projeção GARCH*: $1.07\%$
+*   **Volatilidade Diária Estimada (1σ)**: $1.284 \text{ pontos}$.
+*   **Stop por Trade (10% | 12%)**: $128 \text{ a } 154 \text{ pontos}$ ($R\$ 25,60 \text{ a } R\$ 30,80$ por mini-contrato).
+*   **Limite de Perda do Dia (50% GARCH)**: $642 \text{ pontos}$ de prejuízo acumulado ($R\$ 128,40$ por mini-contrato).
+
+#### B. Mini Dólar (WDO)
+*   *Abertura*: $5.100$ pontos | *Projeção GARCH*: $0.85\%$
+*   **Volatilidade Diária Estimada (1σ)**: $43,3 \text{ pontos}$.
+*   **Stop por Trade (10% | 12%)**: $4,3 \text{ a } 5,2 \text{ pontos}$ ($R\$ 43,00 \text{ a } R\$ 52,00$ por mini-contrato).
+*   **Limite de Perda do Dia (50% GARCH)**: $21,6 \text{ pontos}$ de prejuízo acumulado ($R\$ 216,00$ por mini-contrato).
+
+#### C. Outros Ativos (Ex: Ações ou Cripto)
+*   *Abertura*: $\$100,00$ | *Projeção GARCH*: $2.00\%$
+*   **Volatilidade Diária Estimada (1σ)**: $\$2,00$ ($2.00\%$).
+*   **Stop por Trade (10% | 12%)**: $\$0,20 \text{ a } \$0,24$ ($0.20\% \text{ a } 0.24\%$).
+*   **Limite de Perda do Dia (50% GARCH)**: $\$1,00$ de prejuízo acumulado ($1.00\%$).
 
 ---
 

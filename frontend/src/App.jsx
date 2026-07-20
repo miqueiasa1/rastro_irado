@@ -1817,8 +1817,40 @@ export default function App() {
                       if (!garchVolPct || !openPrice) return null;
 
                       const volDia = openPrice * (garchVolPct / 100);
-                      const stop25 = volDia * 0.25;
-                      const stop20 = volDia * 0.20;
+                      const stop10 = volDia * 0.10;
+                      const stop12 = volDia * 0.12;
+                      const stopTotal = volDia * 0.50; // 50% of GARCH expected vol
+
+                      // Formatter based on target name and price magnitude
+                      let displayVol = '';
+                      let displayStops = '';
+                      let displayTotal = '';
+                      let financialNote = '';
+
+                      const isWin = selectedTarget.includes('WIN');
+                      const isWdo = selectedTarget.includes('WDO') || selectedTarget.includes('DOL');
+
+                      if (isWin) {
+                        displayVol = `${Math.round(volDia).toLocaleString('pt-BR')} pts`;
+                        displayStops = `${Math.round(stop10)} | ${Math.round(stop12)} pts`;
+                        displayTotal = `${Math.round(stopTotal).toLocaleString('pt-BR')} pts`;
+                        financialNote = `💰 R$ ${(stop10 * 0.20).toFixed(2)} a R$ ${(stop12 * 0.20).toFixed(2)} por contrato de stop. Limite diário: R$ ${(stopTotal * 0.20).toFixed(2)}.`;
+                      } else if (isWdo) {
+                        displayVol = `${volDia.toFixed(1)} pts`;
+                        displayStops = `${stop10.toFixed(1)} | ${stop12.toFixed(1)} pts`;
+                        displayTotal = `${stopTotal.toFixed(1)} pts`;
+                        financialNote = `💰 R$ ${(stop10 * 10).toFixed(2)} a R$ ${(stop12 * 10).toFixed(2)} por contrato de stop. Limite diário: R$ ${(stopTotal * 10).toFixed(2)}.`;
+                      } else {
+                        // Generic format based on price magnitude
+                        const formatValue = (val) => {
+                          if (openPrice > 1000) return `${Math.round(val).toLocaleString('pt-BR')} pts`;
+                          if (openPrice > 10) return `${val.toFixed(2)} pts`;
+                          return `${val.toFixed(5)} pts`;
+                        };
+                        displayVol = `${formatValue(volDia)} (${garchVolPct.toFixed(2)}%)`;
+                        displayStops = `${formatValue(stop10)} | ${formatValue(stop12)}`;
+                        displayTotal = `${formatValue(stopTotal)} (${(garchVolPct * 0.5).toFixed(2)}%)`;
+                      }
 
                       return (
                         <div style={{
@@ -1831,28 +1863,33 @@ export default function App() {
                             display: 'flex', alignItems: 'center', gap: 6
                           }}>
                             <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#38ef7d' }}></span>
-                            Gestão de Risco Quantitativa (GARCH)
+                            Gestão de Risco Quantitativa ({selectedTarget.replace('$N', '')})
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
                             <div>
-                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Volatilidade Esperada (1σ)</div>
+                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Vol Esperada (1σ)</div>
                               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: '#60A5FA' }}>
-                                {Math.round(volDia).toLocaleString('pt-BR')} pts <span style={{ fontSize: 9, color: '#64748B', fontWeight: 400 }}>({garchVolPct.toFixed(2)}%)</span>
+                                {displayVol}
                               </div>
                             </div>
                             <div>
-                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Stop por Trade (25% | 20%)</div>
+                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Stop por Trade (10% | 12%)</div>
                               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: '#F87171' }}>
-                                {Math.round(stop25)} | {Math.round(stop20)} pts
+                                {displayStops}
                               </div>
                             </div>
                             <div>
-                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Prejuízo Diário (100% GARCH)</div>
+                              <div style={{ fontSize: 8, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>Prejuízo Diário (50% GARCH)</div>
                               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: '#FFFFFF' }}>
-                                {Math.round(volDia).toLocaleString('pt-BR')} pts <span style={{ fontSize: 8, color: '#64748B', fontWeight: 400 }}>(4 ops)</span>
+                                {displayTotal} <span style={{ fontSize: 8, color: '#64748B', fontWeight: 400 }}>(4 a 5 ops)</span>
                               </div>
                             </div>
                           </div>
+                          {financialNote && (
+                            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80', borderTop: '1px solid #1C1C22', paddingTop: 6 }}>
+                              {financialNote}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}

@@ -1122,13 +1122,13 @@
           <div class="indicator-box">
             <div class="indicator-title">🎯 Stop por Operação</div>
             <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
-              Definido entre <strong>20% e 25%</strong> do desvio padrão diário do GARCH (`h+1`). Em dias muito voláteis, seu stop se alarga para evitar violinadas; em dias calmos, o stop fica curto para otimizar o ganho.
+              Definido entre <strong>10% e 12%</strong> do desvio padrão diário do GARCH (`h+1`). Em dias muito voláteis, seu stop se alarga proporcionalmente para evitar violinadas; em dias calmos, o stop diminui.
             </p>
           </div>
           <div class="indicator-box success">
             <div class="indicator-title">🛑 Limite Diário (Stop Total)</div>
             <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
-              Definido em <strong>100% do GARCH</strong>. Isso garante ao operador exatamente <strong>4 tentativas de 25%</strong> ou <strong>5 tentativas de 20%</strong> no dia. Atingir 100% encerra o pregão.
+              Definido em <strong>50% do GARCH</strong>. Isso garante ao operador exatamente <strong>4 tentativas de 12%</strong> ou <strong>5 tentativas de 10%</strong> no dia. Atingir 50% de prejuízo encerra o dia.
             </p>
           </div>
         </div>
@@ -1163,8 +1163,8 @@
             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
               <label style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">Tamanho do Stop da Operação</label>
               <select id="calcStopPct" style="padding: 0.75rem; border-radius: 8px; background-color: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary); font-family: var(--font-sans); outline: none;">
-                <option value="0.25">25% da Vol Diária (4 Tentativas)</option>
-                <option value="0.20">20% da Vol Diária (5 Tentativas)</option>
+                <option value="0.12">12% da Vol Diária (4 Tentativas)</option>
+                <option value="0.10">10% da Vol Diária (5 Tentativas)</option>
               </select>
             </div>
           </div>
@@ -1435,35 +1435,38 @@
       const ativo = calcAtivo.value;
       const abertura = parseFloat(calcAbertura.value) || 0;
       const garch = (parseFloat(calcGarch.value) || 0) / 100;
-      const stopPct = parseFloat(calcStopPct.value) || 0.25;
+      const stopPct = parseFloat(calcStopPct.value) || 0.12;
 
       const volDia = abertura * garch;
       const stopTrade = volDia * stopPct;
-      const attempts = Math.round(1 / stopPct);
+      const dailyMax = volDia * 0.50; // 50% of GARCH
+      const attempts = Math.round(0.50 / stopPct);
 
       if (ativo === 'WIN') {
         const ptsVol = Math.round(volDia);
         const ptsStop = Math.round(stopTrade);
+        const ptsMax = Math.round(dailyMax);
         outVolDia.innerText = `${ptsVol.toLocaleString('pt-BR')} pts`;
         outStopTrade.innerText = `${ptsStop.toLocaleString('pt-BR')} pts`;
-        outStopDiario.innerText = `${ptsVol.toLocaleString('pt-BR')} pts`;
+        outStopDiario.innerText = `${ptsMax.toLocaleString('pt-BR')} pts`;
         const finStop = ptsStop * 0.20;
-        const finMax = ptsVol * 0.20;
-        outFinancialNote.innerText = `💰 R$ \${finStop.toFixed(2)} por mini-contrato de stop. Limite diário: R$ \${finMax.toFixed(2)} (\${attempts} tentativas).`;
+        const finMax = ptsMax * 0.20;
+        outFinancialNote.innerText = `💰 R$ \`\${finStop.toFixed(2)}\` por mini-contrato de stop. Limite diário (50%): R$ \`\${finMax.toFixed(2)}\` (\`\${attempts}\` tentativas).`;
       } else if (ativo === 'WDO') {
         const ptsVol = volDia.toFixed(1);
         const ptsStop = stopTrade.toFixed(1);
+        const ptsMax = dailyMax.toFixed(1);
         outVolDia.innerText = `${ptsVol} pts`;
         outStopTrade.innerText = `${ptsStop} pts`;
-        outStopDiario.innerText = `${ptsVol} pts`;
+        outStopDiario.innerText = `${ptsMax} pts`;
         const finStop = stopTrade * 10;
-        const finMax = volDia * 10;
-        outFinancialNote.innerText = `💰 R$ \${finStop.toFixed(2)} por mini-contrato de stop. Limite diário: R$ \${finMax.toFixed(2)} (\${attempts} tentativas).`;
+        const finMax = dailyMax * 10;
+        outFinancialNote.innerText = `💰 R$ \`\${finStop.toFixed(2)}\` por mini-contrato de stop. Limite diário (50%): R$ \`\${finMax.toFixed(2)}\` (\`\${attempts}\` tentativas).`;
       } else {
-        outVolDia.innerText = `${(garch * 100).toFixed(2)}% (\${volDia.toFixed(2)} pts)`;
-        outStopTrade.innerText = `${(garch * 100 * stopPct).toFixed(2)}% (\${stopTrade.toFixed(2)} pts)`;
-        outStopDiario.innerText = `${(garch * 100).toFixed(2)}% (\${volDia.toFixed(2)} pts)`;
-        outFinancialNote.innerText = `📈 Limite de Risco baseado em \${(stopPct*100).toFixed(0)}% da volatilidade diária (\${attempts} tentativas).`;
+        outVolDia.innerText = `${(garch * 100).toFixed(2)}% (\`\${volDia.toFixed(2)}\` pts)`;
+        outStopTrade.innerText = `${(garch * 100 * stopPct).toFixed(2)}% (\`\${stopTrade.toFixed(2)}\` pts)`;
+        outStopDiario.innerText = `${(garch * 100 * 0.50).toFixed(2)}% (\`\${dailyMax.toFixed(2)}\` pts)`;
+        outFinancialNote.innerText = `📈 Limite de Risco baseado em \`\${(stopPct*100).toFixed(0)}\`% da vol diária. Perda Máx: 50% (\`\${attempts}\` tentativas).`;
       }
     }
 
