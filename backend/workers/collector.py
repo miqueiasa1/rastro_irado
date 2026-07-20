@@ -27,7 +27,10 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 TERMINALS = [
     {
         "name": "BR (XP)",
-        "path": r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+        "paths": [
+            r"C:\Program Files\MetaTrader 5\terminal64.exe",
+            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+        ],
         "source": "br",
         "symbols": ["WIN$N", "WDO$N", "DI1$N"],
     },
