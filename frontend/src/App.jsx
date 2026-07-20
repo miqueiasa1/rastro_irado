@@ -1816,40 +1816,79 @@ export default function App() {
                       const openPrice = now.win_open;
                       if (!garchVolPct || !openPrice) return null;
 
-                      const volDia = openPrice * (garchVolPct / 100);
+                      // Identify Asset Categories
+                      const isWin = selectedTarget.includes('WIN');
+                      const isWdo = selectedTarget.includes('WDO') || selectedTarget.includes('DOL');
+                      const isUSIndexOrGold = ['US500', 'US30', 'USTEC', 'XAUUSD'].some(t => selectedTarget.includes(t));
+                      const isStandardForex = ['EURUSD', 'GBPUSD'].some(t => selectedTarget.includes(t));
+                      const isJpyForex = ['USDJPY', 'GBPJPY', 'EURJPY'].some(t => selectedTarget.includes(t));
+                      const isBtc = selectedTarget.includes('BTC');
+
+                      // Base daily volatility (absolute price difference)
+                      let baseVol = openPrice * (garchVolPct / 100);
+                      let multiplier = 1;
+                      let unit = 'pts';
+                      let decimalPlaces = 0;
+
+                      if (isWin) {
+                        multiplier = 1;
+                        unit = 'pts';
+                        decimalPlaces = 0;
+                      } else if (isWdo) {
+                        multiplier = 1;
+                        unit = 'pts';
+                        decimalPlaces = 1;
+                      } else if (isUSIndexOrGold) {
+                        multiplier = 100;
+                        unit = 'pts';
+                        decimalPlaces = 0;
+                      } else if (isStandardForex) {
+                        multiplier = 10000;
+                        unit = 'pips';
+                        decimalPlaces = 1;
+                      } else if (isJpyForex) {
+                        multiplier = 100;
+                        unit = 'pips';
+                        decimalPlaces = 1;
+                      } else if (isBtc) {
+                        multiplier = 1;
+                        unit = 'USD';
+                        decimalPlaces = 0;
+                      } else {
+                        // Fallback generic
+                        multiplier = 1;
+                        unit = 'pts';
+                        decimalPlaces = openPrice > 1000 ? 0 : (openPrice > 10 ? 2 : 5);
+                      }
+
+                      const volDia = baseVol * multiplier;
                       const stop10 = volDia * 0.10;
                       const stop12 = volDia * 0.12;
                       const stopTotal = volDia * 0.50; // 50% of GARCH expected vol
 
-                      // Formatter based on target name and price magnitude
-                      let displayVol = '';
-                      let displayStops = '';
-                      let displayTotal = '';
+                      const format = (val) => {
+                        if (unit === 'USD') {
+                          return `$${Math.round(val).toLocaleString('pt-BR')}`;
+                        }
+                        if (decimalPlaces === 0) {
+                          return `${Math.round(val).toLocaleString('pt-BR')} ${unit}`;
+                        }
+                        return `${val.toFixed(decimalPlaces)} ${unit}`;
+                      };
+
+                      const displayVol = `${format(volDia)} (${garchVolPct.toFixed(2)}%)`;
+                      const displayStops = `${format(stop10)} | ${format(stop12)}`;
+                      const displayTotal = `${format(stopTotal)} (${(garchVolPct * 0.5).toFixed(2)}%)`;
+
                       let financialNote = '';
-
-                      const isWin = selectedTarget.includes('WIN');
-                      const isWdo = selectedTarget.includes('WDO') || selectedTarget.includes('DOL');
-
                       if (isWin) {
-                        displayVol = `${Math.round(volDia).toLocaleString('pt-BR')} pts`;
-                        displayStops = `${Math.round(stop10)} | ${Math.round(stop12)} pts`;
-                        displayTotal = `${Math.round(stopTotal).toLocaleString('pt-BR')} pts`;
-                        financialNote = `💰 R$ ${(stop10 * 0.20).toFixed(2)} a R$ ${(stop12 * 0.20).toFixed(2)} por contrato de stop. Limite diário: R$ ${(stopTotal * 0.20).toFixed(2)}.`;
+                        financialNote = `💰 R$ ${(baseVol * 0.10 * 0.20).toFixed(2)} a R$ ${(baseVol * 0.12 * 0.20).toFixed(2)} por contrato de stop. Limite diário: R$ ${(baseVol * 0.50 * 0.20).toFixed(2)}.`;
                       } else if (isWdo) {
-                        displayVol = `${volDia.toFixed(1)} pts`;
-                        displayStops = `${stop10.toFixed(1)} | ${stop12.toFixed(1)} pts`;
-                        displayTotal = `${stopTotal.toFixed(1)} pts`;
-                        financialNote = `💰 R$ ${(stop10 * 10).toFixed(2)} a R$ ${(stop12 * 10).toFixed(2)} por contrato de stop. Limite diário: R$ ${(stopTotal * 10).toFixed(2)}.`;
-                      } else {
-                        // Generic format based on price magnitude
-                        const formatValue = (val) => {
-                          if (openPrice > 1000) return `${Math.round(val).toLocaleString('pt-BR')} pts`;
-                          if (openPrice > 10) return `${val.toFixed(2)} pts`;
-                          return `${val.toFixed(5)} pts`;
-                        };
-                        displayVol = `${formatValue(volDia)} (${garchVolPct.toFixed(2)}%)`;
-                        displayStops = `${formatValue(stop10)} | ${formatValue(stop12)}`;
-                        displayTotal = `${formatValue(stopTotal)} (${(garchVolPct * 0.5).toFixed(2)}%)`;
+                        financialNote = `💰 R$ ${(baseVol * 0.10 * 10).toFixed(2)} a R$ ${(baseVol * 0.12 * 10).toFixed(2)} por contrato de stop. Limite diário: R$ ${(baseVol * 0.50 * 10).toFixed(2)}.`;
+                      } else if (isUSIndexOrGold) {
+                        financialNote = `📈 Multiplicador de pontos por 100 aplicado para exibição padrão do MetaTrader 5 (1 pt = 0.01 do preço).`;
+                      } else if (isStandardForex || isJpyForex) {
+                        financialNote = `📈 Exibição convertida para Pips (${isStandardForex ? '4ª casa decimal 0.0001' : '2ª casa decimal 0.01'}).`;
                       }
 
                       return (

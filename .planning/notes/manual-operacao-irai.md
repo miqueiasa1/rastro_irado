@@ -129,11 +129,26 @@ O controle de risco do sistema IRAI é baseado diretamente no desvio padrão di�
 *   **Stop por Trade (10% | 12%)**: $4,3 \text{ a } 5,2 \text{ pontos}$ ($R\$ 43,00 \text{ a } R\$ 52,00$ por mini-contrato).
 *   **Limite de Perda do Dia (50% GARCH)**: $21,6 \text{ pontos}$ de prejuízo acumulado ($R\$ 216,00$ por mini-contrato).
 
-#### C. Outros Ativos (Ex: Ações ou Cripto)
-*   *Abertura*: $\$100,00$ | *Projeção GARCH*: $2.00\%$
-*   **Volatilidade Diária Estimada (1σ)**: $\$2,00$ ($2.00\%$).
-*   **Stop por Trade (10% | 12%)**: $\$0,20 \text{ a } \$0,24$ ($0.20\% \text{ a } 0.24\%$).
-*   **Limite de Perda do Dia (50% GARCH)**: $\$1,00$ de prejuízo acumulado ($1.00\%$).
+#### C. Índices Americanos (S&P 500, Dow Jones, Nasdaq) & Ouro (XAUUSD)
+*   *Regra de Medida*: No MetaTrader 5, esses ativos são mostrados em pontos com duas casas decimais. Multiplicamos a variação por **100** para expressar em pontos inteiros corretos de corretora (1 pt = 0.01 de preço).
+*   *Exemplo Ouro*: Abertura: $2.400 | GARCH: 1.25%
+    *   **Volatilidade Estimada (1σ)**: $3.000 \text{ pontos}$ ($30 \text{ dólares}$).
+    *   **Stop por Trade (10% | 12%)**: $300 \text{ a } 360 \text{ pontos}$ ($3,00 \text{ a } 3,60 \text{ dólares}$).
+    *   **Limite do Dia (50% GARCH)**: $1.500 \text{ pontos}$ ($15 \text{ dólares}$).
+
+#### D. Forex Padrão (EURUSD, GBPUSD)
+*   *Regra de Medida*: Medido em **Pips** (4ª casa decimal do preço: 0.0001). Variação multiplicada por **10.000**.
+*   *Exemplo EURUSD*: Abertura: $1.0850 | GARCH: 0.45%
+    *   **Volatilidade Estimada (1σ)**: $48,8 \text{ pips}$.
+    *   **Stop por Trade (10% | 12%)**: $4,9 \text{ a } 5,9 \text{ pips}$.
+    *   **Limite do Dia (50% GARCH)**: $24,4 \text{ pips}$.
+
+#### E. Forex JPY (USDJPY)
+*   *Regra de Medida*: Medido em **Pips JPY** (2ª casa decimal do preço: 0.01). Variação multiplicada por **100**.
+*   *Exemplo USDJPY*: Abertura: $157.50 | GARCH: 0.65%
+    *   **Volatilidade Estimada (1σ)**: $102,4 \text{ pips}$.
+    *   **Stop por Trade (10% | 12%)**: $10,2 \text{ a } 12,3 \text{ pips}$.
+    *   **Limite do Dia (50% GARCH)**: $51,2 \text{ pips}$.
 
 ---
 
