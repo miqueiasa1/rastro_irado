@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Manual de Operação e Playbook do Sistema IRAI - Contexto, Zona, Sinal, Confirmação e Entrada no Flip">
+  <title>IRAI — Playbook Operacional</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <style>
+    /* ==========================================
+       DESIGN SYSTEM & CSS VARIABLES
+       ========================================== */
+    :root, [data-theme="dark"] {
+      --bg-primary: #080c14;
+      --bg-secondary: #0f1626;
+      --bg-tertiary: #17223b;
+      --border-color: #1e2d4a;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      --accent-cyan: #00f2fe;
+      --accent-blue: #4facfe;
+      --accent-green: #38ef7d;
+      --accent-green-glow: rgba(56, 239, 125, 0.15);
+      --accent-red: #ff4b2b;
+      --accent-red-glow: rgba(255, 75, 43, 0.15);
+      
+      --gradient-cyan-blue: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+      --gradient-green: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+      --gradient-red: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+      --gradient-dark: linear-gradient(180deg, #0f1626 0%, #080c14 100%);
+      
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+      --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 0 20px rgba(0, 242, 254, 0.15);
+      
+      --font-sans: 'Outfit', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #f8fafc;
+      --bg-secondary: #ffffff;
+      --bg-tertiary: #f1f5f9;
+      --border-color: #e2e8f0;
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      
+      --accent-cyan: #0284c7;
+      --accent-blue: #2563eb;
+      --accent-green: #16a34a;
+      --accent-green-glow: rgba(22, 163, 74, 0.1);
+      --accent-red: #dc2626;
+      --accent-red-glow: rgba(220, 38, 38, 0.1);
+      
+      --gradient-cyan-blue: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+      --gradient-green: linear-gradient(135deg, #16a34a 0%, #4ade80 100%);
+      --gradient-red: linear-gradient(135deg, #dc2626 0%, #f87171 100%);
+      --gradient-dark: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.08);
+      --shadow-glow: 0 0 20px rgba(2, 132, 199, 0.1);
+    }
+
+    /* ==========================================
+       RESET & BASE STYLES
+       ========================================== */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      transition: background-color 0.3s ease, color 0.3s ease;
+      overflow-x: hidden;
+    }
+
+    /* ==========================================
+       SIDEBAR NAV
+       ========================================== */
+    aside {
+      background-color: var(--bg-secondary);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      background: var(--gradient-cyan-blue);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #ffffff;
+      box-shadow: var(--shadow-glow);
+      position: relative;
+    }
+
+    .brand-logo::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 8px;
+      background: inherit;
+      opacity: 0.4;
+      filter: blur(8px);
+      z-index: -1;
+    }
+
+    .brand-name {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: var(--gradient-cyan-blue);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    nav {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    nav h3 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      padding-left: 0.5rem;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      border: 1px solid transparent;
+    }
+
+    .nav-item:hover, .nav-item.active {
+      color: var(--text-primary);
+      background-color: var(--bg-tertiary);
+      border-color: var(--border-color);
+    }
+
+    .nav-item .step-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background-color: var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      transition: all 0.2s ease;
+    }
+
+    .nav-item:hover .step-num, .nav-item.active .step-num {
+      background: var(--gradient-cyan-blue);
+      color: #ffffff;
+    }
+
+    .theme-toggle-container {
+      margin-top: auto;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .theme-toggle-btn {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 8px;
+      background-color: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .theme-toggle-btn:hover {
+      background-color: var(--border-color);
+    }
+
+    /* ==========================================
+       MAIN CONTENT CONTAINER
+       ========================================== */
+    main {
+      padding: 3rem 4rem;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 4rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 2rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.75rem;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: rgba(0, 242, 254, 0.1);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(0, 242, 254, 0.2);
+      margin-bottom: 1rem;
+    }
+
+    h1 {
+      font-size: 2.75rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin-bottom: 1rem;
+      background: var(--gradient-cyan-blue);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    header p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      line-height: 1.6;
+    }
+
+    /* ==========================================
+       SECTION STYLES
+       ========================================== */
+    section {
+      margin-bottom: 5rem;
+      scroll-margin-top: 3rem;
+    }
+
+    .section-title {
+      font-size: 1.8rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .section-title span {
+      background: var(--gradient-cyan-blue);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .section-number {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #ffffff;
+      background: var(--gradient-cyan-blue);
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2.5rem;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 4px;
+      background: var(--gradient-cyan-blue);
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-md);
+      border-color: rgba(0, 242, 254, 0.25);
+    }
+
+    .card:hover::before {
+      opacity: 1;
+    }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin-top: 1.5rem;
+    }
+
+    /* ==========================================
+       INDICATOR / BADGE & ALERT STYLES
+       ========================================== */
+    .indicator-box {
+      background-color: var(--bg-tertiary);
+      border-radius: 12px;
+      padding: 1.5rem;
+      border-left: 4px solid var(--accent-blue);
+    }
+
+    .indicator-box.success {
+      border-left-color: var(--accent-green);
+    }
+
+    .indicator-box.danger {
+      border-left-color: var(--accent-red);
+    }
+
+    .indicator-title {
+      font-weight: 700;
+      font-size: 1.1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .indicator-box.success .indicator-title {
+      color: var(--accent-green);
+    }
+
+    .indicator-box.danger .indicator-title {
+      color: var(--accent-red);
+    }
+
+    .alert {
+      margin-top: 1.5rem;
+      padding: 1.25rem 1.5rem;
+      border-radius: 12px;
+      background-color: rgba(255, 75, 43, 0.05);
+      border: 1px solid rgba(255, 75, 43, 0.15);
+      border-left: 4px solid var(--accent-red);
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    .alert-title {
+      font-weight: 700;
+      color: var(--accent-red);
+      margin-bottom: 0.5rem;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ==========================================
+       LISTS & SUB-DETAILS
+       ========================================== */
+    ul {
+      list-style: none;
+    }
+
+    ul li {
+      position: relative;
+      padding-left: 1.5rem;
+      margin-bottom: 0.75rem;
+      line-height: 1.6;
+      color: var(--text-secondary);
+    }
+
+    ul li::before {
+      content: '➔';
+      position: absolute;
+      left: 0;
+      color: var(--accent-cyan);
+      font-size: 0.85rem;
+      top: 2px;
+    }
+
+    ul li strong {
+      color: var(--text-primary);
+    }
+
+    /* ==========================================
+       INTERACTIVE CANDLE FLIP SIMULATOR
+       ========================================== */
+    .simulator-container {
+      background-color: var(--bg-tertiary);
+      border-radius: 16px;
+      padding: 2.5rem;
+      border: 1px solid var(--border-color);
+      margin-top: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 280px;
+      gap: 3rem;
+      align-items: center;
+    }
+
+    .simulator-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .simulator-title {
+      font-size: 1.3rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .simulator-desc {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn-simular {
+      background: var(--gradient-cyan-blue);
+      border: none;
+      color: #ffffff;
+      padding: 1rem 2rem;
+      border-radius: 8px;
+      font-family: var(--font-sans);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: var(--shadow-glow);
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+    }
+
+    .btn-simular:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 25px rgba(0, 242, 254, 0.3);
+    }
+
+    .btn-simular:active {
+      transform: translateY(0);
+    }
+
+    /* Interactive Candle Graphic */
+    .candle-arena {
+      height: 320px;
+      background-color: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .candle-timeline-indicator {
+      position: absolute;
+      bottom: 1.5rem;
+      left: 1.5rem;
+      right: 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      color: var(--accent-cyan);
+      background-color: var(--bg-secondary);
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      text-align: center;
+    }
+
+    .candle-chart-y-axis {
+      position: absolute;
+      right: 1.5rem;
+      top: 2rem;
+      bottom: 4rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-end;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .candle-price-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      border-top: 1px dashed var(--border-color);
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      padding-left: 1rem;
+    }
+
+    .candle-price-label {
+      background-color: var(--bg-secondary);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      transform: translateY(-50%);
+    }
+
+    .candle-price-line.entry-trigger {
+      border-top-color: var(--accent-cyan);
+      z-index: 5;
+      display: none;
+    }
+
+    .candle-price-line.entry-trigger .candle-price-label {
+      color: var(--accent-cyan);
+      border-color: rgba(0, 242, 254, 0.4);
+    }
+
+    /* Candle Element */
+    .candle-wrapper {
+      position: relative;
+      width: 50px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+    }
+
+    .candle-wick {
+      position: absolute;
+      width: 2px;
+      background-color: var(--text-muted);
+      height: 0;
+      transition: all 0.3s ease;
+    }
+
+    .candle-body {
+      position: absolute;
+      width: 32px;
+      background-color: transparent;
+      border: 2px solid var(--text-muted);
+      height: 0;
+      border-radius: 4px;
+      transition: all 0.3s ease;
+    }
+
+    /* Classes for different candle states */
+    .candle-wrapper.state-open .candle-body {
+      height: 2px;
+      background-color: var(--text-primary);
+      border-color: var(--text-primary);
+    }
+
+    .candle-wrapper.state-contrary .candle-body {
+      height: 40px;
+      background-color: var(--accent-red);
+      border-color: var(--accent-red);
+      transform: translateY(20px); /* Go down from open */
+    }
+
+    .candle-wrapper.state-contrary .candle-wick {
+      height: 60px;
+      background-color: var(--accent-red);
+      transform: translateY(20px);
+    }
+
+    .candle-wrapper.state-flip .candle-body {
+      height: 2px;
+      background-color: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 10px var(--accent-cyan);
+    }
+
+    .candle-wrapper.state-expansion .candle-body {
+      height: 90px;
+      background-color: var(--accent-green);
+      border-color: var(--accent-green);
+      transform: translateY(-45px); /* Go up from open */
+      box-shadow: 0 0 15px rgba(56, 239, 125, 0.2);
+    }
+
+    .candle-wrapper.state-expansion .candle-wick {
+      height: 130px;
+      background-color: var(--text-muted);
+      transform: translateY(-25px);
+    }
+
+    /* ==========================================
+       VISUAL EXAMPLES GALLERY
+       ========================================== */
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 3rem;
+    }
+
+    .gallery-item {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .gallery-info {
+      padding: 2rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .gallery-info h4 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      color: #ffffff;
+    }
+
+    .gallery-info p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    .img-wrapper {
+      padding: 1.5rem;
+      background-color: #0b0f19;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      cursor: zoom-in;
+    }
+
+    .img-wrapper img {
+      max-width: 100%;
+      max-height: 600px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-md);
+      transition: transform 0.3s ease;
+    }
+
+    .img-wrapper:hover img {
+      transform: scale(1.01);
+    }
+
+    /* ==========================================
+       CHECKLIST SECTION
+       ========================================== */
+    .checklist-card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2.5rem;
+      position: relative;
+    }
+
+    .checklist-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .checklist-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      padding: 1rem;
+      border-radius: 8px;
+      background-color: var(--bg-tertiary);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .checklist-item:hover {
+      border-color: var(--accent-cyan);
+      background-color: rgba(0, 242, 254, 0.03);
+    }
+
+    .checklist-checkbox {
+      appearance: none;
+      width: 24px;
+      height: 24px;
+      border: 2px solid var(--border-color);
+      border-radius: 6px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s ease;
+      background-color: var(--bg-primary);
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .checklist-checkbox:checked {
+      background: var(--gradient-cyan-blue);
+      border-color: transparent;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .checklist-checkbox:checked::after {
+      content: '✓';
+      position: absolute;
+      color: #ffffff;
+      font-size: 0.9rem;
+      font-weight: 900;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    .checklist-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .checklist-content-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text-primary);
+      transition: color 0.2s ease;
+    }
+
+    .checklist-checkbox:checked ~ .checklist-content .checklist-content-title {
+      color: var(--text-muted);
+      text-decoration: line-through;
+    }
+
+    .checklist-content-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(0, 0, 0, 0.9);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      cursor: zoom-out;
+    }
+
+    .modal img {
+      max-width: 90%;
+      max-height: 90%;
+      border-radius: 8px;
+      box-shadow: 0 0 30px rgba(0,0,0,0.8);
+      border: 1px solid var(--border-color);
+    }
+
+    /* ==========================================
+       RESPONSIVE DESIGN
+       ========================================== */
+    @media (max-width: 1024px) {
+      body {
+        grid-template-columns: 1fr;
+      }
+      aside {
+        display: none;
+      }
+      main {
+        padding: 2rem;
+      }
+      .card-grid {
+        grid-template-columns: 1fr;
+      }
+      .simulator-container {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SIDEBAR NAVIGATION -->
+  <aside>
+    <div>
+      <div class="brand">
+        <div class="brand-logo">IR</div>
+        <div class="brand-name">IRAI Playbook</div>
+      </div>
+      
+      <nav>
+        <h3>Fluxo Operacional</h3>
+        <a href="#contexto" class="nav-item active">
+          <div class="step-num">1</div>
+          <span>1. Contexto</span>
+        </a>
+        <a href="#zona" class="nav-item">
+          <div class="step-num">2</div>
+          <span>2. Zona</span>
+        </a>
+        <a href="#sinal" class="nav-item">
+          <div class="step-num">3</div>
+          <span>3. Sinal</span>
+        </a>
+        <a href="#confirmacao" class="nav-item">
+          <div class="step-num">4</div>
+          <span>4. Confirmação</span>
+        </a>
+        <a href="#entrada" class="nav-item">
+          <div class="step-num">5</div>
+          <span>5. Entrada (O Flip)</span>
+        </a>
+        
+        <h3 style="margin-top: 2rem;">Recursos</h3>
+        <a href="#exemplos" class="nav-item">
+          <span style="font-size: 1rem;">🖼️</span>
+          <span>Exemplos Visuais</span>
+        </a>
+        <a href="#checklist" class="nav-item">
+          <span style="font-size: 1rem;">📋</span>
+          <span>Checklist Diário</span>
+        </a>
+      </nav>
+    </div>
+    
+    <div class="theme-toggle-container">
+      <button class="theme-toggle-btn" id="themeBtn">
+        <span>🌙</span> Dark Mode
+      </button>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main>
+    <header>
+      <div class="badge">IRAI Playbook v1.0</div>
+      <h1 id="top-title">Manual de Operação IRAI</h1>
+      <p>Manual oficial de execução técnica do sistema IRAI. Este playbook define as regras estritas para a validação de tendências, identificação de zonas de liquidez, gatilhos de exaustão, confirmação de fluxo e a mecânica exata de execução no <strong>Flip</strong>.</p>
+    </header>
+
+    <!-- 1. CONTEXTO -->
+    <section id="contexto">
+      <div class="section-title">
+        <div class="section-number">1</div>
+        <span>Contexto: Tendência Macro e Gauss</span>
+      </div>
+      <div class="card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 2rem;">
+          O contexto é o primeiro filtro de validação. Ele define se estamos autorizados a buscar operações e qual deve ser o viés direcional dominante do dia. É estruturado pela junção do Rastro Macro e da Linha Gauss.
+        </p>
+        <div class="card-grid">
+          <div class="indicator-box">
+            <div class="indicator-title">
+              <span>📊</span> Rastro Macro
+            </div>
+            <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+              Determina o viés de maior prazo do ativo. Mostra a direção acumulada das posições das instituições e o apetite a risco no intraday (Compra ou Venda).
+            </p>
+          </div>
+          <div class="indicator-box">
+            <div class="indicator-title">
+              <span>📈</span> Linha Gauss
+            </div>
+            <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+              Determina a tendência imediata do gráfico. Sua cor define o viés de curtíssimo prazo: <strong>Verde</strong> para tendência de alta, <strong>Vermelha</strong> para tendência de baixa.
+            </p>
+          </div>
+        </div>
+        
+        <div class="alert">
+          <div class="alert-title">⚠️ Regra de Ouro do Contexto</div>
+          <p style="margin-bottom: 0.5rem;">O ideal é que ambos estejam <strong>alinhados</strong> na mesma direção para abrir posições. Caso contrário:</p>
+          <ul>
+            <li><strong>Desalinhamento</strong>: Rastro Macro divergente da Linha Gauss. A regra principal é <strong>não operar</strong>.</li>
+            <li><strong>Exceção de Exaustão</strong>: Só é permitida a operação se o preço atingir uma zona de interesse relevante e mostrar <strong>Exaustão Extrema</strong> nas Bandas Gauss.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. ZONA -->
+    <section id="zona">
+      <div class="section-title">
+        <div class="section-number">2</div>
+        <span>Zona: Regiões de Interesse e Liquidez</span>
+      </div>
+      <div class="card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem;">
+          As zonas delimitam os pontos no gráfico onde os grandes players estão posicionados ou onde há alto volume de ordens pendentes. Não operamos em "meio de caminho"; o preço deve atuar dentro dessas regiões.
+        </p>
+        
+        <div style="margin-bottom: 2rem;">
+          <h4 style="margin-bottom: 1rem; color: #ffffff;">Pontos de Interesse Mapeados:</h4>
+          <ul style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <li><strong>Gamma Exposure (GEX):</strong> Faixas onde o market maker precisa ajustar hedges.</li>
+            <li><strong>Ajuste Diário (Daily Settlement):</strong> O preço médio de fechamento institucional.</li>
+            <li><strong>Máxima do Dia Anterior:</strong> Região clássica de stop dos vendidos e breakout.</li>
+            <li><strong>Mínima do Dia Anterior:</strong> Região clássica de stop dos comprados e suporte.</li>
+            <li><strong>Marcações de Liquidez:</strong> Blocos de ordens e footprints no gráfico de fluxo.</li>
+          </ul>
+        </div>
+
+        <div class="indicator-box success">
+          <div class="indicator-title">🛡️ Regra de Validação</div>
+          <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+            Todas as zonas têm **peso operacional idêntico**. A validação ocorre quando o preço testa a região e demonstra respeito (rejeição de preço e absorção de fluxo), deixando marcas evidentes (ex: sombras/pavios nos candles).
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. SINAL -->
+    <section id="sinal">
+      <div class="section-title">
+        <div class="section-number">3</div>
+        <span>Sinal: Saturação e Exaustão</span>
+      </div>
+      <div class="card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem;">
+          O sinal serve para nos alertar que o movimento atual está se esgotando no curtíssimo prazo. É o gatilho estatístico que prepara o operador para a reversão rápida.
+        </p>
+        
+        <div class="card-grid" style="grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));">
+          <div class="indicator-box" style="border-left-color: var(--accent-cyan);">
+            <div class="indicator-title" style="color: var(--accent-cyan);">🔵 Bandas Gauss</div>
+            <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+              O preço atinge ou perfura a banda externa do indicador Gauss, indicando um desvio estatístico extremo que tende a retornar à média.
+            </p>
+          </div>
+          <div class="indicator-box" style="border-left-color: var(--accent-cyan);">
+            <div class="indicator-title" style="color: var(--accent-cyan);">📊 Z-Score Pair Trading</div>
+            <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+              Distorção extrema de spread entre os pares (ex: WIN vs WDO) maior que 1.5 ou 2.0 desvios padrões, chamando arbitragem.
+            </p>
+          </div>
+          <div class="indicator-box" style="border-left-color: var(--accent-cyan);">
+            <div class="indicator-title" style="color: var(--accent-cyan);">↩️ Pullback Gauss</div>
+            <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-secondary);">
+              O preço realiza um pullback saudável de retorno à linha Gauss central após um forte impulso direcional.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. CONFIRMAÇÃO -->
+    <section id="confirmacao">
+      <div class="section-title">
+        <div class="section-number">4</div>
+        <span>Confirmação: Padrões de Fluxo</span>
+      </div>
+      <div class="card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem;">
+          A confirmação é o gatilho visual no gráfico de velas que prova a entrada de defesa e rejeição. Não operamos apenas porque o preço tocou a zona ou ativou a exaustão; precisamos ver os players reagirem ativamente.
+        </p>
+        
+        <div class="card-grid">
+          <div class="indicator-box">
+            <div class="indicator-title">🔨 Martelo / Estrela Cadente</div>
+            <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+              Formação de candle único com corpo pequeno na extremidade oposta e pavio longo (de pelo menos 2x o tamanho do corpo), comprovando absorção de ordens.
+            </p>
+          </div>
+          <div class="indicator-box">
+            <div class="indicator-title">🕯️ Blended Candle (Fusão)</div>
+            <p style="font-size: 0.95rem; line-height: 1.6; color: var(--text-secondary);">
+              Padrão de múltiplos candles cuja soma visual (fusão de tempos gráficos menores) desenha a figura do martelo de rejeição na zona.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. ENTRADA -->
+    <section id="entrada">
+      <div class="section-title">
+        <div class="section-number">5</div>
+        <span>Entrada: O Gatilho no Flip</span>
+      </div>
+      <div class="card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 1.5rem;">
+          A entrada é o momento de máxima precisão. Para evitar violinadas e falsos rompimentos, nós aguardamos o comportamento do candle posterior ao de confirmação para efetivar a nossa ordem.
+        </p>
+        
+        <div class="indicator-box success" style="margin-bottom: 2rem;">
+          <div class="indicator-title">🔄 O Flip como um Micro Pivot</div>
+          <p style="font-size: 1rem; line-height: 1.6; margin-bottom: 1rem;">O Flip é um micro pivot constituído em 3 fases dinâmicas dentro do candle de entrada:</p>
+          <ul style="margin-left: 1rem;">
+            <li><strong>Fase 1: Abertura e Teste</strong> - O candle abre e move-se inicialmente contra a direção da operação (testando a zona/pavio de confirmação).</li>
+            <li><strong>Fase 2: Reversão</strong> - O fluxo entra na direção correta e empurra o preço de volta para a abertura.</li>
+            <li><strong>Fase 3: O Gatilho</strong> - O preço rompe o preço de abertura original do próprio candle (o candle muda de cor/flipa). A execução da ordem é imediata neste exato ponto.</li>
+          </ul>
+        </div>
+
+        <!-- SIMULADOR DINÂMICO DO FLIP -->
+        <div class="simulator-container">
+          <div class="simulator-controls">
+            <div class="simulator-title">
+              <span>🎮</span> Simulador do Gatilho Flip
+            </div>
+            <p class="simulator-desc">
+              Veja a mecânica do Flip acontecer em tempo real. Pressione o botão para rodar a animação do candle de entrada (Compra) e perceba onde a execução é disparada.
+            </p>
+            <button class="btn-simular" id="simularBtn">▶ Iniciar Simulação</button>
+          </div>
+          
+          <div class="candle-arena">
+            <!-- Y Axis labels -->
+            <div class="candle-chart-y-axis">
+              <div>120.550</div>
+              <div>120.500</div>
+              <div>120.450</div>
+              <div>120.400</div>
+            </div>
+            
+            <!-- Reference Lines -->
+            <div class="candle-price-line" style="top: 160px;">
+              <div class="candle-price-label">Preço Abertura</div>
+            </div>
+            <div class="candle-price-line entry-trigger" id="entryLine" style="top: 156px;">
+              <div class="candle-price-label">🟢 GATILHO COMPRA (FLIP!)</div>
+            </div>
+
+            <!-- Candlestick -->
+            <div class="candle-wrapper state-open" id="simCandle">
+              <div class="candle-wick"></div>
+              <div class="candle-body"></div>
+            </div>
+
+            <!-- Text box updates -->
+            <div class="candle-timeline-indicator" id="simIndicator">
+              Aguardando início...
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- EXEMPLOS VISUAIS -->
+    <section id="exemplos">
+      <div class="section-title">
+        <div class="section-number">🖼️</div>
+        <span>Exemplos Visuais de Operações</span>
+      </div>
+      
+      <div class="gallery-grid">
+        <!-- Compra -->
+        <div class="gallery-item">
+          <div class="gallery-info">
+            <h4>1. Operação de Compra (Buy Setup)</h4>
+            <p>O preço vem de um movimento de baixa e encontra a zona de liquidez/GEX de suporte. Um martelo de confirmação se consolida. O candle seguinte abre testando para baixo (fica vermelho) e depois realiza o flip rompendo sua abertura, acionando a compra.</p>
+          </div>
+          <div class="img-wrapper" onclick="openModal('docs/buy_setup.png')">
+            <img src="docs/buy_setup.png" alt="Setup de Compra IRAI" onerror="this.src='https://placehold.co/800x450/0b0f19/f8fafc?text=Visual+Setup+Compra'">
+          </div>
+        </div>
+
+        <!-- Venda -->
+        <div class="gallery-item">
+          <div class="gallery-info">
+            <h4>2. Operação de Venda (Sell Setup)</h4>
+            <p>O preço atinge a zona de resistência macro ou GEX. A exaustão é sinalizada pela banda superior de Gauss. Um candle de confirmação de fluxo (Estrela Cadente) fecha. O candle seguinte abre testando para cima (fica verde) e flipa para baixo rompendo a abertura, acionando a venda.</p>
+          </div>
+          <div class="img-wrapper" onclick="openModal('docs/sell_setup.png')">
+            <img src="docs/sell_setup.png" alt="Setup de Venda IRAI" onerror="this.src='https://placehold.co/800x450/0b0f19/f8fafc?text=Visual+Setup+Venda'">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CHECKLIST DIÁRIO -->
+    <section id="checklist">
+      <div class="section-title">
+        <div class="section-number">📋</div>
+        <span>Checklist de Execução Operacional</span>
+      </div>
+      
+      <div class="checklist-card">
+        <p style="font-size: 1.1rem; line-height: 1.7; margin-bottom: 2rem; color: var(--text-secondary);">
+          Utilize este checklist dinâmico antes de clicar no botão para garantir que todos os parâmetros operacionais do sistema IRAI foram atendidos. O estado é salvo localmente.
+        </p>
+        
+        <div class="checklist-list">
+          <label class="checklist-item">
+            <input type="checkbox" class="checklist-checkbox" id="chk-contexto">
+            <div class="checklist-content">
+              <span class="checklist-content-title">1. Contexto Alinhado ou Exaustão Extrema?</span>
+              <span class="checklist-content-desc">Rastro Macro e Linha Gauss na mesma cor/direção. Se desalinhados, operamos apenas se houver exaustão máxima nas bandas Gauss.</span>
+            </div>
+          </label>
+
+          <label class="checklist-item">
+            <input type="checkbox" class="checklist-checkbox" id="chk-zona">
+            <div class="checklist-content">
+              <span class="checklist-content-title">2. Preço em Região de Relevância (Zona)?</span>
+              <span class="checklist-content-desc">O preço está tocando ou dentro do GEX, Ajuste diário, Máxima/Mínima do dia anterior ou marcação de liquidez clara.</span>
+            </div>
+          </label>
+
+          <label class="checklist-item">
+            <input type="checkbox" class="checklist-checkbox" id="chk-sinal">
+            <div class="checklist-content">
+              <span class="checklist-content-title">3. Sinal de Saturação Presente?</span>
+              <span class="checklist-content-desc">Preço perfurando a banda Gauss externa, Z-Score de pair trading extrapolando desvios padrões ou toque de pullback na média.</span>
+            </div>
+          </label>
+
+          <label class="checklist-item">
+            <input type="checkbox" class="checklist-checkbox" id="chk-confirmacao">
+            <div class="checklist-content">
+              <span class="checklist-content-title">4. Confirmação Visual por Fluxo?</span>
+              <span class="checklist-content-desc">Fechamento de um Martelo, Estrela Cadente ou Blended Candle mostrando clara rejeição/absorção (pavio longo de defesa).</span>
+            </div>
+          </label>
+
+          <label class="checklist-item">
+            <input type="checkbox" class="checklist-checkbox" id="chk-entrada">
+            <div class="checklist-content">
+              <span class="checklist-content-title">5. Gatilho de Entrada Ativado no Flip?</span>
+              <span class="checklist-content-desc">O candle seguinte abriu indo contra o trade, reverteu e rompeu sua própria abertura original (o "flip" da cor).</span>
+            </div>
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Image zoom Modal -->
+  <div class="modal" id="imageModal" onclick="closeModal()">
+    <img id="modalImg" src="" alt="Ampliado">
+  </div>
+
+  <!-- ==========================================
+       INTERACTIVE JAVASCRIPT
+       ========================================== -->
+  <script>
+    // 1. Theme Toggle logic
+    const themeBtn = document.getElementById('themeBtn');
+    const htmlEl = document.documentElement;
+
+    function initTheme() {
+      const savedTheme = localStorage.getItem('irai-manual-theme') || 'dark';
+      htmlEl.setAttribute('data-theme', savedTheme);
+      updateThemeBtn(savedTheme);
+    }
+
+    function toggleTheme() {
+      const currentTheme = htmlEl.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      htmlEl.setAttribute('data-theme', newTheme);
+      localStorage.setItem('irai-manual-theme', newTheme);
+      updateThemeBtn(newTheme);
+    }
+
+    function updateThemeBtn(theme) {
+      themeBtn.innerHTML = theme === 'dark' ? '<span>🌙</span> Dark Mode' : '<span>☀️</span> Light Mode';
+    }
+
+    themeBtn.addEventListener('click', toggleTheme);
+    initTheme();
+
+    // 2. Active Sidebar Nav item on scroll
+    const sections = document.querySelectorAll('section');
+    const navItems = document.querySelectorAll('.nav-item');
+
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(section => {
+        const sectionTop = section.offsetTop;
+        const sectionHeight = section.clientHeight;
+        if (pageYOffset >= (sectionTop - 150)) {
+          current = section.getAttribute('id');
+        }
+      });
+
+      navItems.forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('href').slice(1) === current) {
+          item.classList.add('active');
+        }
+      });
+    });
+
+    // 3. Checklist state persistence in LocalStorage
+    const checkboxes = document.querySelectorAll('.checklist-checkbox');
+    
+    checkboxes.forEach(chk => {
+      // Load state
+      const savedState = localStorage.getItem(chk.id);
+      if (savedState === 'true') chk.checked = true;
+
+      // Save state on change
+      chk.addEventListener('change', () => {
+        localStorage.setItem(chk.id, chk.checked);
+      });
+    });
+
+    // 4. Modal Zoom
+    const modal = document.getElementById('imageModal');
+    const modalImg = document.getElementById('modalImg');
+
+    function openModal(imgSrc) {
+      modal.style.display = 'flex';
+      modalImg.src = imgSrc;
+    }
+
+    function closeModal() {
+      modal.style.display = 'none';
+    }
+
+    // 5. Interactive Candle Flip Simulator Animation
+    const simBtn = document.getElementById('simularBtn');
+    const simCandle = document.getElementById('simCandle');
+    const simIndicator = document.getElementById('simIndicator');
+    const entryLine = document.getElementById('entryLine');
+
+    let animationRunning = false;
+
+    simBtn.addEventListener('click', () => {
+      if (animationRunning) return;
+      animationRunning = true;
+      simBtn.disabled = true;
+      simBtn.innerText = 'Simulando...';
+      entryLine.style.display = 'none';
+
+      // Reset candle state
+      simCandle.className = 'candle-wrapper';
+      simIndicator.innerText = 'Fase 0: Abertura do candle gatilho (Linha neutra)';
+      
+      // Step 1: Open
+      setTimeout(() => {
+        simCandle.className = 'candle-wrapper state-open';
+        simIndicator.innerText = 'Fase 1: Candle abriu em 120.450';
+      }, 1000);
+
+      // Step 2: Move contrary (Downwards, turns Red)
+      setTimeout(() => {
+        simCandle.className = 'candle-wrapper state-contrary';
+        simIndicator.innerText = 'Fase 2: Vendedores pressionam. Candle cai e fica Vermelho (reteste da zona)';
+      }, 3500);
+
+      // Step 3: Rebound / Flip moment (Reverses back to open, turns Green/Cyan highlight)
+      setTimeout(() => {
+        simCandle.className = 'candle-wrapper state-flip';
+        simIndicator.innerText = 'Fase 3: Absorção compradora! O preço volta à abertura e FLIPA (Gatilho acionado!)';
+        entryLine.style.display = 'flex';
+      }, 6500);
+
+      // Step 4: Expansion (Upwards, turns Green)
+      setTimeout(() => {
+        simCandle.className = 'candle-wrapper state-expansion';
+        simIndicator.innerText = 'Fase 4: Expansão compradora acelerada pós-Flip. Compra validada!';
+      }, 9000);
+
+      // Final: Finish
+      setTimeout(() => {
+        simBtn.disabled = false;
+        simBtn.innerText = '▶ Simular Novamente';
+        animationRunning = false;
+      }, 12000);
+    });
+  </script>
+</body>
+</html>
