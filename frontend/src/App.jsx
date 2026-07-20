@@ -1653,14 +1653,21 @@ export default function App() {
 
                     {/* BOTTOM 1: Pairwise Z-Score (Pair Spread) */}
                     {/* CRITICAL RULE: Renderizado obrigatoriamente se target for WIN$N para evitar que o painel suma sem dados. */}
-                    {selectedTarget === 'WIN$N' && (
+                    {(selectedTarget === 'WIN$N' || seriesWithNWE.some(s => s.pair_z != null)) && (
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            z-score dinâmico (pair spread)
+                            {selectedTarget === 'WIN$N'
+                              ? 'z-score dinâmico (pair spread)'
+                              : `z-score dinâmico (pair spread vs ${
+                                  nweNow?.pair_factor
+                                    ? (FACTOR_DISPLAY[nweNow.pair_factor.toLowerCase()]?.label || nweNow.pair_factor.toUpperCase())
+                                    : 'fator'
+                                })`
+                            }
                           </div>
                         </div>
                         <TVPairwiseZScoreChart
