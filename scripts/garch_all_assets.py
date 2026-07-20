@@ -30,7 +30,7 @@ TERMINAL_MAPPING = {
             r"C:\Program Files\MetaTrader 5\terminal64.exe",
             r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
         ],
-        "symbols": ["WIN$N", "WDO$N", "DI1$N", "IBOV"]
+        "symbols": ["WIN$N", "WDO$N", "IBOV"]
     },
     "tickmill": {
         "paths": [
@@ -39,10 +39,8 @@ TERMINAL_MAPPING = {
             r"C:\Program Files\Tickmill MT5 Terminal - Copia - Copia\terminal64.exe",
         ],
         "symbols": [
-            "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
-            "US500", "US30", "USTEC", "XAUUSD",
-            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
-            "CADCHF", "AUDNZD", "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD"
+            "BTCUSD", "US500", "US30", "USTEC", "XAUUSD",
+            "EURUSD", "GBPUSD", "USDJPY"
         ]
     }
 }
