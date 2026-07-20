@@ -72,6 +72,8 @@ def sync():
     targets_data = fetch_json(f"{LOCAL_API}/api/irai/targets")
     targets = targets_data.get("targets", []) if targets_data else []
     
+    health_data = fetch_json(f"{LOCAL_API}/api/health")
+    
     # 4. Puxar a série de cada target calibrado
     series_map = {}
     summaries_map = {}
@@ -108,6 +110,8 @@ def sync():
         "targets": targets_data,
         "last_update": time.time()
     }
+    if health_data:
+        update_payload["health"] = health_data
     
     for safe_target, target_series in series_map.items():
         update_payload[f"series/{safe_target}"] = target_series

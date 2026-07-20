@@ -82,9 +82,16 @@ export default function Overview({ onSelectTarget }) {
   useEffect(() => {
     async function fetchHealth() {
       try {
-        const res = await fetch(`${API}/api/health`)
-        const data = await res.json()
-        setHealth(data)
+        if (FIREBASE_URL) {
+          const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')
+          const res = await fetch(`${baseUrl}/health.json`)
+          const data = await res.json()
+          setHealth(data)
+        } else {
+          const res = await fetch(`${API}/api/health`)
+          const data = await res.json()
+          setHealth(data)
+        }
       } catch (e) {
         console.error("Error fetching system health:", e)
       }
