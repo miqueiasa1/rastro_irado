@@ -511,7 +511,7 @@ export default function App() {
   const zscoreSignalsMemory = useRef({}) // key: `${target}_${date}_${time}`, value: 'buy' | 'sell'
   const isFirstLoadRef = useRef(true)
   const [showGex, setShowGex] = useState(true)
-  const [showMidWalls, setShowMidWalls] = useState(false)
+  const [showMidWalls, setShowMidWalls] = useState(true)
   const [showGarchBands, setShowGarchBands] = useState(false)
   const [gexWalls, setGexWalls] = useState([])
   const [availableRuns, setAvailableRuns] = useState([])
