@@ -768,12 +768,25 @@ class IRAIEngine:
             else:
                 snap.flow_confirms = None
 
-            # Price Divergence
-            if target_div_sigma > 0 and snap.t_frac > 0:
-                ret_frac = snap.win_return / 100.0
-                t_frac_clamped = max(snap.t_frac, 0.05)
-                ret_z = ret_frac / (target_div_sigma * math.sqrt(t_frac_clamped))
+            # Price Divergence (Rolling Window de 60 barras)
+            if target_div_sigma > 0:
+                W = 60
+                idx_prev = max(0, target_cursor - W)
+                price_prev = float(target_bars[idx_prev]["close"]) if idx_prev < len(target_bars) else float(row["close"])
+                price_curr = float(row["close"])
+                
+                ret_rolling = ((price_curr - price_prev) / price_prev) * 100.0 if price_prev > 0 else 0.0
+                
+                if target_cursor < W:
+                    t_eff = max(target_cursor + 1, 12)
+                    sigma_w = target_div_sigma * math.sqrt(t_eff / target_bars_per_session)
+                else:
+                    sigma_w = target_div_sigma * math.sqrt(W / target_bars_per_session)
+                
+                ret_frac = ret_rolling / 100.0
+                ret_z = ret_frac / sigma_w if sigma_w > 0 else 0.0
                 snap.price_diverge_z = round(ret_z, 2)
+                
                 if snap.p_up > 55 and ret_z < -target_div_threshold:
                     snap.price_diverges = True
                 elif snap.p_up < 45 and ret_z > target_div_threshold:

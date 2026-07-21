@@ -172,22 +172,20 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
 
       // Z-Score signals (Squares)
       if (d.z_compra_val != null && isFinite(d.z_compra_val)) {
-        const isCounterTrend = d.p_up != null && d.p_up < 45;
         markers.push({
           time: t,
           position: "belowBar",
           shape: "square",
-          color: isCounterTrend ? "rgba(234, 179, 8, 0.45)" : "#4ADE80",
+          color: "#4ADE80",
           text: "",
           size: 1.2,
         });
       } else if (d.z_venda_val != null && isFinite(d.z_venda_val)) {
-        const isCounterTrend = d.p_up != null && d.p_up > 55;
         markers.push({
           time: t,
           position: "aboveBar",
           shape: "square",
-          color: isCounterTrend ? "rgba(234, 179, 8, 0.45)" : "#F87171",
+          color: "#F87171",
           text: "",
           size: 1.2,
         });

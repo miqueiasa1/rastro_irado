@@ -429,28 +429,8 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
             sparkline = [round(s["p_up"], 1) for s in series_list[-24:]]
             flow_confirms = last_dict.get("flow_confirms")
 
-            price_diverges = False
-            price_diverge_z = None
-            try:
-                slug = t["slug"]
-                m = engine.models.get(slug, {})
-                div_cfg = m.get("divergence_config", {"sigma": 0.005, "threshold": 0.5})
-                target_div_sigma = div_cfg.get("sigma", 0.005)
-                target_div_threshold = div_cfg.get("threshold", 0.5)
-
-                t_frac = last_dict.get("t_frac", 0.0)
-                if target_div_sigma > 0 and t_frac > 0:
-                    ret_frac = win_return / 100.0
-                    t_frac_clamped = max(t_frac, 0.05)
-                    ret_z = ret_frac / (target_div_sigma * math.sqrt(t_frac_clamped))
-                    price_diverge_z = round(ret_z, 2)
-
-                    if p_up > 55 and ret_z < -target_div_threshold:
-                        price_diverges = True
-                    elif p_up < 45 and ret_z > target_div_threshold:
-                        price_diverges = True
-            except Exception:
-                pass
+            price_diverges = last_dict.get("price_diverges", False)
+            price_diverge_z = last_dict.get("price_diverge_z")
 
             nwe_slope = 0.0
             try:

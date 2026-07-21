@@ -289,15 +289,21 @@ export default function App() {
         hm_color_pr = isCounterTrend ? '#EAB308' : '#F87171';
       }
 
-      // Z-Score (Quadrado no gráfico)
+      // Z-Score (Quadrado no gráfico) - Apenas quando há divergência real (preço e modelo em sentidos opostos)
       const threshold = seriesInfo.divergence_threshold || 0.75;
       const prevEntry = index > 0 ? rawNwe[index - 1] : null;
       const prevZ = prevEntry ? (prevEntry.price_diverge_z || 0) : 0;
       const currZ = entry.price_diverge_z || 0;
+      const pUp = entry.p_up != null ? entry.p_up : 50;
+
+      // Divergência de Alta (Compra): Preço caiu (currZ <= -threshold) MAS modelo é altista (pUp >= 50 ou price_diverges)
+      const isZBuyRaw = currZ <= -threshold && (entry.price_diverges || pUp >= 50);
+      // Divergência de Baixa (Venda): Preço subiu (currZ >= threshold) MAS modelo é baixista (pUp <= 50 ou price_diverges)
+      const isZSellRaw = currZ >= threshold && (entry.price_diverges || pUp <= 50);
 
       // Crossover para evitar pintura contínua
-      const isZBuy = currZ <= -threshold && prevZ > -threshold;
-      const isZSell = currZ >= threshold && prevZ < threshold;
+      const isZBuy = isZBuyRaw && prevZ > -threshold;
+      const isZSell = isZSellRaw && prevZ < threshold;
 
       // Only save to signals memory if it's the live active bar
       if (isLiveBar) {
@@ -320,7 +326,6 @@ export default function App() {
       const isNweExhaustionUp = entry.nwe_lower_price !== undefined && entry.nwe_lower_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current < entry.nwe_lower_price;
 
       // Heatmap Logic
-      const pUp = entry.p_up != null ? entry.p_up : 50;
       const isBuy = pUp >= 60;
       const isSell = pUp <= 40;
 
@@ -335,14 +340,12 @@ export default function App() {
       const isNweDivergentSell = isSell && nweUp === true;
       let hm_color_p = isNweDivergentBuy ? '#4ADE80' : isNweDivergentSell ? '#F87171' : '#1E293B';
 
-      // Z: Z-Score (estado de divergência)
+      // Z: Z-Score (estado de divergência real)
       let hm_color_z = '#1E293B';
-      if (currZ <= -threshold) {
-        const isCounterTrend = pUpDir < 45;
-        hm_color_z = isCounterTrend ? '#EAB308' : '#4ADE80';
-      } else if (currZ >= threshold) {
-        const isCounterTrend = pUpDir > 55;
-        hm_color_z = isCounterTrend ? '#EAB308' : '#F87171';
+      if (isZBuyRaw) {
+        hm_color_z = '#4ADE80';
+      } else if (isZSellRaw) {
+        hm_color_z = '#F87171';
       }
 
       // E: Exaustão NWE
