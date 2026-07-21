@@ -78,6 +78,7 @@ def sync():
     series_map = {}
     summaries_map = {}
     history_map = {}
+    garch_map = {}
     for target_obj in targets:
         target = target_obj['target']
         safe_target = target.replace('$', '_').replace('.', '_')
@@ -91,17 +92,20 @@ def sync():
             raw_series = series_data.get("series", [])
             lean_series = []
             for i, bar in enumerate(raw_series):
-                # Mantemos o objeto completo (com "factors", etc.) APENAS na última barra (atual)
-                # para que os cards e a tabela lateral exibam os fatores em tempo real normalmente.
                 if i == len(raw_series) - 1:
                     lean_series.append(bar)
                 else:
-                    # Removemos os campos pesados (não utilizados nos gráficos históricos) das barras anteriores
                     lean_bar = {k: v for k, v in bar.items() if k not in ("factors", "stale_factors")}
                     lean_series.append(lean_bar)
             series_map[safe_target] = lean_series
             summaries_map[safe_target] = series_data.get("summary", {})
             history_map[safe_target] = series_data.get("history_closes", [])
+        
+        # Puxar dados de GARCH para o alvo
+        garch_symbol = 'IBOV' if target == 'WIN$N' else target
+        garch_data = fetch_json(f"{LOCAL_API}/api/garch?symbol={urllib.parse.quote(garch_symbol)}&date={current_date}")
+        if garch_data and not garch_data.get("error"):
+            garch_map[safe_target] = garch_data
     
     # 5. Montar payload flat para atualização atômica via SDK
     update_payload = {
@@ -121,6 +125,9 @@ def sync():
 
     for safe_target, target_history in history_map.items():
         update_payload[f"history/{safe_target}"] = target_history
+    
+    for safe_target, target_garch in garch_map.items():
+        update_payload[f"garch/{safe_target}"] = target_garch
     
     # 6. Gravar usando SDK do Firebase Admin (garante autenticação nativa)
     try:

@@ -144,7 +144,8 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
       const fetches = [
         fetch(`${baseUrl}/series/${safeTarget}.json`).then(r => r.json()),
         fetch(`${baseUrl}/summaries/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json())
+        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json()),
+        fetch(`${baseUrl}/garch/${safeTarget}.json`).then(r => r.json()).catch(() => null)
       ];
       
       const shouldFetchLastUpdate = silent || isFirstLoadRef.current;
@@ -154,7 +155,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
       }
 
       Promise.all(fetches)
-        .then(([seriesData, summariesData, historyData, lastUpdateData]) => {
+        .then(([seriesData, summariesData, historyData, garchDataRes, lastUpdateData]) => {
           const tMeta = targetsMeta.find(t => t.target === target) || {};
           const s = seriesData || [];
           const sum = summariesData || {};
@@ -195,7 +196,11 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           setGexWalls(GEX_LEVELS[target] || []);
           setAvailableRuns([]);
           setSelectedRun(null);
-          setGarchData(null);
+          if (garchDataRes && Array.isArray(garchDataRes.history)) {
+            setGarchData(garchDataRes);
+          } else {
+            setGarchData(null);
+          }
           setLoading(false);
           if (shouldFetchLastUpdate && lastUpdateData !== undefined && lastUpdateData !== null) {
             setLastUpdate(new Date(lastUpdateData * 1000));
