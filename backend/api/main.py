@@ -124,13 +124,16 @@ app.add_middleware(
 
 @app.post("/api/internal/notify_update")
 async def notify_update():
-    """Chamado pelo collector.py após inserir novas barras."""
+    """Chamado pelo collector.py após inserir novas barras ou para recarregar o motor."""
     global engine
     try:
-        if engine:
-            engine._load_params()
+        import importlib
+        import backend.irai.engine as engine_module
+        importlib.reload(engine_module)
+        engine = engine_module.IRAIEngine()
+        print("IRAIEngine e módulo engine.py recarregados com sucesso.")
     except Exception as e:
-        print(f"Error reloading model parameters: {e}")
+        print(f"Error reloading engine: {e}")
     series_cache.clear()
     overview_cache_data.clear()
     data_updated_event.set()
@@ -368,7 +371,7 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
         print(f"Error computing NWE in API: {e}", flush=True)
 
     div_cfg = target_info.get("divergence_config", {})
-    divergence_threshold = div_cfg.get("threshold", 0.75)
+    divergence_threshold = div_cfg.get("threshold", 2.0)
 
     result = {
         "session_date": session_date,

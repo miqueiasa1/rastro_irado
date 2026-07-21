@@ -900,7 +900,7 @@ export default function App() {
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
-                          threshold={seriesInfo.divergence_threshold || 0.75}
+                          threshold={seriesInfo.divergence_threshold || 2.0}
                         />
                       </div>
                     )}
