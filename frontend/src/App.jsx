@@ -14,6 +14,9 @@ import { useIraiData } from './hooks/useIraiData'
 import SignalGauge from './components/SignalGauge'
 import { FACTOR_DISPLAY, getFactorMeta } from './utils/constants'
 import { parseTimeToTimestamp } from './utils/time'
+import { processSeriesSignals } from './utils/signalProcessor'
+import { DetailHeader } from './components/DetailHeader'
+import { SignalsHeatmapTable } from './components/SignalsHeatmapTable'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
 
@@ -240,151 +243,22 @@ export default function App() {
 
 
   // Applica NWE na série
+  // Aplica NWE e Sinais Estatísticos na série
   const seriesWithNWE = useMemo(() => {
     const rawNwe = series || [];
+    const processed = processSeriesSignals(rawNwe, seriesInfo, pairSignalsMemory, zscoreSignalsMemory);
     
-    // Find the last valid non-ghost entry index to identify the live bar
-    let latestActiveIndex = -1;
-    for (let i = rawNwe.length - 1; i >= 0; i--) {
-      if (rawNwe[i].win_current !== undefined && !rawNwe[i].is_ghost) {
-        latestActiveIndex = i;
-        break;
-      }
-    }
-
-    return rawNwe.map((entry, index) => {
-      let z_compra = 0, z_venda = 0, z_neutro = entry.price_diverge_z || 0;
-      if (entry.price_diverges) {
-        if (entry.p_up > 55) { z_compra = entry.price_diverge_z; z_neutro = 0; }
-        else if (entry.p_up < 45) { z_venda = entry.price_diverge_z; z_neutro = 0; }
-      }
-      
-      let pair_compra = undefined;
-      let pair_venda = undefined;
-      let hm_color_pr = '#1E293B';
-      
-      const pUpDir = entry.p_up != null ? entry.p_up : 50;
-      const memKey = `${selectedTarget}_${effectiveDate}_${entry.time}`;
-      const isLiveBar = (index === latestActiveIndex);
-
-      // Determine if condition is met right now
-      const isPairBuy = entry.pair_signal === 'buy';
-      const isPairSell = entry.pair_signal === 'sell';
-
-      // Only save to signals memory if it's the live active bar
-      if (isLiveBar) {
-        if (isPairBuy) pairSignalsMemory.current[memKey] = 'buy';
-        else if (isPairSell) pairSignalsMemory.current[memKey] = 'sell';
-      }
-
-      // Historical bars evaluate condition strictly. Live bar uses memory to avoid repaint.
-      const activeSignal = isLiveBar ? pairSignalsMemory.current[memKey] : (isPairBuy ? 'buy' : isPairSell ? 'sell' : null);
-      if (activeSignal === 'buy') {
-        pair_compra = entry.win_current;
-        const isCounterTrend = pUpDir < 45;
-        hm_color_pr = isCounterTrend ? '#EAB308' : '#4ADE80';
-      } else if (activeSignal === 'sell') {
-        pair_venda = entry.win_current;
-        const isCounterTrend = pUpDir > 55;
-        hm_color_pr = isCounterTrend ? '#EAB308' : '#F87171';
-      }
-
-      // Z-Score (Quadrado no gráfico) - Apenas quando há divergência real (preço e modelo em sentidos opostos)
-      const threshold = seriesInfo.divergence_threshold || 0.75;
-      const prevEntry = index > 0 ? rawNwe[index - 1] : null;
-      const prevZ = prevEntry ? (prevEntry.price_diverge_z || 0) : 0;
-      const currZ = entry.price_diverge_z || 0;
-      const pUp = entry.p_up != null ? entry.p_up : 50;
-
-      // Divergência de Alta (Compra): Preço caiu (currZ <= -threshold) MAS modelo é altista (pUp >= 50 ou price_diverges)
-      const isZBuyRaw = currZ <= -threshold && (entry.price_diverges || pUp >= 50);
-      // Divergência de Baixa (Venda): Preço subiu (currZ >= threshold) MAS modelo é baixista (pUp <= 50 ou price_diverges)
-      const isZSellRaw = currZ >= threshold && (entry.price_diverges || pUp <= 50);
-
-      // Crossover para evitar pintura contínua
-      const isZBuy = isZBuyRaw && prevZ > -threshold;
-      const isZSell = isZSellRaw && prevZ < threshold;
-
-      // Only save to signals memory if it's the live active bar
-      if (isLiveBar) {
-        if (isZBuy) zscoreSignalsMemory.current[memKey] = 'buy';
-        else if (isZSell) zscoreSignalsMemory.current[memKey] = 'sell';
-      }
-
-      // Historical bars evaluate condition strictly. Live bar uses memory to avoid repaint.
-      const activeZSignal = isLiveBar ? zscoreSignalsMemory.current[memKey] : (isZBuy ? 'buy' : isZSell ? 'sell' : null);
-      let z_compra_val = undefined;
-      let z_venda_val = undefined;
-      if (activeZSignal === 'buy') {
-        z_compra_val = entry.win_current;
-      } else if (activeZSignal === 'sell') {
-        z_venda_val = entry.win_current;
-      }
-
-      const winReturn = entry.win_return || 0;
-      const isNweExhaustionDown = entry.nwe_upper_price !== undefined && entry.nwe_upper_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current > entry.nwe_upper_price;
-      const isNweExhaustionUp = entry.nwe_lower_price !== undefined && entry.nwe_lower_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current < entry.nwe_lower_price;
-
-      // Heatmap Logic
-      const isBuy = pUp >= 60;
-      const isSell = pUp <= 40;
-
-      // D: Divergência de Retorno
-      const isReturnDivergentBuy = isBuy && winReturn < 0;
-      const isReturnDivergentSell = isSell && winReturn > 0;
-      let hm_color_d = isReturnDivergentBuy ? '#4ADE80' : isReturnDivergentSell ? '#F87171' : '#1E293B';
-
-      // P: Pullback NWE
-      const nweUp = entry.nwe_slope !== undefined ? entry.nwe_slope >= 0 : undefined;
-      const isNweDivergentBuy = isBuy && nweUp === false;
-      const isNweDivergentSell = isSell && nweUp === true;
-      let hm_color_p = isNweDivergentBuy ? '#4ADE80' : isNweDivergentSell ? '#F87171' : '#1E293B';
-
-      // Z: Z-Score (estado de divergência real)
-      let hm_color_z = '#1E293B';
-      if (isZBuyRaw) {
-        hm_color_z = '#4ADE80';
-      } else if (isZSellRaw) {
-        hm_color_z = '#F87171';
-      }
-
-      // E: Exaustão NWE
-      let hm_color_e = isNweExhaustionUp ? '#4ADE80' : isNweExhaustionDown ? '#F87171' : '#1E293B';
-
-      // Limpar sinais se o mercado estiver fechado (ghost bar)
-      if (entry.is_ghost) {
-        hm_color_d = 'transparent';
-        hm_color_p = 'transparent';
-        hm_color_z = 'transparent';
-        hm_color_e = 'transparent';
-        hm_color_pr = 'transparent';
-        z_compra = 0;
-        z_venda = 0;
-        pair_compra = undefined;
-        pair_venda = undefined;
-        z_compra_val = undefined;
-        z_venda_val = undefined;
-      }
-
-      const mappedEntry = {
-        ...entry,
-        z_compra, z_venda, z_neutro,
-        pair_compra, pair_venda,
-        z_compra_val, z_venda_val,
-        hm_val: 1, hm_color_d, hm_color_p, hm_color_z, hm_color_pr, hm_color_e
-      };
-
-      // Flatten weights for Recharts
+    return processed.map(entry => {
+      const mappedEntry = { ...entry, hm_val: 1 };
       const factors = entry.factors;
       if (factors) {
         Object.keys(factors).forEach(label => {
           mappedEntry[`weight_${label}`] = factors[label].weight;
         });
       }
-
       return mappedEntry;
     });
-  }, [series, selectedTarget, effectiveDate]);
+  }, [series, selectedTarget, effectiveDate, seriesInfo]);
   const validSeriesWithNWE = useMemo(() => seriesWithNWE.filter(s => s.win_current !== undefined), [seriesWithNWE]);
   const nweNow = validSeriesWithNWE.length > 0 ? validSeriesWithNWE[validSeriesWithNWE.length - 1] : null;
 
@@ -726,192 +600,24 @@ export default function App() {
       ) : (
         <div className="app-container" {...targetSwipeHandlers}>
           {/* Header */}
-          <header className="app-header">
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-              <button
-                onClick={() => setPage('overview')}
-                style={{
-                  background: 'none', border: '1px solid #334155',
-                  borderRadius: 6, padding: '4px 10px', cursor: 'pointer',
-                  fontFamily: 'var(--font-mono)', fontSize: 10, color: '#94A3B8',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = '#64748B'}
-                onMouseLeave={e => e.currentTarget.style.borderColor = '#334155'}
-              >← PAINEL</button>
-              <h1 style={{
-                fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 400,
-                margin: 0, color: 'var(--amber)',
-                letterSpacing: '0.04em',
-              }}>
-                IRAI
-              </h1>
-              <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, color: '#3A3A4A',
-                letterSpacing: '0.12em', textTransform: 'uppercase',
-              }}>Intraday Risk Appetite Index</span>
-            </div>
-            <div className="app-header-controls">
-              {now && (
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
-                }}>{now.time} · barra {validSeries.length}</span>
-              )}
-              {/* WS connection dot */}
-              {liveMode && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80',
-                }}>
-                  <div style={{
-                    width: 6, height: 6, borderRadius: '50%',
-                    background: '#4ADE80',
-                    boxShadow: '0 0 6px #4ADE80',
-                    animation: 'pulse 2s infinite',
-                  }} />
-                  LIVE (60s)
-                </div>
-              )}
-              <select
-                value={selectedTarget}
-                onChange={e => setSelectedTarget(e.target.value)}
-              >
-                {targetsMeta.map(t => (
-                  <option key={t.target} value={t.target}>
-                    {t.icon} {t.display_name}
-                  </option>
-                ))}
-              </select>
-
-              {/* Timeframe Selector */}
-              {!FIREBASE_URL && (
-                <select
-                  value={timeframe}
-                  onChange={e => setTimeframe(e.target.value)}
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 4,
-                    border: '1px solid #334155',
-                    background: '#1E293B',
-                    color: '#F8FAFC',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 11,
-                    cursor: 'pointer',
-                  }}
-                >
-                  <option value="M1">1m</option>
-                  <option value="M2">2m</option>
-                  <option value="M5">5m</option>
-                  <option value="M15">15m</option>
-                  <option value="M30">30m</option>
-                  <option value="H1">1h</option>
-                </select>
-              )}
-
-              {/* Chart Style (Line vs Candles) */}
-              <div style={{ display: 'flex', border: '1px solid #334155', borderRadius: 4, overflow: 'hidden' }}>
-                <button
-                  onClick={() => setChartType('line')}
-                  style={{
-                    padding: '6px 10px',
-                    background: chartType === 'line' ? '#334155' : '#1E293B',
-                    color: '#F8FAFC',
-                    border: 'none',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                    transition: 'background 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  title="Gráfico de Linha"
-                >
-                  📈
-                </button>
-                <button
-                  onClick={() => setChartType('candle')}
-                  style={{
-                    padding: '6px 10px',
-                    background: chartType === 'candle' ? '#334155' : '#1E293B',
-                    color: '#F8FAFC',
-                    border: 'none',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 10,
-                    cursor: 'pointer',
-                    transition: 'background 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  title="Gráfico de Velas"
-                >
-                  🕯️
-                </button>
-              </div>
-              {/* LIVE button + date dropdown */}
-              {!FIREBASE_URL ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                  <button
-                    onClick={() => setLiveMode(true)}
-                    style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-                      letterSpacing: '0.1em', padding: '6px 11px',
-                      borderRadius: '4px 0 0 4px',
-                      border: `1px solid ${liveMode ? '#4ADE80' : '#334155'}`,
-                      borderRight: 'none',
-                      background: liveMode ? 'rgba(74,222,128,0.12)' : '#1E293B',
-                      color: liveMode ? '#4ADE80' : '#475569',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}
-                  >
-                    {liveMode && (
-                      <span style={{
-                        display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                        background: '#4ADE80',
-                        boxShadow: '0 0 5px #4ADE80',
-                        animation: 'pulse 2s infinite',
-                      }} />
-                    )}
-                    LIVE
-                  </button>
-                  <select
-                    value={liveMode ? (dates[0] || '') : (selectedDate || '')}
-                    onChange={e => {
-                      setLiveMode(false)
-                      setSelectedDate(e.target.value)
-                    }}
-                    style={{
-                      borderRadius: '0 4px 4px 0',
-                      borderLeft: `1px solid ${liveMode ? '#4ADE8033' : '#334155'}`,
-                      opacity: liveMode ? 0.5 : 1,
-                    }}
-                  >
-                    {dates.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-              ) : (
-                <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-                  letterSpacing: '0.1em', padding: '6px 11px',
-                  borderRadius: 4,
-                  border: '1px solid #4ADE80',
-                  background: 'rgba(74,222,128,0.12)',
-                  color: '#4ADE80',
-                  display: 'flex', alignItems: 'center', gap: 5,
-                }}>
-                  <span style={{
-                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                    background: '#4ADE80', boxShadow: '0 0 5px #4ADE80',
-                    animation: 'pulse 2s infinite',
-                  }} />
-                  LIVE
-                </div>
-              )}
-            </div>
-          </header>
+          <DetailHeader
+            onBackToOverview={() => setPage('overview')}
+            now={now}
+            validSeriesLength={validSeries.length}
+            liveMode={liveMode}
+            setLiveMode={setLiveMode}
+            selectedTarget={selectedTarget}
+            setSelectedTarget={setSelectedTarget}
+            targetsMeta={targetsMeta}
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+            chartType={chartType}
+            setChartType={setChartType}
+            dates={dates}
+            selectedDate={selectedDate}
+            setSelectedDate={setSelectedDate}
+            firebaseUrl={FIREBASE_URL}
+          />
 
           <main>
             {loading && (
@@ -1288,6 +994,9 @@ export default function App() {
                     }}>{(now.score_v1 || now.score || 0) >= 0 ? '+' : ''}{(now.score_v1 || now.score || 0).toFixed(2)}</div>
                   </div>
                 </div>
+
+                {/* ── SIGNALS HEATMAP MATRIX ── */}
+                <SignalsHeatmapTable series={seriesWithNWE} target={selectedTarget} />
 
                 {/* ── GARCH VOLATILITY PANEL ── */}
                 {garchData && garchData.history && garchData.history.length > 0 && (

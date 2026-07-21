@@ -106,11 +106,15 @@ CREATE TABLE IF NOT EXISTS garch_volatility (
 """
 
 def get_connection(db_path=None):
-    """Retorna conexão SQLite com WAL mode."""
+    """Retorna conexão SQLite com WAL mode e resiliência de concorrência."""
     path = db_path or DB_PATH
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dir_name = os.path.dirname(path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     conn = sqlite3.connect(path, timeout=30.0)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     return conn
