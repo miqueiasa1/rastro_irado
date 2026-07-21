@@ -629,6 +629,7 @@ class IRAIEngine:
         pair_sigma_fallback = div_cfg.get("pair_sigma", 0.005)
         pair_threshold = div_cfg.get("pair_threshold", 2.0)
         recent_residuals = []
+        recent_basket_residuals = []
 
         # Set de timestamps reais do target para detecção precisa de ghost bars
         target_ts_set = set(r["timestamp"] for r in target_bars)
@@ -768,32 +769,30 @@ class IRAIEngine:
             else:
                 snap.flow_confirms = None
 
-            # Price Divergence (Rolling Window de 60 barras)
-            if target_div_sigma > 0:
-                W = 60
-                idx_prev = max(0, target_cursor - W)
-                price_prev = float(target_bars[idx_prev]["close"]) if idx_prev < len(target_bars) else float(row["close"])
-                price_curr = float(row["close"])
-                
-                ret_rolling = ((price_curr - price_prev) / price_prev) * 100.0 if price_prev > 0 else 0.0
-                
-                if target_cursor < W:
-                    t_eff = max(target_cursor + 1, 12)
-                    sigma_w = target_div_sigma * math.sqrt(t_eff / target_bars_per_session)
-                else:
-                    sigma_w = target_div_sigma * math.sqrt(W / target_bars_per_session)
-                
-                ret_frac = ret_rolling / 100.0
-                ret_z = ret_frac / sigma_w if sigma_w > 0 else 0.0
-                snap.price_diverge_z = round(ret_z, 2)
-                
-                if snap.p_up > 55 and ret_z < -target_div_threshold:
-                    snap.price_diverges = True
-                elif snap.p_up < 45 and ret_z > target_div_threshold:
-                    snap.price_diverges = True
-                    
-            # Pairwise Signal (v2 Kalman Only)
+            # Multi-Factor Basket Arbitrage Z-Score & Pairwise Signal (v2 Kalman Only)
             if version in ("v2", "both") and kf is not None and len(active_factors) > 0 and snap.t_frac > 0 and not is_ghost_bar and not is_pre_market:
+                # 1. Multi-Factor Basket Spread (Cesta Completa de Fatores)
+                predicted_basket_ret = float(np.sum(np.array(obs_matrix) * current_betas))
+                basket_residual = win_ret - predicted_basket_ret
+                recent_basket_residuals.append(basket_residual)
+                if len(recent_basket_residuals) > 100:
+                    recent_basket_residuals.pop(0)
+
+                if len(recent_basket_residuals) >= 6:
+                    past_basket_res = recent_basket_residuals[:-1]
+                    basket_sigma = float(np.std(past_basket_res))
+                    if basket_sigma < 0.0001:
+                        basket_sigma = 0.0001
+                    basket_mean = float(np.mean(past_basket_res))
+                    price_div_z = (basket_residual - basket_mean) / basket_sigma
+                    price_div_z = max(-4.0, min(4.0, price_div_z))
+                    snap.price_diverge_z = round(price_div_z, 2)
+                    snap.price_diverges = (abs(price_div_z) >= 2.0)
+                else:
+                    snap.price_diverge_z = 0.0
+                    snap.price_diverges = False
+
+                # 2. Pairwise Signal (Fator Único Dominante)
                 betas_abs = [abs(b) for b in current_betas[1:]]
                 max_idx = int(np.argmax(betas_abs))
                 beta_max = current_betas[max_idx + 1]
@@ -803,26 +802,20 @@ class IRAIEngine:
                 pair_label = active_labels.get(pair_factor_key, pair_factor_key)
                 
                 # Residual: (Target Return) - (Beta * Factor Return)
-                # Note: win_ret is a percentage here, so residual is a percentage.
                 residuo = win_ret - (beta_max * f_ret_max)
                 recent_residuals.append(residuo)
                 if len(recent_residuals) > 100:
                     recent_residuals.pop(0)
                     
-                # Need minimum 6 bars (5 past residuals + 1 current) to have a meaningful sigma estimate
                 if len(recent_residuals) >= 6:
                     past_residuals = recent_residuals[:-1]
                     pair_sigma = float(np.std(past_residuals))
                     if pair_sigma < 0.0001:
                         pair_sigma = 0.0001
                     
-                    # Detrend to calculate Z-Score against the rolling mean
                     residuo_mean = float(np.mean(past_residuals))
                     pair_z = (residuo - residuo_mean) / pair_sigma
-                    
-                    # Clamp to prevent chart-breaking outliers
                     pair_z = max(-4.0, min(4.0, pair_z))
-                    
                     snap.pair_z = round(pair_z, 2)
                 else:
                     pair_z = 0.0
@@ -836,6 +829,18 @@ class IRAIEngine:
                     snap.pair_signal = "sell"
                 else:
                     snap.pair_signal = None
+            else:
+                # Fallback se V1 ou pré-mercado
+                if target_div_sigma > 0:
+                    W = 60
+                    idx_prev = max(0, target_cursor - W)
+                    price_prev = float(target_bars[idx_prev]["close"]) if idx_prev < len(target_bars) else float(row["close"])
+                    price_curr = float(row["close"])
+                    ret_rolling = ((price_curr - price_prev) / price_prev) * 100.0 if price_prev > 0 else 0.0
+                    sigma_w = target_div_sigma * math.sqrt(W / target_bars_per_session)
+                    ret_z = (ret_rolling / 100.0) / sigma_w if sigma_w > 0 else 0.0
+                    snap.price_diverge_z = round(ret_z, 2)
+                    snap.price_diverges = (abs(ret_z) >= 2.0)
 
             snapshots.append(snap)
             

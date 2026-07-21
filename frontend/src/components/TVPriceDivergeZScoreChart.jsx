@@ -3,7 +3,7 @@ import { LineSeries, LineStyle } from "lightweight-charts";
 import BaseLightweightChart from "./BaseLightweightChart";
 import { parseTimeToTimestamp } from "../utils/time";
 
-const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true, threshold = 0.75 }, ref) => {
+const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true, threshold = 2.0 }, ref) => {
   const baseChartRef = useRef(null);
   const seriesRefs = useRef({});
   const priceLinesRef = useRef([]);

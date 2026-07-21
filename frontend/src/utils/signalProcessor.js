@@ -6,7 +6,7 @@
 export function processSeriesSignals(rawNwe, seriesInfo = {}, pairSignalsMemory = { current: {} }, zscoreSignalsMemory = { current: {} }) {
   if (!rawNwe || !Array.isArray(rawNwe)) return [];
 
-  const threshold = seriesInfo.divergence_threshold || 0.75;
+  const threshold = seriesInfo.divergence_threshold || 2.0;
   const lastIndex = rawNwe.length - 1;
 
   return rawNwe.map((entry, index) => {
