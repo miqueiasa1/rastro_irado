@@ -190,7 +190,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             tz_offset: isB3 ? -3 : 0, 
             tz_label: 'BRT',
             accuracy: sum?.accuracy,
-            divergence_threshold: tMeta.divergence_config?.threshold || 0.75
+            divergence_threshold: tMeta.divergence_config?.threshold || 2.0
           });
           setGexWalls(GEX_LEVELS[target] || []);
           setAvailableRuns([]);
@@ -240,7 +240,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             tz_offset: isB3 ? -3 : 0, 
             tz_label: 'BRT', 
             accuracy: data.summary?.accuracy,
-            divergence_threshold: data.divergence_threshold || 0.75
+            divergence_threshold: data.divergence_threshold || 2.0
           });
           
           if (gexData && Array.isArray(gexData.levels)) {

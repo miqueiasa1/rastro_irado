@@ -133,7 +133,7 @@ class IRAIEngine:
             slug = row["slug"]
             factors = json.loads(row["factors"]) if row["factors"] else []
             factor_labels = json.loads(row["factor_labels"]) if row["factor_labels"] else {}
-            divergence_config = json.loads(row["divergence_config"]) if row["divergence_config"] else {"sigma": 0.005, "threshold": 0.5}
+            divergence_config = json.loads(row["divergence_config"]) if row["divergence_config"] else {"sigma": 0.005, "threshold": 2.0}
             
             self.target_slugs[target] = slug
             self.registered_targets.append({
@@ -224,11 +224,11 @@ class IRAIEngine:
                 "factors": m["factors"], "labels": m["factor_labels"],
                 "param_prefix": "", "session_start_h": 12, "session_end_h": 21,
                 "data_proxy": None,
-                "divergence_config": m.get("divergence_config", {"sigma": 0.009, "threshold": 0.5}),
+                "divergence_config": m.get("divergence_config", {"sigma": 0.009, "threshold": 2.0}),
                 "use_johansen": m.get("divergence_config", {}).get("use_johansen", True),
             }
         return {}, {}, 1.0, 0.0, {"factors": [], "labels": {}, "param_prefix": "",
-                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None, "divergence_config": {"sigma": 0.005, "threshold": 0.5}, "use_johansen": True}
+                                    "session_start_h": 0, "session_end_h": 24, "data_proxy": None, "divergence_config": {"sigma": 0.005, "threshold": 2.0}, "use_johansen": True}
 
     def set_session_opens(self, opens: dict[str, float], factor_states: dict = None):
         """Define preços de abertura da sessão."""
@@ -621,10 +621,10 @@ class IRAIEngine:
 
         factor_cursors = {f: 0 for f in active_factors}
 
-        div_cfg = cfg.get("divergence_config", {"sigma": 0.005, "threshold": 0.5})
+        div_cfg = cfg.get("divergence_config", {"sigma": 0.005, "threshold": 2.0})
         use_johansen = cfg.get("use_johansen", True)
         target_div_sigma = div_cfg.get("sigma", 0.005)
-        target_div_threshold = div_cfg.get("threshold", 0.5)
+        target_div_threshold = div_cfg.get("threshold", 2.0)
         
         pair_sigma_fallback = div_cfg.get("pair_sigma", 0.005)
         pair_threshold = div_cfg.get("pair_threshold", 2.0)
