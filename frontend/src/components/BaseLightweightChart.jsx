@@ -21,6 +21,10 @@ const BaseLightweightChart = forwardRef(({ hideXAxis, height = "100px", children
         ...BASE_CHART_OPTIONS.layout,
         ...chartOptions.layout,
       },
+      localization: {
+        ...BASE_CHART_OPTIONS.localization,
+        ...chartOptions.localization,
+      },
       crosshair: {
         ...BASE_CHART_OPTIONS.crosshair,
         ...chartOptions.crosshair,
