@@ -869,8 +869,8 @@ export default function App() {
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
                             {selectedTarget === 'WIN$N'
-                              ? 'z-score dinâmico (pair spread)'
-                              : `z-score dinâmico (pair spread vs ${
+                              ? 'z-score pair trading'
+                              : `z-score pair trading (vs ${
                                   nweNow?.pair_factor
                                     ? (FACTOR_DISPLAY[nweNow.pair_factor.toLowerCase()]?.label || nweNow.pair_factor.toUpperCase())
                                     : 'fator'
@@ -941,7 +941,7 @@ export default function App() {
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            z-score dinâmico (divergência preço)
+                            z-score rastro
                           </div>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button
