@@ -189,8 +189,8 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
           color: w.color || (w.type === "mid_wall" ? "#90a4ae" : "#00e676"),
           lineWidth: w.width || (w.type === "mid_wall" ? 1 : 2),
           lineStyle,
-          axisLabelVisible: true,
-          title: w.label || "",
+          axisLabelVisible: false,
+          title: "",
         });
         newLines.push(line);
       });
