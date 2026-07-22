@@ -106,6 +106,8 @@ def sync():
         garch_data = fetch_json(f"{LOCAL_API}/api/garch?symbol={urllib.parse.quote(garch_symbol)}&date={current_date}")
         if garch_data and not garch_data.get("error"):
             garch_map[safe_target] = garch_data
+            if safe_target in summaries_map and isinstance(summaries_map[safe_target], dict):
+                summaries_map[safe_target]["garch"] = garch_data
     
     # 5. Montar payload flat para atualização atômica via SDK
     update_payload = {

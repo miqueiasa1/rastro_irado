@@ -196,11 +196,8 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           setGexWalls(GEX_LEVELS[target] || []);
           setAvailableRuns([]);
           setSelectedRun(null);
-          if (garchDataRes && Array.isArray(garchDataRes.history)) {
-            setGarchData(garchDataRes);
-          } else {
-            setGarchData(null);
-          }
+          const finalGarch = (sum && sum.garch && Array.isArray(sum.garch.history)) ? sum.garch : ((garchDataRes && Array.isArray(garchDataRes.history)) ? garchDataRes : null);
+          setGarchData(finalGarch);
           setLoading(false);
           if (shouldFetchLastUpdate && lastUpdateData !== undefined && lastUpdateData !== null) {
             setLastUpdate(new Date(lastUpdateData * 1000));
