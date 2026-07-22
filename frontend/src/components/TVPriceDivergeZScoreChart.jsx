@@ -102,17 +102,15 @@ const TVPriceDivergeZScoreChart = forwardRef(({
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
-      const zValRaw = d.price_diverge_z;
-      const zVal = zValRaw != null && isFinite(zValRaw) ? Math.max(-4.0, Math.min(4.0, zValRaw)) : null;
-      if (zVal != null) {
+      const zVal = d.price_diverge_z;
+      if (zVal != null && isFinite(zVal)) {
         zData.push({ time: t, value: zVal });
       } else {
         zData.push({ time: t }); // whitespace
       }
 
       // Check price divergence markers (Apenas na entrada/crossover da zona de exaustão)
-      const prevZRaw = idx > 0 ? history[idx - 1]?.price_diverge_z : null;
-      const prevZ = prevZRaw != null && isFinite(prevZRaw) ? Math.max(-4.0, Math.min(4.0, prevZRaw)) : null;
+      const prevZ = idx > 0 ? history[idx - 1]?.price_diverge_z : null;
 
       const isBuy = (d.z_compra_val != null && isFinite(d.z_compra_val)) || 
                     (zVal != null && zVal <= -threshold && (prevZ == null || prevZ > -threshold));

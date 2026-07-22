@@ -75,17 +75,15 @@ const TVPairwiseZScoreChart = forwardRef(({
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
-      const zValRaw = d.pair_z;
-      const zVal = zValRaw != null && isFinite(zValRaw) ? Math.max(-4.0, Math.min(4.0, zValRaw)) : null;
-      if (zVal != null) {
+      const zVal = d.pair_z;
+      if (zVal != null && isFinite(zVal)) {
         zData.push({ time: t, value: zVal });
       } else {
         zData.push({ time: t }); // whitespace
       }
 
       // Check pair spread markers (Apenas na entrada/crossover da zona de exaustão)
-      const prevZRaw = idx > 0 ? history[idx - 1]?.pair_z : null;
-      const prevZ = prevZRaw != null && isFinite(prevZRaw) ? Math.max(-4.0, Math.min(4.0, prevZRaw)) : null;
+      const prevZ = idx > 0 ? history[idx - 1]?.pair_z : null;
 
       const isBuy = (d.pair_compra != null && isFinite(d.pair_compra)) || 
                     (zVal != null && zVal <= -2.0 && (prevZ == null || prevZ > -2.0));

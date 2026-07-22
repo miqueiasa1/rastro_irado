@@ -628,8 +628,11 @@ class IRAIEngine:
         
         pair_sigma_fallback = div_cfg.get("pair_sigma", 0.005)
         pair_threshold = div_cfg.get("pair_threshold", 2.0)
-        recent_residuals = []
-        recent_basket_residuals = []
+        
+        cum_basket_residual = 0.0
+        cum_pair_residual = 0.0
+        recent_basket_spreads = []
+        recent_pair_spreads = []
         factor_activity_window = { f_key: [] for f_key in active_factors }
 
         # Set de timestamps reais do target para detecção precisa de ghost bars
@@ -778,29 +781,29 @@ class IRAIEngine:
 
             # Multi-Factor Basket Arbitrage Z-Score & Pairwise Signal (v2 Kalman Only)
             if version in ("v2", "both") and kf is not None and len(active_factors) > 0 and snap.t_frac > 0 and not is_ghost_bar and not is_pre_market:
-                # 1. Multi-Factor Basket Spread (Cesta Completa de Fatores)
+                # 1. Multi-Factor Basket Spread (Resíduo Cumulativo de Preço)
                 predicted_basket_ret = float(np.sum(np.array(obs_matrix) * current_betas))
                 basket_residual = win_ret - predicted_basket_ret
-                recent_basket_residuals.append(basket_residual)
-                if len(recent_basket_residuals) > 100:
-                    recent_basket_residuals.pop(0)
+                cum_basket_residual += basket_residual
+                recent_basket_spreads.append(cum_basket_residual)
+                if len(recent_basket_spreads) > 100:
+                    recent_basket_spreads.pop(0)
 
-                if len(recent_basket_residuals) >= 6:
-                    past_basket_res = recent_basket_residuals[:-1]
-                    basket_sigma = float(np.std(past_basket_res))
-                    min_basket_sigma = target_div_sigma if target_div_sigma > 0.001 else 0.005
+                if len(recent_basket_spreads) >= 6:
+                    past_basket_spreads = recent_basket_spreads[:-1]
+                    basket_sigma = float(np.std(past_basket_spreads))
+                    min_basket_sigma = target_div_sigma if target_div_sigma > 0.0005 else 0.002
                     if basket_sigma < min_basket_sigma:
                         basket_sigma = min_basket_sigma
-                    basket_mean = float(np.mean(past_basket_res))
-                    price_div_z = (basket_residual - basket_mean) / basket_sigma
-                    price_div_z = max(-4.0, min(4.0, price_div_z))
+                    basket_mean = float(np.mean(past_basket_spreads))
+                    price_div_z = (cum_basket_residual - basket_mean) / basket_sigma
                     snap.price_diverge_z = round(price_div_z, 2)
                     snap.price_diverges = (abs(price_div_z) >= 2.0)
                 else:
                     snap.price_diverge_z = 0.0
                     snap.price_diverges = False
 
-                # 2. Pairwise Signal (Fator Único Dominante - Filtro de Mercados Abertos/Ativos)
+                # 2. Pairwise Signal (Fator Único Dominante - Resíduo Cumulativo de Preço)
                 active_candidate_indices = []
                 for idx, f_key in enumerate(active_factors):
                     recent_f_rets = factor_activity_window.get(f_key, [])
@@ -821,22 +824,22 @@ class IRAIEngine:
                 pair_factor_key = active_factors[max_idx]
                 pair_label = active_labels.get(pair_factor_key, pair_factor_key)
                 
-                # Residual: (Target Return) - (Beta * Factor Return)
+                # Residual Cumulativo de Par
                 residuo = win_ret - (beta_max * f_ret_max)
-                recent_residuals.append(residuo)
-                if len(recent_residuals) > 100:
-                    recent_residuals.pop(0)
+                cum_pair_residual += residuo
+                recent_pair_spreads.append(cum_pair_residual)
+                if len(recent_pair_spreads) > 100:
+                    recent_pair_spreads.pop(0)
                     
-                if len(recent_residuals) >= 6:
-                    past_residuals = recent_residuals[:-1]
-                    pair_sigma = float(np.std(past_residuals))
-                    min_pair_sigma = pair_sigma_fallback if pair_sigma_fallback > 0.001 else 0.005
+                if len(recent_pair_spreads) >= 6:
+                    past_pair_spreads = recent_pair_spreads[:-1]
+                    pair_sigma = float(np.std(past_pair_spreads))
+                    min_pair_sigma = pair_sigma_fallback if pair_sigma_fallback > 0.0005 else 0.002
                     if pair_sigma < min_pair_sigma:
                         pair_sigma = min_pair_sigma
                     
-                    residuo_mean = float(np.mean(past_residuals))
-                    pair_z = (residuo - residuo_mean) / pair_sigma
-                    pair_z = max(-4.0, min(4.0, pair_z))
+                    residuo_mean = float(np.mean(past_pair_spreads))
+                    pair_z = (cum_pair_residual - residuo_mean) / pair_sigma
                     snap.pair_z = round(pair_z, 2)
                 else:
                     pair_z = 0.0
