@@ -205,8 +205,8 @@ export default function App() {
   } = useIraiData({ selectedTarget, liveMode, timeframe });
 
   const garchVolPct = useMemo(() => {
-    if (!garchData || !Array.isArray(garchData.forecast)) return null;
-    const h1 = garchData.forecast.find(f => f.step === 'h+1');
+    if (!garchData || !Array.isArray(garchData.forecast) || garchData.forecast.length === 0) return null;
+    const h1 = garchData.forecast.find(f => f.step === 'h+1' || f.step === 'h.1') || garchData.forecast[0];
     return h1 ? h1.vol_forecast_pct : null;
   }, [garchData]);
 
@@ -1095,7 +1095,7 @@ export default function App() {
                 {garchData && garchData.history && garchData.history.length > 0 && (
                   <>
                     {(() => {
-                      const openPrice = now.win_open;
+                      const openPrice = now.win_open || (seriesWithNWE.length > 0 ? (seriesWithNWE[0].win_open || seriesWithNWE[0].win_current) : null);
                       if (!garchVolPct || !openPrice) return null;
 
                       // Identify Asset Categories
