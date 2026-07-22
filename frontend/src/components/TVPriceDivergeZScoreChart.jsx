@@ -1,9 +1,16 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from "react";
-import { LineSeries, LineStyle } from "lightweight-charts";
+import { LineSeries, LineStyle, createSeriesMarkers } from "lightweight-charts";
 import BaseLightweightChart from "./BaseLightweightChart";
 import { parseTimeToTimestamp } from "../utils/time";
 
-const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true, threshold = 2.0 }, ref) => {
+const TVPriceDivergeZScoreChart = forwardRef(({
+  history = [],
+  effectiveDate,
+  hideXAxis = true,
+  threshold = 2.0,
+  showExhaustionContra = true,
+  showExhaustionPro = true
+}, ref) => {
   const baseChartRef = useRef(null);
   const seriesRefs = useRef({});
   const priceLinesRef = useRef([]);
@@ -32,7 +39,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hid
       }),
     });
 
-    seriesRefs.current = { zSeries };
+    seriesRefs.current = { zSeries, markersApi: null };
   }, []);
 
   useEffect(() => {
@@ -88,6 +95,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hid
     if (!zSeries) return;
 
     const zData = [];
+    const markers = [];
 
     history.forEach((d) => {
       if (!d.time) return;
@@ -100,12 +108,48 @@ const TVPriceDivergeZScoreChart = forwardRef(({ history = [], effectiveDate, hid
       } else {
         zData.push({ time: t }); // whitespace
       }
+
+      // Check price divergence markers
+      const isBuy = d.z_compra_val != null && isFinite(d.z_compra_val);
+      const isSell = d.z_venda_val != null && isFinite(d.z_venda_val);
+
+      if (isBuy || isSell) {
+        const pUp = d.p_up != null ? d.p_up : 50;
+        const isCounterTrend = isBuy ? (pUp < 45) : (pUp > 55);
+
+        if (isCounterTrend && showExhaustionPro) {
+          markers.push({
+            time: t,
+            position: isBuy ? "belowBar" : "aboveBar",
+            shape: "circle",
+            color: "#EAB308", // Yellow
+            text: "",
+            size: 0.9,
+          });
+        } else if (!isCounterTrend && showExhaustionContra) {
+          markers.push({
+            time: t,
+            position: isBuy ? "belowBar" : "aboveBar",
+            shape: "circle",
+            color: isBuy ? "#4ADE80" : "#F87171", // Green or Red
+            text: "",
+            size: 0.9,
+          });
+        }
+      }
     });
 
     const sortData = (arr) => arr.sort((a, b) => a.time - b.time).filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
 
     zSeries.setData(sortData(zData));
-  }, [history, effectiveDate]);
+
+    markers.sort((a, b) => a.time - b.time);
+    if (!seriesRefs.current.markersApi) {
+      seriesRefs.current.markersApi = createSeriesMarkers(zSeries, markers);
+    } else {
+      seriesRefs.current.markersApi.setMarkers(markers);
+    }
+  }, [history, effectiveDate, showExhaustionContra, showExhaustionPro]);
 
   return (
     <BaseLightweightChart

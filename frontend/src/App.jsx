@@ -173,6 +173,10 @@ export default function App() {
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(true)
   const [showGarchBands, setShowGarchBands] = useState(false)
+  const [showPairContra, setShowPairContra] = useState(true)
+  const [showPairPro, setShowPairPro] = useState(true)
+  const [showDivContra, setShowDivContra] = useState(true)
+  const [showDivPro, setShowDivPro] = useState(true)
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
@@ -874,12 +878,58 @@ export default function App() {
                                 })`
                             }
                           </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <button
+                              onClick={() => setShowPairContra(prev => !prev)}
+                              title="Exaustão Contra P Dinâmico (Bolinhas Verde/Vermelha)"
+                              style={{
+                                background: showPairContra ? '#1E293B' : 'transparent',
+                                border: `1px solid ${showPairContra ? '#4ADE8088' : '#334155'}`,
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 9,
+                                fontFamily: 'var(--font-mono)',
+                                color: showPairContra ? '#F8FAFC' : '#64748B',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairContra ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
+                              Contra P
+                            </button>
+                            <button
+                              onClick={() => setShowPairPro(prev => !prev)}
+                              title="Exaustão A Favor P Dinâmico (Bolinha Amarela)"
+                              style={{
+                                background: showPairPro ? '#1E293B' : 'transparent',
+                                border: `1px solid ${showPairPro ? '#EAB30888' : '#334155'}`,
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 9,
+                                fontFamily: 'var(--font-mono)',
+                                color: showPairPro ? '#F8FAFC' : '#64748B',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairPro ? '#EAB308' : '#64748B', display: 'inline-block' }} />
+                              A Favor P
+                            </button>
+                          </div>
                         </div>
                         <TVPairwiseZScoreChart
                           ref={pairZChartRef}
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
+                          showExhaustionContra={showPairContra}
+                          showExhaustionPro={showPairPro}
                         />
                       </div>
                     )}
@@ -894,6 +944,50 @@ export default function App() {
                           }}>
                             z-score dinâmico (divergência preço)
                           </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <button
+                              onClick={() => setShowDivContra(prev => !prev)}
+                              title="Exaustão Contra P Dinâmico (Bolinhas Verde/Vermelha)"
+                              style={{
+                                background: showDivContra ? '#1E293B' : 'transparent',
+                                border: `1px solid ${showDivContra ? '#4ADE8088' : '#334155'}`,
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 9,
+                                fontFamily: 'var(--font-mono)',
+                                color: showDivContra ? '#F8FAFC' : '#64748B',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivContra ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
+                              Contra P
+                            </button>
+                            <button
+                              onClick={() => setShowDivPro(prev => !prev)}
+                              title="Exaustão A Favor P Dinâmico (Bolinha Amarela)"
+                              style={{
+                                background: showDivPro ? '#1E293B' : 'transparent',
+                                border: `1px solid ${showDivPro ? '#EAB30888' : '#334155'}`,
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 9,
+                                fontFamily: 'var(--font-mono)',
+                                color: showDivPro ? '#F8FAFC' : '#64748B',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivPro ? '#EAB308' : '#64748B', display: 'inline-block' }} />
+                              A Favor P
+                            </button>
+                          </div>
                         </div>
                         <TVPriceDivergeZScoreChart
                           ref={priceDivergeZChartRef}
@@ -901,6 +995,8 @@ export default function App() {
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
                           threshold={seriesInfo.divergence_threshold || 2.0}
+                          showExhaustionContra={showDivContra}
+                          showExhaustionPro={showDivPro}
                         />
                       </div>
                     )}
