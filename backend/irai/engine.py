@@ -788,8 +788,9 @@ class IRAIEngine:
                 if len(recent_basket_residuals) >= 6:
                     past_basket_res = recent_basket_residuals[:-1]
                     basket_sigma = float(np.std(past_basket_res))
-                    if basket_sigma < 0.0001:
-                        basket_sigma = 0.0001
+                    min_basket_sigma = target_div_sigma if target_div_sigma > 0.001 else 0.005
+                    if basket_sigma < min_basket_sigma:
+                        basket_sigma = min_basket_sigma
                     basket_mean = float(np.mean(past_basket_res))
                     price_div_z = (basket_residual - basket_mean) / basket_sigma
                     price_div_z = max(-4.0, min(4.0, price_div_z))
@@ -829,8 +830,9 @@ class IRAIEngine:
                 if len(recent_residuals) >= 6:
                     past_residuals = recent_residuals[:-1]
                     pair_sigma = float(np.std(past_residuals))
-                    if pair_sigma < 0.0001:
-                        pair_sigma = 0.0001
+                    min_pair_sigma = pair_sigma_fallback if pair_sigma_fallback > 0.001 else 0.005
+                    if pair_sigma < min_pair_sigma:
+                        pair_sigma = min_pair_sigma
                     
                     residuo_mean = float(np.mean(past_residuals))
                     pair_z = (residuo - residuo_mean) / pair_sigma
