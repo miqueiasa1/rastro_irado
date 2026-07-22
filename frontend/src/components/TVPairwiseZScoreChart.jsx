@@ -124,11 +124,21 @@ const TVPairwiseZScoreChart = forwardRef(({
     }
   }, [history, effectiveDate, showExhaustionContra, showExhaustionPro]);
 
+  const chartOptions = {
+    rightPriceScale: {
+      visible: true,
+      borderColor: "#1a2530",
+      scaleMargins: { top: 0.2, bottom: 0.2 },
+      minimumWidth: 45,
+    },
+  };
+
   return (
     <BaseLightweightChart
       ref={baseChartRef}
       hideXAxis={hideXAxis}
       height="100px"
+      chartOptions={chartOptions}
       onChartCreated={handleChartCreated}
     >
       {(!history || history.length === 0) && (
