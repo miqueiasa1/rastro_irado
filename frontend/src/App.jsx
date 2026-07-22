@@ -16,7 +16,6 @@ import { FACTOR_DISPLAY, getFactorMeta } from './utils/constants'
 import { parseTimeToTimestamp } from './utils/time'
 import { processSeriesSignals } from './utils/signalProcessor'
 import { DetailHeader } from './components/DetailHeader'
-import { SignalsHeatmapTable } from './components/SignalsHeatmapTable'
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
 
@@ -1091,8 +1090,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* ── SIGNALS HEATMAP MATRIX ── */}
-                <SignalsHeatmapTable series={seriesWithNWE} target={selectedTarget} />
 
                 {/* ── GARCH VOLATILITY PANEL ── */}
                 {garchData && garchData.history && garchData.history.length > 0 && (
