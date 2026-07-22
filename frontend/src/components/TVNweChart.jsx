@@ -184,9 +184,14 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
         if (w.type === "mid_wall" && !showMidWalls) return;
 
         let lineStyle = w.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
+        const isWall = w.type === "wall" || w.type === "mid_wall";
+        const lineColor = isWall 
+          ? (w.type === "mid_wall" ? "#475569" : "#94A3B8") 
+          : (w.color || "#00e676");
+
         const line = winSeries.createPriceLine({
           price: w.price,
-          color: w.color || (w.type === "mid_wall" ? "#90a4ae" : "#00e676"),
+          color: lineColor,
           lineWidth: w.width || (w.type === "mid_wall" ? 1 : 2),
           lineStyle,
           axisLabelVisible: false,
