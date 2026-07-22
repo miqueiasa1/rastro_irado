@@ -719,7 +719,7 @@ export default function App() {
                           }}
                         >
                           <div style={{ width: 12, height: 2, background: '#60A5FA', borderTop: '1px dashed #60A5FA' }} />
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#60A5FA' }}>P(↑) Dinâmico</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#60A5FA', fontWeight: 600 }}>Rastro Macro</span>
                         </div>
                       </div>
                     </div>

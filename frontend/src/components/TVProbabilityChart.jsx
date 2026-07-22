@@ -100,18 +100,7 @@ const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis 
       chartOptions={chartOptions}
       onChartCreated={handleChartCreated}
     >
-      <div style={{
-        display: "flex", alignItems: "center", gap: 14, padding: "6px 12px 2px",
-        paddingLeft: 55, borderTop: "1px solid #1a2530", flexWrap: "wrap",
-        position: "absolute", top: 0, left: 0, right: 0, zIndex: 5,
-        background: "#0c1218"
-      }}>
-        <span style={{ fontSize: 9, fontWeight: "bold", color: "#6f8a9c", letterSpacing: 2 }}>P(↑) DINÂMICO</span>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ display: "inline-block", width: 14, height: 2, background: "#60A5FA", borderTop: "1px dashed #60A5FA", borderRadius: 1 }} />
-          <span style={{ fontSize: 9, color: "#60A5FA" }}>P(↑) Dinâmico</span>
-        </span>
-      </div>
+
       {(!history || history.length === 0) && (
         <div style={{ position: "absolute", top: 25, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#0c1218bb", zIndex: 10 }}>
           <span style={{ color: "#4a6070", fontSize: 12, letterSpacing: 1 }}>AGUARDANDO ABERTURA DO MERCADO</span>
