@@ -630,6 +630,7 @@ class IRAIEngine:
         pair_threshold = div_cfg.get("pair_threshold", 2.0)
         recent_residuals = []
         recent_basket_residuals = []
+        factor_activity_window = { f_key: [] for f_key in active_factors }
 
         # Set de timestamps reais do target para detecção precisa de ghost bars
         target_ts_set = set(r["timestamp"] for r in target_bars)
@@ -705,6 +706,12 @@ class IRAIEngine:
                     if state.open_price > 0 and state.current_price > 0:
                         f_ret = ((state.current_price - state.open_price) / state.open_price) * 100.0
                     obs_matrix.append(f_ret)
+                    
+                    # Rastrear atividade recente do fator para filtragem de mercado aberto
+                    f_wins = factor_activity_window.setdefault(factor, [])
+                    f_wins.append(f_ret)
+                    if len(f_wins) > 20:
+                        f_wins.pop(0)
                     
                 # Update Kalman ONLY if the target market is actually trading
                 if not is_ghost_bar and not is_pre_market:
@@ -792,9 +799,21 @@ class IRAIEngine:
                     snap.price_diverge_z = 0.0
                     snap.price_diverges = False
 
-                # 2. Pairwise Signal (Fator Único Dominante)
-                betas_abs = [abs(b) for b in current_betas[1:]]
-                max_idx = int(np.argmax(betas_abs))
+                # 2. Pairwise Signal (Fator Único Dominante - Filtro de Mercados Abertos/Ativos)
+                active_candidate_indices = []
+                for idx, f_key in enumerate(active_factors):
+                    recent_f_rets = factor_activity_window.get(f_key, [])
+                    # Fator considerado ativo se teve movimentação recente (retorno diferente do valor estático nas últimas 15 barras)
+                    if len(recent_f_rets) >= 3 and any(abs(r - recent_f_rets[0]) > 1e-6 for r in recent_f_rets[-15:]):
+                        active_candidate_indices.append(idx)
+
+                if len(active_candidate_indices) == 0:
+                    active_candidate_indices = list(range(len(active_factors)))
+
+                betas_candidates = [(idx, abs(current_betas[idx + 1])) for idx in active_candidate_indices]
+                betas_candidates.sort(key=lambda x: x[1], reverse=True)
+                max_idx = betas_candidates[0][0]
+
                 beta_max = current_betas[max_idx + 1]
                 f_ret_max = obs_matrix[max_idx + 1]
                 
