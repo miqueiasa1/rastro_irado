@@ -110,8 +110,8 @@ const TVPriceDivergeZScoreChart = forwardRef(({
       }
 
       // Check price divergence markers
-      const isBuy = d.z_compra_val != null && isFinite(d.z_compra_val);
-      const isSell = d.z_venda_val != null && isFinite(d.z_venda_val);
+      const isBuy = (d.z_compra_val != null && isFinite(d.z_compra_val)) || (zVal != null && zVal <= -threshold);
+      const isSell = (d.z_venda_val != null && isFinite(d.z_venda_val)) || (zVal != null && zVal >= threshold);
 
       if (isBuy || isSell) {
         const pUp = d.p_up != null ? d.p_up : 50;

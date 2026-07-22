@@ -146,50 +146,6 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
         nweCenterData.push({ time: t });
       }
 
-      // Sinais (Markers)
-      // Pair signals (Circles)
-      if (d.pair_compra != null && isFinite(d.pair_compra)) {
-        const isCounterTrend = d.p_up != null && d.p_up < 45;
-        markers.push({
-          time: t,
-          position: "belowBar",
-          shape: "circle",
-          color: isCounterTrend ? "rgba(234, 179, 8, 0.45)" : "#4ADE80",
-          text: "",
-          size: 1.2,
-        });
-      } else if (d.pair_venda != null && isFinite(d.pair_venda)) {
-        const isCounterTrend = d.p_up != null && d.p_up > 55;
-        markers.push({
-          time: t,
-          position: "aboveBar",
-          shape: "circle",
-          color: isCounterTrend ? "rgba(234, 179, 8, 0.45)" : "#F87171",
-          text: "",
-          size: 1.2,
-        });
-      }
-
-      // Z-Score signals (Squares)
-      if (d.z_compra_val != null && isFinite(d.z_compra_val)) {
-        markers.push({
-          time: t,
-          position: "belowBar",
-          shape: "square",
-          color: "#4ADE80",
-          text: "",
-          size: 1.2,
-        });
-      } else if (d.z_venda_val != null && isFinite(d.z_venda_val)) {
-        markers.push({
-          time: t,
-          position: "aboveBar",
-          shape: "square",
-          color: "#F87171",
-          text: "",
-          size: 1.2,
-        });
-      }
     });
 
     const sortData = (arr) => arr.sort((a, b) => a.time - b.time).filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
@@ -198,14 +154,6 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     nweUpperSeries.setData(sortData(nweUpperData));
     nweLowerSeries.setData(sortData(nweLowerData));
     nweCenterSeries.setData(sortData(nweCenterData));
-
-    // Sort markers by time
-    markers.sort((a, b) => a.time - b.time);
-    if (!seriesRefs.current.markersApi) {
-      seriesRefs.current.markersApi = createSeriesMarkers(winSeries, markers);
-    } else {
-      seriesRefs.current.markersApi.setMarkers(markers);
-    }
 
     // Auto-fit timeline zoom only once per session/target load
     if (!hasFittedRef.current) {

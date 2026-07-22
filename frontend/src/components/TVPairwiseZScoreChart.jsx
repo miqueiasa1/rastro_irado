@@ -83,8 +83,8 @@ const TVPairwiseZScoreChart = forwardRef(({
       }
 
       // Check pair spread markers
-      const isBuy = d.pair_compra != null && isFinite(d.pair_compra);
-      const isSell = d.pair_venda != null && isFinite(d.pair_venda);
+      const isBuy = (d.pair_compra != null && isFinite(d.pair_compra)) || (zVal != null && zVal <= -2.0);
+      const isSell = (d.pair_venda != null && isFinite(d.pair_venda)) || (zVal != null && zVal >= 2.0);
 
       if (isBuy || isSell) {
         const pUp = d.p_up != null ? d.p_up : 50;
