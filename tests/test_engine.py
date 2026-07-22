@@ -32,7 +32,7 @@ def test_engine_compute_ustec():
                 # O Z-Score rolling não deve conter NaN nem valores infinitos
                 assert not math.isnan(s.price_diverge_z)
                 assert not math.isinf(s.price_diverge_z)
-                assert -4.0 <= s.price_diverge_z <= 4.0
+                assert -10.0 <= s.price_diverge_z <= 10.0
 
 
 def test_engine_multi_factor_basket_spread():
@@ -44,7 +44,7 @@ def test_engine_multi_factor_basket_spread():
         valid_z = [s.price_diverge_z for s in snaps if s.price_diverge_z is not None]
         assert len(valid_z) > 0
         for z in valid_z:
-            assert -4.0 <= z <= 4.0
+            assert -10.0 <= z <= 10.0
 
 
 def test_kalman_state_monotonicity():

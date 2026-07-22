@@ -781,11 +781,12 @@ class IRAIEngine:
 
             # Multi-Factor Basket Arbitrage Z-Score & Pairwise Signal (v2 Kalman Only)
             if version in ("v2", "both") and kf is not None and len(active_factors) > 0 and snap.t_frac > 0 and not is_ghost_bar and not is_pre_market:
-                # 1. Multi-Factor Basket Spread (Resíduo Cumulativo de Preço)
-                predicted_basket_ret = float(np.sum(np.array(obs_matrix) * current_betas))
-                basket_residual = win_ret - predicted_basket_ret
-                cum_basket_residual += basket_residual
-                recent_basket_spreads.append(cum_basket_residual)
+                # 1. Z-Score Rastro (Pair Trading entre Ativo Target e P Dinâmico)
+                p_up_norm = (snap.p_up - 50.0) / 10.0
+                cum_win_ret = ((snap.win_current - snap.win_open) / snap.win_open * 100.0) if snap.win_open > 0 else 0.0
+
+                p_up_spread = cum_win_ret - p_up_norm
+                recent_basket_spreads.append(p_up_spread)
                 if len(recent_basket_spreads) > 100:
                     recent_basket_spreads.pop(0)
 
@@ -796,9 +797,9 @@ class IRAIEngine:
                     if basket_sigma < min_basket_sigma:
                         basket_sigma = min_basket_sigma
                     basket_mean = float(np.mean(past_basket_spreads))
-                    price_div_z = (cum_basket_residual - basket_mean) / basket_sigma
-                    snap.price_diverge_z = round(price_div_z, 2)
-                    snap.price_diverges = (abs(price_div_z) >= 2.0)
+                    price_div_z = (p_up_spread - basket_mean) / basket_sigma
+                    snap.price_diverge_z = round(float(price_div_z), 2)
+                    snap.price_diverges = bool(abs(price_div_z) >= 2.0)
                 else:
                     snap.price_diverge_z = 0.0
                     snap.price_diverges = False
@@ -840,12 +841,12 @@ class IRAIEngine:
                     
                     residuo_mean = float(np.mean(past_pair_spreads))
                     pair_z = (cum_pair_residual - residuo_mean) / pair_sigma
-                    snap.pair_z = round(pair_z, 2)
+                    snap.pair_z = round(float(pair_z), 2)
                 else:
                     pair_z = 0.0
                     snap.pair_z = None
                 snap.pair_factor = pair_label
-                snap.pair_beta = round(beta_max, 3)
+                snap.pair_beta = round(float(beta_max), 3)
                 
                 if pair_z < -pair_threshold:
                     snap.pair_signal = "buy"
