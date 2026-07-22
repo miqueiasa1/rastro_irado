@@ -173,9 +173,9 @@ export default function App() {
   const [showMidWalls, setShowMidWalls] = useState(true)
   const [showGarchBands, setShowGarchBands] = useState(false)
   const [showPairContra, setShowPairContra] = useState(true)
-  const [showPairPro, setShowPairPro] = useState(true)
+  const [showPairPro, setShowPairPro] = useState(false)
   const [showDivContra, setShowDivContra] = useState(true)
-  const [showDivPro, setShowDivPro] = useState(true)
+  const [showDivPro, setShowDivPro] = useState(false)
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
