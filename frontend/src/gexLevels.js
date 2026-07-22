@@ -247,4 +247,17 @@ const GEX_LEVELS = {
   ],
 };
 
+export function getGexLevels(target) {
+  if (!target) return [];
+  if (GEX_LEVELS[target]) return GEX_LEVELS[target];
+
+  const cleanTarget = target.replace(/\.P$/i, '').replace(/\$N$/i, '');
+  const foundKey = Object.keys(GEX_LEVELS).find(k => {
+    const cleanK = k.replace(/\$N$/i, '');
+    return cleanTarget.includes(cleanK) || cleanK.includes(cleanTarget);
+  });
+
+  return foundKey ? GEX_LEVELS[foundKey] : [];
+}
+
 export default GEX_LEVELS;

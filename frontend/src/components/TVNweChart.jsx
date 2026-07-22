@@ -184,14 +184,13 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
         if (w.type === "mid_wall" && !showMidWalls) return;
 
         let lineStyle = w.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
-        const isNormal = w.type === "wall" || w.type === "mid_wall";
         const line = winSeries.createPriceLine({
           price: w.price,
-          color: isNormal ? "#FFFFFF" : w.color,
-          lineWidth: w.type === "mid_wall" ? 1 : 2,
+          color: w.color || (w.type === "mid_wall" ? "#90a4ae" : "#00e676"),
+          lineWidth: w.width || (w.type === "mid_wall" ? 1 : 2),
           lineStyle,
-          axisLabelVisible: false,
-          title: "",
+          axisLabelVisible: true,
+          title: w.label || "",
         });
         newLines.push(line);
       });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import GEX_LEVELS from "../gexLevels";
+import GEX_LEVELS, { getGexLevels } from "../gexLevels";
 import { toLocalTime } from "../utils/time";
 
 const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL;
@@ -193,7 +193,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             accuracy: sum?.accuracy,
             divergence_threshold: tMeta.divergence_config?.threshold || 2.0
           });
-          setGexWalls(GEX_LEVELS[target] || []);
+          setGexWalls(getGexLevels(target));
           setAvailableRuns([]);
           setSelectedRun(null);
           const finalGarch = (sum && sum.garch && Array.isArray(sum.garch.history)) ? sum.garch : ((garchDataRes && Array.isArray(garchDataRes.history)) ? garchDataRes : null);
@@ -245,12 +245,12 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             divergence_threshold: data.divergence_threshold || 2.0
           });
           
-          if (gexData && Array.isArray(gexData.levels)) {
+          if (gexData && Array.isArray(gexData.levels) && gexData.levels.length > 0) {
             setGexWalls(gexData.levels);
             setAvailableRuns(gexData.available_runs || []);
             setSelectedRun(gexData.selected_run || null);
           } else {
-            setGexWalls(GEX_LEVELS[target] || []);
+            setGexWalls(getGexLevels(target));
             setAvailableRuns([]);
             setSelectedRun(null);
           }
