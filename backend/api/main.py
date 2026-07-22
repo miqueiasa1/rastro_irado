@@ -337,6 +337,8 @@ async def irai_targets():
 
 
 def _get_series_data_sync(target: str, session_date: str, version: str, timeframe: str = "M5") -> dict:
+    series_cache.clear()
+    overview_cache_data.clear()
     is_today = (session_date == date.today().isoformat())
     cache_key = (target, session_date, version, timeframe)
     if not is_today and cache_key in series_cache:

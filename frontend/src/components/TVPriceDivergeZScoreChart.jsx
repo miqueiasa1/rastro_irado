@@ -97,21 +97,27 @@ const TVPriceDivergeZScoreChart = forwardRef(({
     const zData = [];
     const markers = [];
 
-    history.forEach((d) => {
+    history.forEach((d, idx) => {
       if (!d.time) return;
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
-      const zVal = d.price_diverge_z;
-      if (zVal != null && isFinite(zVal)) {
+      const zValRaw = d.price_diverge_z;
+      const zVal = zValRaw != null && isFinite(zValRaw) ? Math.max(-4.0, Math.min(4.0, zValRaw)) : null;
+      if (zVal != null) {
         zData.push({ time: t, value: zVal });
       } else {
         zData.push({ time: t }); // whitespace
       }
 
-      // Check price divergence markers
-      const isBuy = (d.z_compra_val != null && isFinite(d.z_compra_val)) || (zVal != null && zVal <= -threshold);
-      const isSell = (d.z_venda_val != null && isFinite(d.z_venda_val)) || (zVal != null && zVal >= threshold);
+      // Check price divergence markers (Apenas na entrada/crossover da zona de exaustão)
+      const prevZRaw = idx > 0 ? history[idx - 1]?.price_diverge_z : null;
+      const prevZ = prevZRaw != null && isFinite(prevZRaw) ? Math.max(-4.0, Math.min(4.0, prevZRaw)) : null;
+
+      const isBuy = (d.z_compra_val != null && isFinite(d.z_compra_val)) || 
+                    (zVal != null && zVal <= -threshold && (prevZ == null || prevZ > -threshold));
+      const isSell = (d.z_venda_val != null && isFinite(d.z_venda_val)) || 
+                     (zVal != null && zVal >= threshold && (prevZ == null || prevZ < threshold));
 
       if (isBuy || isSell) {
         const pUp = d.p_up != null ? d.p_up : 50;

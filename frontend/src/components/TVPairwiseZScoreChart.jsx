@@ -70,21 +70,27 @@ const TVPairwiseZScoreChart = forwardRef(({
     const zData = [];
     const markers = [];
 
-    history.forEach((d) => {
+    history.forEach((d, idx) => {
       if (!d.time) return;
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
-      const zVal = d.pair_z;
-      if (zVal != null && isFinite(zVal)) {
+      const zValRaw = d.pair_z;
+      const zVal = zValRaw != null && isFinite(zValRaw) ? Math.max(-4.0, Math.min(4.0, zValRaw)) : null;
+      if (zVal != null) {
         zData.push({ time: t, value: zVal });
       } else {
         zData.push({ time: t }); // whitespace
       }
 
-      // Check pair spread markers
-      const isBuy = (d.pair_compra != null && isFinite(d.pair_compra)) || (zVal != null && zVal <= -2.0);
-      const isSell = (d.pair_venda != null && isFinite(d.pair_venda)) || (zVal != null && zVal >= 2.0);
+      // Check pair spread markers (Apenas na entrada/crossover da zona de exaustão)
+      const prevZRaw = idx > 0 ? history[idx - 1]?.pair_z : null;
+      const prevZ = prevZRaw != null && isFinite(prevZRaw) ? Math.max(-4.0, Math.min(4.0, prevZRaw)) : null;
+
+      const isBuy = (d.pair_compra != null && isFinite(d.pair_compra)) || 
+                    (zVal != null && zVal <= -2.0 && (prevZ == null || prevZ > -2.0));
+      const isSell = (d.pair_venda != null && isFinite(d.pair_venda)) || 
+                     (zVal != null && zVal >= 2.0 && (prevZ == null || prevZ < 2.0));
 
       if (isBuy || isSell) {
         const pUp = d.p_up != null ? d.p_up : 50;
