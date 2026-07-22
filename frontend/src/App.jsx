@@ -879,32 +879,11 @@ export default function App() {
                           </div>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button
-                              onClick={() => setShowPairContra(prev => !prev)}
-                              title="Exaustão Contra P Dinâmico (Bolinhas Verde/Vermelha)"
-                              style={{
-                                background: showPairContra ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showPairContra ? '#4ADE8088' : '#334155'}`,
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 9,
-                                fontFamily: 'var(--font-mono)',
-                                color: showPairContra ? '#F8FAFC' : '#64748B',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairContra ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
-                              Contra P
-                            </button>
-                            <button
                               onClick={() => setShowPairPro(prev => !prev)}
-                              title="Exaustão A Favor P Dinâmico (Bolinha Amarela)"
+                              title="Exaustão A Favor P Dinâmico (Bolinhas Verde/Vermelha)"
                               style={{
                                 background: showPairPro ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showPairPro ? '#EAB30888' : '#334155'}`,
+                                border: `1px solid ${showPairPro ? '#4ADE8088' : '#334155'}`,
                                 borderRadius: 4,
                                 padding: '2px 6px',
                                 fontSize: 9,
@@ -917,8 +896,29 @@ export default function App() {
                                 transition: 'all 0.15s ease'
                               }}
                             >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairPro ? '#EAB308' : '#64748B', display: 'inline-block' }} />
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairPro ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
                               A Favor P
+                            </button>
+                            <button
+                              onClick={() => setShowPairContra(prev => !prev)}
+                              title="Exaustão Contra P Dinâmico (Bolinha Amarela)"
+                              style={{
+                                background: showPairContra ? '#1E293B' : 'transparent',
+                                border: `1px solid ${showPairContra ? '#EAB30888' : '#334155'}`,
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 9,
+                                fontFamily: 'var(--font-mono)',
+                                color: showPairContra ? '#F8FAFC' : '#64748B',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairContra ? '#EAB308' : '#64748B', display: 'inline-block' }} />
+                              Contra P
                             </button>
                           </div>
                         </div>
@@ -945,32 +945,11 @@ export default function App() {
                           </div>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button
-                              onClick={() => setShowDivContra(prev => !prev)}
-                              title="Exaustão Contra P Dinâmico (Bolinhas Verde/Vermelha)"
-                              style={{
-                                background: showDivContra ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showDivContra ? '#4ADE8088' : '#334155'}`,
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 9,
-                                fontFamily: 'var(--font-mono)',
-                                color: showDivContra ? '#F8FAFC' : '#64748B',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivContra ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
-                              Contra P
-                            </button>
-                            <button
                               onClick={() => setShowDivPro(prev => !prev)}
-                              title="Exaustão A Favor P Dinâmico (Bolinha Amarela)"
+                              title="Exaustão A Favor P Dinâmico (Bolinhas Verde/Vermelha)"
                               style={{
                                 background: showDivPro ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showDivPro ? '#EAB30888' : '#334155'}`,
+                                border: `1px solid ${showDivPro ? '#4ADE8088' : '#334155'}`,
                                 borderRadius: 4,
                                 padding: '2px 6px',
                                 fontSize: 9,
@@ -983,8 +962,29 @@ export default function App() {
                                 transition: 'all 0.15s ease'
                               }}
                             >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivPro ? '#EAB308' : '#64748B', display: 'inline-block' }} />
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivPro ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
                               A Favor P
+                            </button>
+                            <button
+                              onClick={() => setShowDivContra(prev => !prev)}
+                              title="Exaustão Contra P Dinâmico (Bolinha Amarela)"
+                              style={{
+                                background: showDivContra ? '#1E293B' : 'transparent',
+                                border: `1px solid ${showDivContra ? '#EAB30888' : '#334155'}`,
+                                borderRadius: 4,
+                                padding: '2px 6px',
+                                fontSize: 9,
+                                fontFamily: 'var(--font-mono)',
+                                color: showDivContra ? '#F8FAFC' : '#64748B',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivContra ? '#EAB308' : '#64748B', display: 'inline-block' }} />
+                              Contra P
                             </button>
                           </div>
                         </div>

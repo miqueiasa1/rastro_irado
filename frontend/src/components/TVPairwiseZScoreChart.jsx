@@ -90,21 +90,21 @@ const TVPairwiseZScoreChart = forwardRef(({
         const pUp = d.p_up != null ? d.p_up : 50;
         const isCounterTrend = isBuy ? (pUp < 45) : (pUp > 55);
 
-        if (isCounterTrend && showExhaustionPro) {
+        if (isCounterTrend && showExhaustionContra) {
           markers.push({
             time: t,
             position: isBuy ? "belowBar" : "aboveBar",
             shape: "circle",
-            color: "#EAB308", // Yellow
+            color: "#EAB308", // Yellow (Contra o P Dinâmico)
             text: "",
             size: 0.9,
           });
-        } else if (!isCounterTrend && showExhaustionContra) {
+        } else if (!isCounterTrend && showExhaustionPro) {
           markers.push({
             time: t,
             position: isBuy ? "belowBar" : "aboveBar",
             shape: "circle",
-            color: isBuy ? "#4ADE80" : "#F87171", // Green or Red
+            color: isBuy ? "#4ADE80" : "#F87171", // Green or Red (A Favor do P Dinâmico)
             text: "",
             size: 0.9,
           });
