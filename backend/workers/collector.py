@@ -125,13 +125,13 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
 
 
 def is_b3_session() -> bool:
-    """Verifica se está dentro do horário do pregão B3 (09:55–18:10 BRT, margem)."""
+    """Verifica se está dentro do horário do pregão B3 Futuros/Ações (08:50–18:30 BRT)."""
     now = datetime.now()
     h, m = now.hour, now.minute
-    # Pregão: 10:00-17:55 BRT, com margem de 5 min antes e 15 min depois
-    if h < 9 or (h == 9 and m < 55):
+    # Futuros B3 (WIN/WDO/DI1): abertura às 09:00 (pré-abertura 08:55). Coleta inicia às 08:50 BRT.
+    if h < 8 or (h == 8 and m < 50):
         return False
-    if h > 18 or (h == 18 and m > 10):
+    if h > 18 or (h == 18 and m > 30):
         return False
     return True
 
