@@ -88,7 +88,7 @@ const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis 
       visible: true,
       borderColor: "#1a2530",
       scaleMargins: { top: 0.1, bottom: 0.1 },
-      minimumWidth: 45,
+      minimumWidth: 70,
     },
   };
 

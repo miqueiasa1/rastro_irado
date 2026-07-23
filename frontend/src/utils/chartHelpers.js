@@ -35,11 +35,10 @@ export const BASE_CHART_OPTIONS = {
     visible: true,
     borderColor: "#1a2530",
     autoScale: true,
-    minimumWidth: 45,
+    minimumWidth: 70,
   },
   leftPriceScale: {
-    visible: false, // hidden spacer scale
-    minimumWidth: 55,
+    visible: false,
   },
   autoSize: true,
 };

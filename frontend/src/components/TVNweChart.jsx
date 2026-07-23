@@ -249,11 +249,10 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       visible: true,
       borderColor: "#1a2530",
       scaleMargins: { top: 0.15, bottom: 0.15 },
-      minimumWidth: 45,
+      minimumWidth: 70,
     },
     leftPriceScale: {
       visible: false,
-      minimumWidth: 55,
     },
   };
 

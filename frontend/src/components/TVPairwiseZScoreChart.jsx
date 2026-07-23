@@ -129,11 +129,14 @@ const TVPairwiseZScoreChart = forwardRef(({
   }, [history, effectiveDate, showExhaustionContra, showExhaustionPro]);
 
   const chartOptions = {
+    leftPriceScale: {
+      visible: false,
+    },
     rightPriceScale: {
       visible: true,
       borderColor: "#1a2530",
       scaleMargins: { top: 0.2, bottom: 0.2 },
-      minimumWidth: 45,
+      minimumWidth: 70,
     },
   };
 
