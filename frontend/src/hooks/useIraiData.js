@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import GEX_LEVELS, { getGexLevels } from "../gexLevels";
 import { toLocalTime } from "../utils/time";
 
-const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL;
+const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL;
 const API = FIREBASE_URL ? null : 'http://localhost:8888';
 
 const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5') => {

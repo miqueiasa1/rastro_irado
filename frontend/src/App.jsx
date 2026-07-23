@@ -17,7 +17,7 @@ import { parseTimeToTimestamp } from './utils/time'
 import { processSeriesSignals } from './utils/signalProcessor'
 import { DetailHeader } from './components/DetailHeader'
 
-const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
+const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
 
 
 

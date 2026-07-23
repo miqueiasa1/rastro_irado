@@ -37,7 +37,7 @@ const OVERVIEW_STYLES = `
     .sparkline-wrapper { margin-top: 16px !important; }
   }
 `
-const FIREBASE_URL = import.meta.env.VITE_FIREBASE_URL
+const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
 const API = FIREBASE_URL ? null : 'http://localhost:8888'
 
 function Sparkline({ data, width = '100%', height = 24 }) {
