@@ -24,12 +24,16 @@ const TVPairwiseZScoreChart = forwardRef(({
       lineWidth: 1.5,
       priceLineVisible: false,
       crosshairMarkerVisible: true,
-      autoscaleInfoProvider: () => ({
-        priceRange: {
-          minValue: -2.5,
-          maxValue: 2.5,
-        },
-      }),
+      autoscaleInfoProvider: (original) => {
+        const res = original();
+        if (!res) return res;
+        return {
+          priceRange: {
+            minValue: Math.min(-2.5, res.priceRange.minValue),
+            maxValue: Math.max(2.5, res.priceRange.maxValue),
+          },
+        };
+      },
     });
 
     // Reference lines

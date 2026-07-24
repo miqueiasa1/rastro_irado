@@ -40,7 +40,8 @@ TERMINAL_MAPPING = {
         ],
         "symbols": [
             "BTCUSD", "US500", "US30", "USTEC", "XAUUSD",
-            "EURUSD", "GBPUSD", "USDJPY"
+            "EURUSD", "GBPUSD", "USDJPY",
+            "DE40", "US2000", "JP225", "CHINA50"
         ]
     }
 }

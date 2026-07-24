@@ -1,6 +1,15 @@
 import React from 'react';
 
 export function TargetSelector({ targetsMeta = [], selectedTarget, onSelectTarget }) {
+  const uniqueTargets = [];
+  const seen = new Set();
+  for (const t of targetsMeta) {
+    if (t && t.target && !seen.has(t.target)) {
+      seen.add(t.target);
+      uniqueTargets.push(t);
+    }
+  }
+
   return (
     <select
       value={selectedTarget}
@@ -16,7 +25,7 @@ export function TargetSelector({ targetsMeta = [], selectedTarget, onSelectTarge
         cursor: 'pointer',
       }}
     >
-      {targetsMeta.map(t => (
+      {uniqueTargets.map(t => (
         <option key={t.target} value={t.target}>
           {t.icon} {t.display_name}
         </option>

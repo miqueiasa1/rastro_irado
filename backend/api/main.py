@@ -317,6 +317,10 @@ async def get_garch(symbol: str = Query("IBOV"), date: str = Query(None)):
 @app.get("/api/irai/targets")
 async def irai_targets():
     """Lista todos os targets disponíveis com status."""
+    try:
+        engine._load_params()
+    except Exception as e:
+        print(f"Error refreshing engine params: {e}")
     return {
         "targets": [
             {
@@ -406,7 +410,14 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
     is_today = (session_date == date.today().isoformat())
     cache_key = (session_date, version, timeframe)
     if not is_today and cache_key in overview_cache_data:
-        return overview_cache_data[cache_key]
+        cached_targets = overview_cache_data[cache_key].get("targets", [])
+        if len(cached_targets) >= len(engine.registered_targets):
+            return overview_cache_data[cache_key]
+
+    try:
+        engine._load_params()
+    except Exception:
+        pass
 
     results = []
     for t in engine.registered_targets:

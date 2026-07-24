@@ -31,12 +31,18 @@ const TVPriceDivergeZScoreChart = forwardRef(({
       lineWidth: 1.5,
       priceLineVisible: false,
       crosshairMarkerVisible: true,
-      autoscaleInfoProvider: () => ({
-        priceRange: {
-          minValue: -thresholdRef.current * 1.3,
-          maxValue: thresholdRef.current * 1.3,
-        },
-      }),
+      autoscaleInfoProvider: (original) => {
+        const res = original();
+        if (!res) return res;
+        const minVal = -thresholdRef.current * 1.3;
+        const maxVal = thresholdRef.current * 1.3;
+        return {
+          priceRange: {
+            minValue: Math.min(minVal, res.priceRange.minValue),
+            maxValue: Math.max(maxVal, res.priceRange.maxValue),
+          },
+        };
+      },
     });
 
     seriesRefs.current = { zSeries, markersApi: null };

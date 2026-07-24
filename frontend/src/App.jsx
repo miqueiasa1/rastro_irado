@@ -172,10 +172,10 @@ export default function App() {
   const [showGex, setShowGex] = useState(true)
   const [showMidWalls, setShowMidWalls] = useState(true)
   const [showGarchBands, setShowGarchBands] = useState(false)
-  const [showPairContra, setShowPairContra] = useState(true)
-  const [showPairPro, setShowPairPro] = useState(false)
-  const [showDivContra, setShowDivContra] = useState(true)
-  const [showDivPro, setShowDivPro] = useState(false)
+  const [showPairContra, setShowPairContra] = useState(false)
+  const [showPairPro, setShowPairPro] = useState(true)
+  const [showDivContra, setShowDivContra] = useState(false)
+  const [showDivPro, setShowDivPro] = useState(true)
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
@@ -868,14 +868,7 @@ export default function App() {
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            {selectedTarget === 'WIN$N'
-                              ? 'z-score pair trading'
-                              : `z-score pair trading (vs ${
-                                  nweNow?.pair_factor
-                                    ? (FACTOR_DISPLAY[nweNow.pair_factor.toLowerCase()]?.label || nweNow.pair_factor.toUpperCase())
-                                    : 'fator'
-                                })`
-                            }
+                            z-score trading
                           </div>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <button
@@ -1008,7 +1001,7 @@ export default function App() {
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            pesos dinâmicos (kalman filter)
+                            pesos dinâmicos
                           </div>
                         </div>
                         <TVKalmanWeightsChart

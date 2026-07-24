@@ -40,7 +40,7 @@ TERMINALS = [
         "source": "tickmill",
         "symbols": [
             "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
-            "US500", "US30", "USTEC", "DE40", "XAUUSD",
+            "US500", "US30", "USTEC", "DE40", "US2000", "JP225", "XAUUSD",
             "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
             "CADCHF", "AUDNZD", "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD",
         ],

@@ -430,7 +430,7 @@ def save_to_db(conn, target, slug, result):
     """, (
         json.dumps(result["factors"]),
         json.dumps(result["factor_labels"]),
-        result["accuracy"],
+        result["acc"],
         result["r2"],
         result["n_sessions"],
         effective,

@@ -12,6 +12,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | 2 | Integração de NWE no Endpoint da API | Complete (0/0) | 2026-07-13 |
 | 3 | Refatoração do Frontend React | Complete (0/0) | 2026-07-13 |
 | 4 | Robustez de Infraestrutura (Concorrência e Persistência) | Pendente | INFRA-01, INFRA-02, INFRA-03 |
+| 5 | Expansão de Ativos no Rastro (Índices Globais: DE40, US2000, JP225, CHINA50) | Complete (2/2) | 2026-07-23 |
 
 ---
 
@@ -43,6 +44,14 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
   1. Migrações de banco rodam sem crash quando API e Collector iniciam simultaneamente (guard `_add_column` idempotente).
   2. Replays históricos via `compute_from_db()` não sobrescrevem o estado Kalman de sessões mais recentes (guard monotônico de timestamp).
   3. Tabela `gex_levels` possui schema atualizado com coluna `run_name` e dados legados estão íntegros.
+
+### Phase 5: Expansão de Ativos no Rastro (Índices Globais: DE40, US2000, JP225, etc.)
+* **Goal:** Cadastrar, calibrar e habilitar 4 novos índices globais (DAX 40 / DE40, Russell 2000 / US2000, Nikkei 225 / JP225, etc.) no coletor, no motor de calibração universal, na API e no dashboard do Rastro Irai.
+* **Requirements:** ASSET-01, ASSET-02, ASSET-03
+* **Success Criteria:**
+  1. Novos ativos configurados para coleta de barras no `collector.py` via MT5 (Tickmill / Axi).
+  2. Modelos estatísticos calibrados via `calibrate_universal.py` com regressão Ridge, Johansen e filtro Kalman, persistidos em `asset_models` e `model_params`.
+  3. API (`engine.py`) e Dashboard React renderizando os 4 novos ativos de forma integrada no Rastro Irai com gráficos de Z-Score, NWE e Pair Spread.
 
 ## ✅ Concluídos
 

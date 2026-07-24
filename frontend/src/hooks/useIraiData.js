@@ -112,16 +112,28 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
 
   // Fetch targets once on mount
   useEffect(() => {
+    const dedupeTargets = (list) => {
+      const res = [];
+      const seen = new Set();
+      for (const t of list) {
+        if (t && t.target && t.calibrated && !seen.has(t.target)) {
+          seen.add(t.target);
+          res.push(t);
+        }
+      }
+      return res;
+    };
+
     if (FIREBASE_URL) {
       const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '');
       fetch(`${baseUrl}/targets.json`)
         .then(r => r.json())
-        .then(data => setTargetsMeta((data?.targets || []).filter(t => t.calibrated)))
+        .then(data => setTargetsMeta(dedupeTargets(data?.targets || [])))
         .catch(() => { });
     } else {
       fetch(`${API}/api/irai/targets`)
         .then(r => r.json())
-        .then(data => setTargetsMeta((data.targets || []).filter(t => t.calibrated)))
+        .then(data => setTargetsMeta(dedupeTargets(data.targets || [])))
         .catch(() => { });
     }
   }, []);

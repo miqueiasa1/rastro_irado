@@ -2,8 +2,13 @@ import sqlite3
 import pandas as pd
 import numpy as np
 import json
+import os
+import sys
 
-conn = sqlite3.connect('data/irai.db')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from backend.db import DB_PATH
+
+conn = sqlite3.connect(DB_PATH)
 
 # Pegar targets ativos
 targets = pd.read_sql_query('SELECT target, slug, data_proxy FROM asset_models WHERE active=1', conn)

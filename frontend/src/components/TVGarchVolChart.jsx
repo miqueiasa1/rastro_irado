@@ -43,7 +43,14 @@ export default function TVGarchVolChart({ history = [], forecast = [] }) {
 
     if (chartData.length > 0) {
       volSeriesRef.current.setData(chartData);
-      chartInstance.timeScale().fitContent();
+      if (chartData.length > 100) {
+        chartInstance.timeScale().setVisibleLogicalRange({
+          from: chartData.length - 100,
+          to: chartData.length - 1
+        });
+      } else {
+        chartInstance.timeScale().fitContent();
+      }
     }
   }, [history, chartInstance]);
 

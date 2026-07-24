@@ -1,10 +1,13 @@
 import os
+import sys
 import time
 import json
 import urllib.request
 import urllib.parse
 import firebase_admin
 from firebase_admin import credentials, db
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables manually
 env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -40,6 +43,18 @@ if not firebase_admin._apps:
             'databaseURL': FIREBASE_URL
         })
 
+def clean_for_firebase(val):
+    if isinstance(val, dict):
+        new_dict = {}
+        for k, v in val.items():
+            safe_k = str(k).replace('$', '_').replace('.', '_').replace('#', '_').replace('[', '_').replace(']', '_').replace('/', '_')
+            new_dict[safe_k] = clean_for_firebase(v)
+        return new_dict
+    elif isinstance(val, list):
+        return [clean_for_firebase(x) for x in val]
+    else:
+        return val
+
 def fetch_json(url):
     try:
         req = urllib.request.Request(url)
@@ -72,6 +87,38 @@ def sync():
     targets_data = fetch_json(f"{LOCAL_API}/api/irai/targets")
     targets = targets_data.get("targets", []) if targets_data else []
     
+    # Se o API local retornar menos de 20 alvos (servidor antigo em memória), força recarga via engine
+    try:
+        from backend.db import DB_PATH, get_connection
+        from backend.irai.engine import IRAIEngine
+        engine = IRAIEngine(db_path=DB_PATH)
+        db_targets = engine.registered_targets
+        if len(targets) < len(db_targets):
+            print(f"  [Fallback Direct Engine] API retornou {len(targets)} alvos, mas o banco possui {len(db_targets)}. Sincronizando todos os {len(db_targets)} ativos.")
+            import backend.api.main as api_main
+            api_main.engine = engine
+            targets_data = {
+                "targets": [
+                    {
+                        "target": t["target"],
+                        "slug": t["slug"],
+                        "display_name": t["display_name"],
+                        "icon": t["icon"],
+                        "accuracy": t.get("accuracy"),
+                        "r_squared": t.get("r_squared"),
+                        "calibrated": t.get("accuracy") is not None,
+                        "session_start_h": t.get("session_start_h", 0),
+                        "session_hours": f"{t['session_start_h']:02d}h-{t['session_end_h']:02d}h",
+                        "divergence_config": t.get("divergence_config"),
+                    }
+                    for t in db_targets
+                ]
+            }
+            targets = targets_data["targets"]
+            overview_data = api_main._get_overview_data_sync(current_date, "v2")
+    except Exception as e:
+        print(f"  [Warning Engine Fallback]: {e}")
+
     health_data = fetch_json(f"{LOCAL_API}/api/health")
     
     # 4. Puxar a série de cada target calibrado
@@ -86,8 +133,13 @@ def sync():
             continue
             
         target_encoded = urllib.parse.quote(target)
-        # Sincroniza a versão correspondente para o Firebase
         series_data = fetch_json(f"{LOCAL_API}/api/irai/series?session_date={current_date}&target={target_encoded}&version={used_version}")
+        if not series_data or "error" in series_data:
+            try:
+                import backend.api.main as api_main
+                series_data = api_main._get_series_data_sync(target, current_date, used_version)
+            except Exception as e:
+                print(f"  [Series fallback error for {target}]: {e}")
         if series_data:
             raw_series = series_data.get("series", [])
             lean_series = []
@@ -111,25 +163,25 @@ def sync():
     
     # 5. Montar payload flat para atualização atômica via SDK
     update_payload = {
-        "dates": dates_data,
-        "overview": overview_data,
-        "targets": targets_data,
+        "dates": clean_for_firebase(dates_data),
+        "overview": clean_for_firebase(overview_data),
+        "targets": clean_for_firebase(targets_data),
         "last_update": time.time()
     }
     if health_data:
-        update_payload["health"] = health_data
+        update_payload["health"] = clean_for_firebase(health_data)
     
     for safe_target, target_series in series_map.items():
-        update_payload[f"series/{safe_target}"] = target_series
+        update_payload[f"series/{safe_target}"] = clean_for_firebase(target_series)
         
     for safe_target, target_summary in summaries_map.items():
-        update_payload[f"summaries/{safe_target}"] = target_summary
+        update_payload[f"summaries/{safe_target}"] = clean_for_firebase(target_summary)
 
     for safe_target, target_history in history_map.items():
-        update_payload[f"history/{safe_target}"] = target_history
+        update_payload[f"history/{safe_target}"] = clean_for_firebase(target_history)
     
     for safe_target, target_garch in garch_map.items():
-        update_payload[f"garch/{safe_target}"] = target_garch
+        update_payload[f"garch/{safe_target}"] = clean_for_firebase(target_garch)
     
     # 6. Gravar usando SDK do Firebase Admin (garante autenticação nativa)
     try:

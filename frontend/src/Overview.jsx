@@ -172,11 +172,15 @@ export default function Overview({ onSelectTarget }) {
     }
   }, [])
 
-  // Merge targets + overview data
-  const cards = targets.map(t => {
-    const live = overview.find(o => o.target === t.target) || {}
-    return { ...t, ...live }
-  })
+  // Merge targets + overview data (deduplicated by target symbol)
+  const uniqueCardsMap = new Map();
+  targets.forEach(t => {
+    if (t.target && !uniqueCardsMap.has(t.target)) {
+      const live = overview.find(o => o.target === t.target) || {};
+      uniqueCardsMap.set(t.target, { ...t, ...live });
+    }
+  });
+  const cards = Array.from(uniqueCardsMap.values());
 
   const calibrated = cards
     .filter(c => c.calibrated)
@@ -184,8 +188,8 @@ export default function Overview({ onSelectTarget }) {
       const cointA = a.is_cointegrated === false ? 0 : 1;
       const cointB = b.is_cointegrated === false ? 0 : 1;
       if (cointA !== cointB) return cointB - cointA;
-      const pA = a.johansen_p_value !== undefined ? a.johansen_p_value : 1.0;
-      const pB = b.johansen_p_value !== undefined ? b.johansen_p_value : 1.0;
+      const pA = a.johansen_p_value != null ? Number(a.johansen_p_value) : 1.0;
+      const pB = b.johansen_p_value != null ? Number(b.johansen_p_value) : 1.0;
       return pA - pB;
     })
   const pending = cards.filter(c => !c.calibrated)
@@ -476,7 +480,7 @@ function AssetCard({ card, onClick }) {
         marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 7,
         color: '#475569', display: 'flex', justifyContent: 'space-between',
       }}>
-        <span>acc {accuracy.toFixed(0)}% · p-val: {card.johansen_p_value !== undefined ? card.johansen_p_value.toFixed(3) : '1.000'}</span>
+        <span>acc {accuracy ? accuracy.toFixed(0) : '0'}% · p-val: {card.johansen_p_value != null ? Number(card.johansen_p_value).toFixed(3) : '1.000'}</span>
         <span style={{ color: card.is_cointegrated !== false ? '#4ADE80' : '#F87171', fontWeight: 600 }}>
           {card.is_cointegrated !== false ? 'coint ✓' : 'coint ✗'}
         </span>

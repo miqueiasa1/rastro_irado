@@ -123,7 +123,7 @@ class IRAIEngine:
             rows = conn.execute(
                 "SELECT target, slug, display_name, icon, factors, factor_labels, "
                 "session_start_h, session_end_h, data_proxy, accuracy, r_squared, active, divergence_config "
-                "FROM asset_models WHERE active=1 AND target IN ('WIN$N', 'WDO$N', 'BTCUSD', 'XAUUSD', 'US500', 'US30', 'USTEC', 'EURUSD', 'USDJPY', 'GBPUSD')"
+                "FROM asset_models WHERE active=1 ORDER BY target"
             ).fetchall()
         except Exception:
             rows = []
