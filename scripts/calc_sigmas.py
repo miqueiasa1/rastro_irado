@@ -52,10 +52,8 @@ for _, row in targets.iterrows():
     # Arredondar para 4 casas decimais
     sigma = round(float(sigma), 4)
     
-    # Definir threshold (vamos usar 1.0 como default, significa 1 desvio padrão inteiro para configurar divergência forte)
-    # Mas para manter compatibilidade com "z_score", se o z_score chega a 1.0, o preço andou 1 desvio padrão
-    # O threshold anterior era 0.5 (meio desvio padrão). Vamos usar 0.75 para não acionar à toa.
-    threshold = 0.75
+    # Definir threshold (vamos usar 2.0 como default para Z-Score estatístico padrão de compra/venda)
+    threshold = 2.0
     
     config = {"sigma": sigma, "threshold": threshold}
     updates.append((json.dumps(config), slug))

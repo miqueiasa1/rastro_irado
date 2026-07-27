@@ -1,5 +1,22 @@
 import React from 'react';
 
+const ASSET_ORDER = [
+  "WIN$N",
+  "WDO$N",
+  "BTCUSD",
+  "USTEC",
+  "US500",
+  "US30",
+  "US2000",
+  "DE40",
+  "JP225",
+  "CHINA50",
+  "XAUUSD",
+  "EURUSD",
+  "GBPUSD",
+  "USDJPY"
+];
+
 export function TargetSelector({ targetsMeta = [], selectedTarget, onSelectTarget }) {
   const uniqueTargets = [];
   const seen = new Set();
@@ -9,6 +26,14 @@ export function TargetSelector({ targetsMeta = [], selectedTarget, onSelectTarge
       uniqueTargets.push(t);
     }
   }
+
+  uniqueTargets.sort((a, b) => {
+    const indexA = ASSET_ORDER.indexOf(a.target);
+    const indexB = ASSET_ORDER.indexOf(b.target);
+    const valA = indexA === -1 ? 999 : indexA;
+    const valB = indexB === -1 ? 999 : indexB;
+    return valA - valB;
+  });
 
   return (
     <select

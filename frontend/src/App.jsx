@@ -650,6 +650,7 @@ export default function App() {
                   {now.p_up != null && (
                     <SignalGauge
                       title="RASTRO MACRO"
+                      type="pd"
                       pUp={now.p_up}
                       verdict={now.verdict}
                       score={now.score}
@@ -668,6 +669,19 @@ export default function App() {
                       isPreview={now.is_preview}
                     />
                   )}
+                  <SignalGauge
+                    title="Z-SCORE SPREAD"
+                    type="pair_z"
+                    zValue={now.pair_z}
+                    targetLabel={now.pair_factor || "Sem Par Ativo"}
+                    beta={now.pair_beta}
+                  />
+                  <SignalGauge
+                    title="Z-SCORE DO RASTRO"
+                    type="rastro_z"
+                    zValue={now.price_diverge_z}
+                    targetLabel="Divergência de Preço"
+                  />
                 </div>
 
                 {/* ── STACKED CHARTS: same X axis ── */}
@@ -868,51 +882,7 @@ export default function App() {
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            z-score trading
-                          </div>
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <button
-                              onClick={() => setShowPairPro(prev => !prev)}
-                              title="Exaustão A Favor P Dinâmico (Bolinhas Verde/Vermelha)"
-                              style={{
-                                background: showPairPro ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showPairPro ? '#4ADE8088' : '#334155'}`,
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 9,
-                                fontFamily: 'var(--font-mono)',
-                                color: showPairPro ? '#F8FAFC' : '#64748B',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairPro ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
-                              A Favor P
-                            </button>
-                            <button
-                              onClick={() => setShowPairContra(prev => !prev)}
-                              title="Exaustão Contra P Dinâmico (Bolinha Amarela)"
-                              style={{
-                                background: showPairContra ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showPairContra ? '#EAB30888' : '#334155'}`,
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 9,
-                                fontFamily: 'var(--font-mono)',
-                                color: showPairContra ? '#F8FAFC' : '#64748B',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showPairContra ? '#EAB308' : '#64748B', display: 'inline-block' }} />
-                              Contra P
-                            </button>
+                            z-score spread
                           </div>
                         </div>
                         <TVPairwiseZScoreChart
@@ -920,8 +890,6 @@ export default function App() {
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
-                          showExhaustionContra={showPairContra}
-                          showExhaustionPro={showPairPro}
                         />
                       </div>
                     )}
@@ -936,59 +904,13 @@ export default function App() {
                           }}>
                             z-score rastro
                           </div>
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <button
-                              onClick={() => setShowDivPro(prev => !prev)}
-                              title="Exaustão A Favor P Dinâmico (Bolinhas Verde/Vermelha)"
-                              style={{
-                                background: showDivPro ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showDivPro ? '#4ADE8088' : '#334155'}`,
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 9,
-                                fontFamily: 'var(--font-mono)',
-                                color: showDivPro ? '#F8FAFC' : '#64748B',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivPro ? '#4ADE80' : '#64748B', display: 'inline-block' }} />
-                              A Favor P
-                            </button>
-                            <button
-                              onClick={() => setShowDivContra(prev => !prev)}
-                              title="Exaustão Contra P Dinâmico (Bolinha Amarela)"
-                              style={{
-                                background: showDivContra ? '#1E293B' : 'transparent',
-                                border: `1px solid ${showDivContra ? '#EAB30888' : '#334155'}`,
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 9,
-                                fontFamily: 'var(--font-mono)',
-                                color: showDivContra ? '#F8FAFC' : '#64748B',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: showDivContra ? '#EAB308' : '#64748B', display: 'inline-block' }} />
-                              Contra P
-                            </button>
-                          </div>
                         </div>
                         <TVPriceDivergeZScoreChart
                           ref={priceDivergeZChartRef}
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
-                          threshold={seriesInfo.divergence_threshold || 2.0}
-                          showExhaustionContra={showDivContra}
-                          showExhaustionPro={showDivPro}
+                          threshold={2.0}
                         />
                       </div>
                     )}

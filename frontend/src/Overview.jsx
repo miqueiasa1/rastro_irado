@@ -182,17 +182,42 @@ export default function Overview({ onSelectTarget }) {
   });
   const cards = Array.from(uniqueCardsMap.values());
 
+  const ASSET_ORDER = [
+    "WIN$N",
+    "WDO$N",
+    "BTCUSD",
+    "USTEC",
+    "US500",
+    "US30",
+    "US2000",
+    "DE40",
+    "JP225",
+    "CHINA50",
+    "XAUUSD",
+    "EURUSD",
+    "GBPUSD",
+    "USDJPY"
+  ];
+
   const calibrated = cards
     .filter(c => c.calibrated)
     .sort((a, b) => {
-      const cointA = a.is_cointegrated === false ? 0 : 1;
-      const cointB = b.is_cointegrated === false ? 0 : 1;
-      if (cointA !== cointB) return cointB - cointA;
-      const pA = a.johansen_p_value != null ? Number(a.johansen_p_value) : 1.0;
-      const pB = b.johansen_p_value != null ? Number(b.johansen_p_value) : 1.0;
-      return pA - pB;
-    })
-  const pending = cards.filter(c => !c.calibrated)
+      const indexA = ASSET_ORDER.indexOf(a.target);
+      const indexB = ASSET_ORDER.indexOf(b.target);
+      const valA = indexA === -1 ? 999 : indexA;
+      const valB = indexB === -1 ? 999 : indexB;
+      return valA - valB;
+    });
+
+  const pending = cards
+    .filter(c => !c.calibrated)
+    .sort((a, b) => {
+      const indexA = ASSET_ORDER.indexOf(a.target);
+      const indexB = ASSET_ORDER.indexOf(b.target);
+      const valA = indexA === -1 ? 999 : indexA;
+      const valB = indexB === -1 ? 999 : indexB;
+      return valA - valB;
+    });
 
   if (loading) {
     return (
@@ -473,7 +498,52 @@ function AssetCard({ card, onClick }) {
         </div>
       </div>
 
+      {/* Mini Indicators Row */}
+      {(() => {
+        const pz = card.pair_z;
+        let pzSignal = 'NEUTRO';
+        let pzColor = '#64748B';
+        if (pz != null) {
+          if (pz <= -2.0) { pzSignal = 'COMPRA'; pzColor = '#10B981'; }
+          else if (pz < -0.5) { pzSignal = 'COMPRA L.'; pzColor = '#4ADE80'; }
+          else if (pz >= 2.0) { pzSignal = 'VENDA'; pzColor = '#EF4444'; }
+          else if (pz > 0.5) { pzSignal = 'VENDA L.'; pzColor = '#F87171'; }
+        }
 
+        const rz = card.price_diverge_z;
+        let rzSignal = 'NEUTRO';
+        let rzColor = '#64748B';
+        if (rz != null) {
+          if (rz <= -2.0) { rzSignal = 'COMPRA'; rzColor = '#10B981'; }
+          else if (rz < -0.5) { rzSignal = 'COMPRA L.'; rzColor = '#4ADE80'; }
+          else if (rz >= 2.0) { rzSignal = 'VENDA'; rzColor = '#EF4444'; }
+          else if (rz > 0.5) { rzSignal = 'VENDA L.'; rzColor = '#F87171'; }
+        }
+
+        return (
+          <div style={{
+            marginTop: 8, padding: '4px 6px', borderRadius: 4, background: 'rgba(28,28,34,0.3)',
+            border: '1px solid #1C1C22', display: 'flex', flexDirection: 'column', gap: 3
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
+              <span style={{ color: '#64748B' }}>PD RASTRO:</span>
+              <span style={{ color: signalColor, fontWeight: 600 }}>{pUp.toFixed(1)}% ({directionText})</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
+              <span style={{ color: '#64748B' }}>Z SPREAD:</span>
+              <span style={{ color: pzColor, fontWeight: 600 }}>
+                {pz != null ? `${pz >= 0 ? '+' : ''}${pz.toFixed(2)}` : 'N/A'} ({pzSignal})
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
+              <span style={{ color: '#64748B' }}>Z RASTRO:</span>
+              <span style={{ color: rzColor, fontWeight: 600 }}>
+                {rz != null ? `${rz >= 0 ? '+' : ''}${rz.toFixed(2)}` : 'N/A'} ({rzSignal})
+              </span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Footer: acc + coint + bars */}
       <div style={{

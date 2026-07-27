@@ -112,7 +112,24 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
 
   // Fetch targets once on mount
   useEffect(() => {
-    const dedupeTargets = (list) => {
+    const ASSET_ORDER = [
+      "WIN$N",
+      "WDO$N",
+      "BTCUSD",
+      "USTEC",
+      "US500",
+      "US30",
+      "US2000",
+      "DE40",
+      "JP225",
+      "CHINA50",
+      "XAUUSD",
+      "EURUSD",
+      "GBPUSD",
+      "USDJPY"
+    ];
+
+    const sortAndDedupe = (list) => {
       const res = [];
       const seen = new Set();
       for (const t of list) {
@@ -121,19 +138,25 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           res.push(t);
         }
       }
-      return res;
+      return res.sort((a, b) => {
+        const indexA = ASSET_ORDER.indexOf(a.target);
+        const indexB = ASSET_ORDER.indexOf(b.target);
+        const valA = indexA === -1 ? 999 : indexA;
+        const valB = indexB === -1 ? 999 : indexB;
+        return valA - valB;
+      });
     };
 
     if (FIREBASE_URL) {
       const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '');
       fetch(`${baseUrl}/targets.json`)
         .then(r => r.json())
-        .then(data => setTargetsMeta(dedupeTargets(data?.targets || [])))
+        .then(data => setTargetsMeta(sortAndDedupe(data?.targets || [])))
         .catch(() => { });
     } else {
       fetch(`${API}/api/irai/targets`)
         .then(r => r.json())
-        .then(data => setTargetsMeta(dedupeTargets(data.targets || [])))
+        .then(data => setTargetsMeta(sortAndDedupe(data.targets || [])))
         .catch(() => { });
     }
   }, []);

@@ -20,8 +20,7 @@ const TVPairwiseZScoreChart = forwardRef(({
 
   const handleChartCreated = useCallback((chart) => {
     const zSeries = chart.addSeries(LineSeries, {
-      color: "#C9A227",
-      lineWidth: 1.5,
+      lineWidth: 1.8,
       priceLineVisible: false,
       crosshairMarkerVisible: true,
       autoscaleInfoProvider: (original) => {
@@ -61,7 +60,7 @@ const TVPairwiseZScoreChart = forwardRef(({
       axisLabelVisible: false,
     });
 
-    seriesRefs.current = { zSeries, markersApi: null };
+    seriesRefs.current = { zSeries };
   }, []);
 
   useEffect(() => {
@@ -71,66 +70,35 @@ const TVPairwiseZScoreChart = forwardRef(({
     const { zSeries } = seriesRefs.current;
     if (!zSeries) return;
 
-    const zData = [];
-    const markers = [];
+    const getCategoryColor = (val) => {
+      if (val <= -2.0) return "#4ADE80"; // verde claro
+      if (val < -0.5) return "#15803D";  // verde apagado
+      if (val >= 2.0) return "#F87171";  // vermelho claro
+      if (val > 0.5) return "#B91C1C";   // vermelho apagado
+      return "#64748B";                 // cinza
+    };
 
-    history.forEach((d, idx) => {
+    const zData = [];
+    history.forEach((d) => {
       if (!d.time) return;
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
       const zVal = d.pair_z;
       if (zVal != null && isFinite(zVal)) {
-        zData.push({ time: t, value: zVal });
+        zData.push({
+          time: t,
+          value: zVal,
+          color: getCategoryColor(zVal)
+        });
       } else {
         zData.push({ time: t }); // whitespace
-      }
-
-      // Check pair spread markers (Apenas na entrada/crossover da zona de exaustão)
-      const prevZ = idx > 0 ? history[idx - 1]?.pair_z : null;
-
-      const isBuy = (d.pair_compra != null && isFinite(d.pair_compra)) || 
-                    (zVal != null && zVal <= -2.0 && (prevZ == null || prevZ > -2.0));
-      const isSell = (d.pair_venda != null && isFinite(d.pair_venda)) || 
-                     (zVal != null && zVal >= 2.0 && (prevZ == null || prevZ < 2.0));
-
-      if (isBuy || isSell) {
-        const pUp = d.p_up != null ? d.p_up : 50;
-        const isCounterTrend = isBuy ? (pUp < 45) : (pUp > 55);
-
-        if (isCounterTrend && showExhaustionContra) {
-          markers.push({
-            time: t,
-            position: isBuy ? "belowBar" : "aboveBar",
-            shape: "circle",
-            color: "#EAB308", // Yellow (Contra o P Dinâmico)
-            text: "",
-            size: 0.9,
-          });
-        } else if (!isCounterTrend && showExhaustionPro) {
-          markers.push({
-            time: t,
-            position: isBuy ? "belowBar" : "aboveBar",
-            shape: "circle",
-            color: isBuy ? "#4ADE80" : "#F87171", // Green or Red (A Favor do P Dinâmico)
-            text: "",
-            size: 0.9,
-          });
-        }
       }
     });
 
     const sortData = (arr) => arr.sort((a, b) => a.time - b.time).filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
-
     zSeries.setData(sortData(zData));
-
-    markers.sort((a, b) => a.time - b.time);
-    if (!seriesRefs.current.markersApi) {
-      seriesRefs.current.markersApi = createSeriesMarkers(zSeries, markers);
-    } else {
-      seriesRefs.current.markersApi.setMarkers(markers);
-    }
-  }, [history, effectiveDate, showExhaustionContra, showExhaustionPro]);
+  }, [history, effectiveDate]);
 
   const chartOptions = {
     leftPriceScale: {

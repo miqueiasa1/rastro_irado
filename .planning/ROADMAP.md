@@ -11,8 +11,14 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | 1 | Implementação e Testes Unitários de NWE no Backend | Complete (0/0) | 2026-07-13 |
 | 2 | Integração de NWE no Endpoint da API | Complete (0/0) | 2026-07-13 |
 | 3 | Refatoração do Frontend React | Complete (0/0) | 2026-07-13 |
-| 4 | Robustez de Infraestrutura (Concorrência e Persistência) | Pendente | INFRA-01, INFRA-02, INFRA-03 |
+| 4 | Robustez de Infraestrutura (Concorrência e Persistência) | Complete (0/0) | 2026-07-18 |
 | 5 | Expansão de Ativos no Rastro (Índices Globais: DE40, US2000, JP225, CHINA50) | Complete (2/2) | 2026-07-23 |
+| 6 | Comparação Detalhada e Alinhamento com o Fork | Complete (2/2) | 2026-07-24 |
+| 7 | Merge Backend e Banco | Resolver conflitos e consolidar banco de dados | 2026-08-01 |
+| 8 | Portabilidade dos Scripts e Testes | Trazer testes e scripts PIT do fork | 2026-08-05 |
+| 9 | Unificação do Frontend e Gráficos | Trazer Lightweight-charts e refatorações | 2026-08-10 |
+| 10 | Homologação e Verificação UAT | Testar final unificado em staging | 2026-08-12 |
+| 11 | Resolução Automática de Contratos Ativos B3 em Contas Demo | Mapear WIN$N/WDO$N/DI1$N para contratos vigentes no boot | 2026-07-27 |
 
 ---
 
@@ -52,6 +58,42 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
   1. Novos ativos configurados para coleta de barras no `collector.py` via MT5 (Tickmill / Axi).
   2. Modelos estatísticos calibrados via `calibrate_universal.py` com regressão Ridge, Johansen e filtro Kalman, persistidos em `asset_models` e `model_params`.
   3. API (`engine.py`) e Dashboard React renderizando os 4 novos ativos de forma integrada no Rastro Irai com gráficos de Z-Score, NWE e Pair Spread.
+
+### Phase 6: Comparação Detalhada e Alinhamento com o Fork
+* **Goal:** Realizar a auditoria de conflitos e comparação detalhada das divergências de código entre o branch local `main` e o fork `brenoperucchi/rastro_irado`, detalhando a estratégia de integração de ambas as frentes.
+* **Requirements:** COMPAR-01, COMPAR-02
+* **Success Criteria:**
+  1. Comparação detalhada gerada em documento de artefato (`fork_comparison.md`) mapeando arquivos novos, deletados e conflitos específicos.
+  2. Plano de integração e merge de frentes divergentes estruturado e documentado em `.planning/phases/06-comparacao-detalhada-e-alinhamento-com-o-fork/06-PLAN-01.md`.
+  3. Relatório de encerramento (`06-SUMMARY-01.md`) validando a fase como completa.
+
+### Phase 7: Merge Backend e Banco
+* **Goal:** Consolidar os conflitos nos arquivos `engine.py`, `main.py`, `db.py` e `collector.py` entre a versão local e o fork.
+* **Requirements:** MERGE-01
+* **Success Criteria:** Consolidação realizada sem quebras.
+
+### Phase 8: Portabilidade dos Scripts e Testes
+* **Goal:** Trazer as rotinas de testes robustos e scripts PIT do fork para o ambiente local.
+* **Requirements:** PORT-01
+* **Success Criteria:** Todos os testes rodando com sucesso.
+
+### Phase 9: Unificação do Frontend e Gráficos
+* **Goal:** Migrar o frontend unificado para usar a base pura de Lightweight-charts, re-implementando os novos painéis locais de Z-score (sem bolinhas) e stop GARCH.
+* **Requirements:** UI-UNIFY-01
+* **Success Criteria:** Interface modular, rápida e limpa de dependências antigas.
+
+### Phase 10: Homologação e Verificação UAT
+* **Goal:** Testar e validar o sistema integrado fim-a-fim em staging/simulação.
+* **Requirements:** UAT-01
+* **Success Criteria:** Verificação de integridade de dados e latência.
+
+### Phase 11: Resolução Automática de Contratos Ativos B3 em Contas Demo
+* **Goal:** Permitir que o coletor resolva dinamicamente os símbolos contínuos B3 (`WIN$N`, `WDO$N`, `DI1$N`) para seus contratos vigentes reais (ex: `WINQ26`) quando o terminal estiver conectado a uma conta demo que não suporte os símbolos contínuos nativamente.
+* **Requirements:** FALLBACK-DEMO-01, FALLBACK-DEMO-02
+* **Success Criteria:**
+  1. O coletor detecta a ausência do símbolo contínuo e mapeia para o contrato futuro ativo equivalente de maior liquidez e com vencimento futuro.
+  2. A gravação no SQLite é feita usando o símbolo contínuo original (`WIN$N`, `WDO$N`, `DI1$N`), garantindo compatibilidade do backend e frontend.
+  3. API e Dashboard funcionam perfeitamente em contas demo.
 
 ## ✅ Concluídos
 

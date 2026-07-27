@@ -410,7 +410,9 @@ class IRAIEngine:
         # Pegar barras da sessão (usa símbolos do banco)
         all_symbols = list(set([data_target] + db_factors))
         placeholders = ",".join(["?"] * len(all_symbols))
-        query = f"""
+        
+        # 1. Verificar/carregar barras de hoje
+        query_today = f"""
             SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
             FROM market_bars
             WHERE timeframe = ?
@@ -422,16 +424,31 @@ class IRAIEngine:
         end_dt = datetime.fromisoformat(session_date) + timedelta(days=1)
         end = end_dt.strftime("%Y-%m-%dT00:00:00Z")
 
-        rows_raw = conn.execute(query, [timeframe] + all_symbols + [start, end]).fetchall()
+        rows_today = conn.execute(query_today, [timeframe] + all_symbols + [start, end]).fetchall()
+        
+        if not rows_today:
+            conn.close()
+            return []
+
+        # 2. Carregar barras de aquecimento (warm-up) das últimas 150 barras antes de hoje por ativo
+        rows_warmup = []
+        for sym in all_symbols:
+            sym_warmup = conn.execute(f"""
+                SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
+                FROM market_bars
+                WHERE timeframe = ? AND symbol = ? AND timestamp_utc < ?
+                ORDER BY timestamp_utc DESC
+                LIMIT 150
+            """, [timeframe, sym, start]).fetchall()
+            rows_warmup.extend(sym_warmup)
+
+        rows_raw = rows_warmup + rows_today
         
         # Load previous Kalman state if valid
         slug = cfg.get("slug", self.target_slugs.get(target, "win"))
         saved_state = load_kalman_state(conn, slug, timeframe, session_date, expected_dim=1 + len(active_factors))
         
         conn.close()
-
-        if not rows_raw:
-            return []
 
         # Detectar sessão via config do modelo (antes de iterar rows)
         session_start = cfg.get("session_start_h", 0)
@@ -555,12 +572,17 @@ class IRAIEngine:
         # ── Modo normal (target tem barras) ───────────────────────────────
         # Filter by session removed to allow 24/7 continuous timeline
 
-        # Opens = primeira barra de cada símbolo
+        # Opens = primeira barra de cada símbolo da sessão atual (hoje)
+        session_start_utc = datetime.fromisoformat(session_date).replace(tzinfo=timezone.utc)
         opens = {}
         for sym in all_symbols:
-            sym_bars = sorted([r for r in rows if r["symbol"] == sym], key=lambda r: r["timestamp"])
-            if sym_bars:
-                opens[sym] = float(sym_bars[0]["open"])
+            session_bars = sorted([r for r in rows if r["symbol"] == sym and r["timestamp"] >= session_start_utc], key=lambda r: r["timestamp"])
+            if session_bars:
+                opens[sym] = float(session_bars[0]["open"])
+            else:
+                sym_bars = sorted([r for r in rows if r["symbol"] == sym], key=lambda r: r["timestamp"])
+                if sym_bars:
+                    opens[sym] = float(sym_bars[0]["open"])
 
         if data_target not in opens:
             return []
@@ -781,12 +803,10 @@ class IRAIEngine:
 
             # Multi-Factor Basket Arbitrage Z-Score & Pairwise Signal (v2 Kalman Only)
             if version in ("v2", "both") and kf is not None and len(active_factors) > 0 and snap.t_frac > 0 and not is_ghost_bar and not is_pre_market:
-                # 1. Z-Score Rastro (Pair Trading entre Ativo Target e P Dinâmico)
-                p_up_norm = (snap.p_up - 50.0) / 10.0
-                cum_win_ret = ((snap.win_current - snap.win_open) / snap.win_open * 100.0) if snap.win_open > 0 else 0.0
-
-                p_up_spread = cum_win_ret - p_up_norm
-                recent_basket_spreads.append(p_up_spread)
+                # 1. Z-Score Rastro (Pair Trading entre Ativo Target e a Cesta de Ativos)
+                predicted_win_ret = float(np.dot(current_betas, obs_matrix))
+                residuo_basket = win_ret - predicted_win_ret
+                recent_basket_spreads.append(residuo_basket)
                 if len(recent_basket_spreads) > 100:
                     recent_basket_spreads.pop(0)
 
@@ -797,7 +817,7 @@ class IRAIEngine:
                     if basket_sigma < min_basket_sigma:
                         basket_sigma = min_basket_sigma
                     basket_mean = float(np.mean(past_basket_spreads))
-                    price_div_z = (p_up_spread - basket_mean) / basket_sigma
+                    price_div_z = (residuo_basket - basket_mean) / basket_sigma
                     snap.price_diverge_z = round(float(price_div_z), 2)
                     snap.price_diverges = bool(abs(price_div_z) >= 2.0)
                 else:
@@ -825,10 +845,9 @@ class IRAIEngine:
                 pair_factor_key = active_factors[max_idx]
                 pair_label = active_labels.get(pair_factor_key, pair_factor_key)
                 
-                # Residual Cumulativo de Par
+                # Resíduo do Par
                 residuo = win_ret - (beta_max * f_ret_max)
-                cum_pair_residual += residuo
-                recent_pair_spreads.append(cum_pair_residual)
+                recent_pair_spreads.append(residuo)
                 if len(recent_pair_spreads) > 100:
                     recent_pair_spreads.pop(0)
                     
@@ -840,7 +859,7 @@ class IRAIEngine:
                         pair_sigma = min_pair_sigma
                     
                     residuo_mean = float(np.mean(past_pair_spreads))
-                    pair_z = (cum_pair_residual - residuo_mean) / pair_sigma
+                    pair_z = (residuo - residuo_mean) / pair_sigma
                     snap.pair_z = round(float(pair_z), 2)
                 else:
                     pair_z = 0.0
@@ -867,7 +886,8 @@ class IRAIEngine:
                     snap.price_diverge_z = round(ret_z, 2)
                     snap.price_diverges = (abs(ret_z) >= 2.0)
 
-            snapshots.append(snap)
+            if ts >= session_start_utc:
+                snapshots.append(snap)
             
         # Salvar o último estado do Kalman no banco
         if snapshots and version in ("v2", "both") and kf is not None and persist_state:
