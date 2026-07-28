@@ -749,7 +749,12 @@ class IRAIEngine:
                     # whereas local_intercept is a logistic regression intercept used in sigmoid().
                     for i, factor in enumerate(active_factors):
                         label = active_labels.get(factor, factor)
-                        local_factor_states[label].weight = current_betas[i+1]
+                        # Camada 1: Weight Clamping — impedir drift excessivo dos betas Kalman
+                        static_weight = t_weights.get(f"w_{label}", 0.0)
+                        max_abs = max(3.0 * abs(static_weight), 0.5)
+                        clamped = float(np.clip(current_betas[i+1], -max_abs, max_abs))
+                        local_factor_states[label].weight = clamped
+                        current_betas[i+1] = clamped
             else:
                 # V1: Garantir que os pesos sejam os estáticos (default setup at the start)
                 pass
@@ -766,6 +771,29 @@ class IRAIEngine:
                 is_cointegrated=is_coint,
                 johansen_p_value=p_val
             )
+
+            # Camada 2: Fallback V2→V1 — se Kalman divergiu demais, usar score estático
+            if version in ("v2", "both") and not is_ghost_bar and not is_pre_market:
+                v1_score = sum(
+                    t_weights.get(f"w_{active_labels.get(f, f)}", 0.0) *
+                    local_factor_states[active_labels.get(f, f)].z_score
+                    for f in active_factors
+                )
+                if abs(snap.score - v1_score) > 3.0:
+                    p_up_v1 = sigmoid(local_alpha * v1_score + local_intercept) * 100.0
+                    snap.p_up = round(p_up_v1, 2)
+                    snap.score = round(v1_score, 4)
+                    # Recalcular verdict
+                    if snap.p_up > 65:
+                        snap.verdict, snap.verdict_color = "RISK-ON", "#6FB38A"
+                    elif snap.p_up < 35:
+                        snap.verdict, snap.verdict_color = "RISK-OFF", "#C25C5C"
+                    elif snap.p_up > 55:
+                        snap.verdict, snap.verdict_color = "levemente comprador", "#6FB38A"
+                    elif snap.p_up < 45:
+                        snap.verdict, snap.verdict_color = "levemente vendedor", "#C25C5C"
+                    else:
+                        snap.verdict, snap.verdict_color = "indeciso", "#7A7F8A"
             snap.win_bar_open = float(row.get("open", row["close"]))
             snap.win_high = float(row.get("high", row["close"]))
             snap.win_low = float(row.get("low", row["close"]))

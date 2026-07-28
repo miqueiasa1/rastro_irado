@@ -83,9 +83,76 @@ def compute_bar_delta(open_p, high, low, close, real_volume):
     return real_volume * (2 * close_pct - 1)
 
 
-def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, timeframe: str, mt5_timeframe, n_bars: int = 5) -> int:
+def resolve_symbol(symbol: str) -> str:
+    """
+    Mapeia símbolos contínuos (WIN$N, WDO$N, DI1$N) para os contratos futuros ativos reais
+    caso o terminal conectado não ofereça suporte direto a eles (ex: contas de simulação/demo).
+    """
+    # 1. Verifica se o terminal já reconhece o símbolo contínuo diretamente
+    info = mt5.symbol_info(symbol)
+    if info is not None:
+        mt5.symbol_select(symbol, True)
+        return symbol
+
+    # 2. Caso contrário, resolvemos dinamicamente para o contrato futuro vigente
+    now = time.time()
+    all_symbols = mt5.symbols_get()
+    if not all_symbols:
+        return symbol
+
+    if symbol == "WIN$N":
+        # WIN expira em meses pares: G(Fev), J(Abr), M(Jun), Q(Ago), V(Out), Z(Dez)
+        pattern = re.compile(r"^WIN[GJKMQVUZ]\d{2}$")
+        candidates = []
+        for s in all_symbols:
+            if pattern.match(s.name):
+                if s.expiration_time == 0 or s.expiration_time > now:
+                    candidates.append(s)
+        if candidates:
+            candidates.sort(key=lambda x: (x.expiration_time if x.expiration_time > 0 else float('inf'), -x.session_volume))
+            resolved = candidates[0].name
+            mt5.symbol_select(resolved, True)
+            log.info(f"Mapeamento dinâmico: {symbol} -> {resolved} (Conta Demo/Simulação)")
+            return resolved
+
+    elif symbol == "WDO$N":
+        # WDO expira todo mês: F, G, H, J, K, M, N, Q, U, V, X, Z
+        pattern = re.compile(r"^WDO[FGHJKMNQUVXZ]\d{2}$")
+        candidates = []
+        for s in all_symbols:
+            if pattern.match(s.name):
+                if s.expiration_time == 0 or s.expiration_time > now:
+                    candidates.append(s)
+        if candidates:
+            candidates.sort(key=lambda x: (x.expiration_time if x.expiration_time > 0 else float('inf'), -x.session_volume))
+            resolved = candidates[0].name
+            mt5.symbol_select(resolved, True)
+            log.info(f"Mapeamento dinâmico: {symbol} -> {resolved} (Conta Demo/Simulação)")
+            return resolved
+
+    elif symbol == "DI1$N":
+        # DI1 expira mensalmente/trimestralmente, mas apenas os contratos de Janeiro (F) possuem liquidez
+        # relevante para servir como benchmark ativo.
+        pattern = re.compile(r"^DI1F\d{2}$")
+        candidates = []
+        for s in all_symbols:
+            if pattern.match(s.name):
+                if s.expiration_time == 0 or s.expiration_time > now:
+                    candidates.append(s)
+        if candidates:
+            candidates.sort(key=lambda x: (x.expiration_time if x.expiration_time > 0 else float('inf'), -x.session_volume))
+            resolved = candidates[0].name
+            mt5.symbol_select(resolved, True)
+            log.info(f"Mapeamento dinâmico: {symbol} -> {resolved} (Conta Demo/Simulação)")
+            return resolved
+
+    return symbol
+
+
+def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, timeframe: str, mt5_timeframe, n_bars: int = 5, resolved_symbol: str = None) -> int:
     """Coleta as N barras de um símbolo no timeframe informado."""
-    rates = mt5.copy_rates_from_pos(symbol, mt5_timeframe, 0, n_bars)
+    query_symbol = resolved_symbol if resolved_symbol else symbol
+    rates = mt5.copy_rates_from_pos(query_symbol, mt5_timeframe, 0, n_bars)
 
     if rates is None or len(rates) == 0:
         return 0
@@ -209,6 +276,7 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_
         OFFLINE_TERMINALS[terminal['name']] = 0
 
         for sym in terminal["symbols"]:
+            resolved_sym = resolve_symbol(sym)
             total_inserted = 0
             for tf_name, mt5_tf in TIMEFRAME_MAP.items():
                 n_bars = 5
@@ -221,10 +289,10 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_
                     elif tf_name == "M30": n_bars = 100
                     elif tf_name == "H1": n_bars = 50
 
-                inserted = collect_recent_bars(sym, terminal["source"], conn, tf_name, mt5_tf, n_bars)
+                inserted = collect_recent_bars(sym, terminal["source"], conn, tf_name, mt5_tf, n_bars, resolved_symbol=resolved_sym)
                 total_inserted += inserted
 
-            tick = mt5.symbol_info_tick(sym)
+            tick = mt5.symbol_info_tick(resolved_sym)
             bid = tick.bid if tick and tick.bid > 0 else 0
             results[sym] = {
                 "status": "ok",

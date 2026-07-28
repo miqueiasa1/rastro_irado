@@ -195,5 +195,8 @@ if __name__ == "__main__":
     print(f"Iniciando Sincronizador Firebase (SDK de Produção)")
     print(f"Alvo: {FIREBASE_URL}")
     while True:
-        sync()
+        try:
+            sync()
+        except Exception as e:
+            print(f"[{time.strftime('%H:%M:%S')}] [Erro Crítico Loop]: {e}")
         time.sleep(60)

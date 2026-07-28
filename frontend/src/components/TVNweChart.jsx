@@ -3,7 +3,7 @@ import { LineSeries, CandlestickSeries, LineStyle, createSeriesMarkers } from "l
 import BaseLightweightChart from "./BaseLightweightChart";
 import { parseTimeToTimestamp } from "../utils/time";
 
-const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, showMidWalls = false, effectiveDate, selectedTarget, hideXAxis = true, chartType = 'line', showGarchBands = false, garchVolPct = null }, ref) => {
+const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, showMidWalls = false, effectiveDate, selectedTarget, hideXAxis = true, chartType = 'line', showGarchBands = false, garchVolPct = null, showZSignalMarkers = true }, ref) => {
   const baseChartRef = useRef(null);
   const [chartInstance, setChartInstance] = useState(null);
   const seriesRefs = useRef({});
@@ -145,6 +145,28 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       } else {
         nweCenterData.push({ time: t });
       }
+      // Z-Score Concordance Markers (pair_z + price_diverge_z agreeing)
+      if (showZSignalMarkers && d.pair_z != null && d.price_diverge_z != null && d.win_current != null) {
+        const pz = d.pair_z;
+        const rz = d.price_diverge_z;
+        if (pz <= -2 && rz <= -2) {
+          markers.push({
+            time: t,
+            position: 'belowBar',
+            color: '#22C55E',
+            shape: 'circle',
+            text: 'C',
+          });
+        } else if (pz >= 2 && rz >= 2) {
+          markers.push({
+            time: t,
+            position: 'aboveBar',
+            color: '#EF4444',
+            shape: 'circle',
+            text: 'V',
+          });
+        }
+      }
 
     });
 
@@ -154,6 +176,20 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     nweUpperSeries.setData(sortData(nweUpperData));
     nweLowerSeries.setData(sortData(nweLowerData));
     nweCenterSeries.setData(sortData(nweCenterData));
+
+    // Apply Z-Score concordance markers
+    // Clean up old markers first
+    if (seriesRefs.current.markersApi) {
+      try { seriesRefs.current.markersApi.detach(); } catch { /* ignore */ }
+      seriesRefs.current.markersApi = null;
+    }
+    if (markers.length > 0) {
+      const sortedMarkers = markers.sort((a, b) => a.time - b.time);
+      try {
+        const markersApi = createSeriesMarkers(winSeries, sortedMarkers);
+        seriesRefs.current.markersApi = markersApi;
+      } catch { /* ignore if markers API not available */ }
+    }
 
     // Auto-fit timeline zoom only once per session/target load
     if (!hasFittedRef.current) {
@@ -165,7 +201,7 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
         }
       }, 50);
     }
-  }, [history, effectiveDate, chartType, chartInstance]);
+  }, [history, effectiveDate, chartType, chartInstance, showZSignalMarkers]);
 
   // Set GEX Walls
   useEffect(() => {

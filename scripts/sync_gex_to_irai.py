@@ -30,6 +30,10 @@ PREFIX_TO_TARGET = {
     'dow': 'US30',
     'jpy': 'USDJPY',
     'dxy': 'DXY',
+    'dax': 'DE40',
+    'jp': 'JP225',
+    'rut': 'US2000',
+    'china': 'CHINA50',
 }
 
 
@@ -162,6 +166,10 @@ def generate_js(data):
         lines.append('  ],')
 
     lines.append('};')
+    lines.append('')
+    lines.append('export function getGexLevels(target) {')
+    lines.append('  return GEX_LEVELS[target] || [];')
+    lines.append('}')
     lines.append('')
     lines.append('export default GEX_LEVELS;')
     lines.append('')
