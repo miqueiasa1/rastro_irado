@@ -870,14 +870,14 @@ export default function App() {
                   </div>
 
                   {/* BOTTOM: Signal Heatmap (D-P-Z-E) */}
-                  <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 2 }}>
 
 
                     {/* BOTTOM 1: Pairwise Z-Score (Pair Spread) */}
                     {/* CRITICAL RULE: Renderizado obrigatoriamente se target for WIN$N para evitar que o painel suma sem dados. */}
                     {(selectedTarget === 'WIN$N' || seriesWithNWE.some(s => s.pair_z != null)) && (
                       <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0 1px' }}>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
@@ -890,14 +890,15 @@ export default function App() {
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
+                          height="75px"
                         />
                       </div>
                     )}
 
                     {/* BOTTOM 2: Price Divergence Z-Score */}
                     {seriesWithNWE.some(s => s.price_diverge_z != null) && (
-                      <div style={{ marginTop: 16 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0 4px' }}>
+                      <div style={{ marginTop: 2 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0 1px' }}>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
@@ -911,6 +912,7 @@ export default function App() {
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
                           threshold={2.0}
+                          height="75px"
                         />
                       </div>
                     )}

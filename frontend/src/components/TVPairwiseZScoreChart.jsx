@@ -7,6 +7,7 @@ const TVPairwiseZScoreChart = forwardRef(({
   history = [],
   effectiveDate,
   hideXAxis = true,
+  height = "75px",
   showExhaustionContra = true,
   showExhaustionPro = true
 }, ref) => {
@@ -107,7 +108,7 @@ const TVPairwiseZScoreChart = forwardRef(({
     rightPriceScale: {
       visible: true,
       borderColor: "#1a2530",
-      scaleMargins: { top: 0.2, bottom: 0.2 },
+      scaleMargins: { top: 0.1, bottom: 0.1 },
       minimumWidth: 70,
     },
   };
@@ -116,7 +117,7 @@ const TVPairwiseZScoreChart = forwardRef(({
     <BaseLightweightChart
       ref={baseChartRef}
       hideXAxis={hideXAxis}
-      height="100px"
+      height={height}
       chartOptions={chartOptions}
       onChartCreated={handleChartCreated}
     >

@@ -8,6 +8,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({
   effectiveDate,
   hideXAxis = true,
   threshold = 2.0,
+  height = "75px",
   showExhaustionContra = true,
   showExhaustionPro = true
 }, ref) => {
@@ -136,7 +137,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({
     rightPriceScale: {
       visible: true,
       borderColor: "#1a2530",
-      scaleMargins: { top: 0.2, bottom: 0.2 },
+      scaleMargins: { top: 0.1, bottom: 0.1 },
       minimumWidth: 70,
     },
   };
@@ -145,7 +146,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({
     <BaseLightweightChart
       ref={baseChartRef}
       hideXAxis={hideXAxis}
-      height="100px"
+      height={height}
       chartOptions={chartOptions}
       onChartCreated={handleChartCreated}
     >
