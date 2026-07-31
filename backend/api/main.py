@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from backend.db import get_connection, DB_PATH, init_db
+from backend.db import get_connection, DB_PATH, init_db, get_live_snapshots, save_live_snapshots
 from backend.irai.engine import IRAIEngine, FACTOR_LABELS, TARGET
 
 # ── Engine singleton ──────────────────────────────────────
@@ -340,15 +340,15 @@ async def irai_targets():
     }
 
 
-def _get_series_data_sync(target: str, session_date: str, version: str, timeframe: str = "M5") -> dict:
+def _get_series_data_sync(target: str, session_date: str, version: str, timeframe: str = "M5", mode: str = "live") -> dict:
     series_cache.clear()
     overview_cache_data.clear()
     is_today = (session_date == date.today().isoformat())
-    cache_key = (target, session_date, version, timeframe)
+    cache_key = (target, session_date, version, timeframe, mode)
     if not is_today and cache_key in series_cache:
         print(f"[CACHE HIT] {cache_key}", flush=True)
         return series_cache[cache_key]
-    print(f"[CACHE MISS] {cache_key} - computing...", flush=True)
+    print(f"[CACHE MISS] {cache_key} - mode={mode}...", flush=True)
 
     conn = get_connection()
     target_db = next((t["data_proxy"] for t in engine.registered_targets if t["target"] == target), target)
@@ -359,16 +359,56 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
         WHERE symbol = ? AND timeframe = ? AND timestamp_utc < ?
         ORDER BY timestamp_utc DESC LIMIT 190
     """, (target_db, tf_query, f"{session_date}T00:00:00Z")).fetchall()
-    conn.close()
+    
+    target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
+    is_b3 = target_info.get("session_start_h", 0) != 0
+    div_cfg = target_info.get("divergence_config", {})
+    divergence_threshold = div_cfg.get("threshold", 2.0)
     history_closes = [r["close"] for r in reversed(prev_rows)]
+
+    if mode == "live":
+        live_snaps = get_live_snapshots(conn, target, session_date, timeframe=tf_query)
+        if live_snaps and len(live_snaps) > 0:
+            conn.close()
+            for s in live_snaps:
+                ts_str = s.get("timestamp_utc") or s.get("timestamp")
+                if ts_str and "T" in ts_str:
+                    s["time"] = ts_str.split("T")[1][:5]
+                elif ts_str:
+                    s["time"] = ts_str
+
+            result = {
+                "session_date": session_date,
+                "target": target,
+                "display_name": target_info.get("display_name", target),
+                "icon": target_info.get("icon", "📊"),
+                "bars": len(live_snaps),
+                "series": live_snaps,
+                "history_closes": history_closes,
+                "is_b3": is_b3,
+                "divergence_threshold": divergence_threshold,
+                "is_live_mode": True,
+                "summary": {
+                    "p_up_min": min(s["p_up"] for s in live_snaps),
+                    "p_up_max": max(s["p_up"] for s in live_snaps),
+                    "p_up_final": live_snaps[-1]["p_up"],
+                    "score_final": live_snaps[-1]["score"],
+                    "verdict": live_snaps[-1]["verdict"],
+                    "win_return": live_snaps[-1]["win_return"],
+                    "timestamp": live_snaps[-1].get("timestamp_utc") or live_snaps[-1].get("timestamp"),
+                    "accuracy": target_info.get("accuracy"),
+                }
+            }
+            if not is_today:
+                series_cache[cache_key] = result
+            return result
+
+    conn.close()
 
     snapshots = engine.compute_from_db(session_date, target=target, version=version, timeframe=timeframe, persist_state=is_today)
     if not snapshots:
         return {"error": f"Sem dados para sessão {session_date}"}
 
-    target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
-    is_b3 = target_info.get("session_start_h", 0) != 0
-    
     series_data = [_snap_to_dict(s) for s in snapshots]
     try:
         from backend.irai.nwe import compute_nwe
@@ -376,8 +416,8 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
     except Exception as e:
         print(f"Error computing NWE in API: {e}", flush=True)
 
-    div_cfg = target_info.get("divergence_config", {})
-    divergence_threshold = div_cfg.get("threshold", 2.0)
+    if mode == "live" and is_today:
+        save_live_snapshots(DB_PATH, target, session_date, series_data, timeframe=tf_query, is_live_captured=0)
 
     result = {
         "session_date": session_date,
@@ -389,6 +429,7 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
         "history_closes": history_closes,
         "is_b3": is_b3,
         "divergence_threshold": divergence_threshold,
+        "is_live_mode": False,
         "summary": {
             "p_up_min": min(s.p_up for s in snapshots),
             "p_up_max": max(s.p_up for s in snapshots),
@@ -587,12 +628,13 @@ async def irai_series(
     target: str = Query("WIN$N", description="Target: WIN$N ou WDO$N"),
     version: str = Query("v2", description="Versão do motor (v1=estático, v2=dinâmico)"),
     timeframe: str = Query("M5", description="Timeframe do gráfico (M1, M2, M5, M15, M30, H1)"),
+    mode: str = Query("live", description="Modo de consulta (live=imutável em tempo real, recalculated=recalculado)"),
 ):
-    """Série IRAI completa para uma sessão. Suporta multi-target."""
+    """Série IRAI completa para uma sessão. Suporta multi-target e modo imutável live."""
     if session_date is None:
         session_date = date.today().isoformat()
 
-    result = await run_in_threadpool(_get_series_data_sync, target, session_date, version, timeframe=timeframe)
+    result = await run_in_threadpool(_get_series_data_sync, target, session_date, version, timeframe=timeframe, mode=mode)
     if "error" in result:
         return JSONResponse(status_code=404, content=result)
     return result

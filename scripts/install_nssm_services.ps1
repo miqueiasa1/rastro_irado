@@ -58,7 +58,7 @@ Install-Service -ServiceName "IRAI_API" -AppDirectory $RootDir -AppParameters ""
 nssm set "IRAI_API" Application "$RootDir\scripts\run_api.bat" | Out-Null
 
 # 2. Worker Collector (Puxa os dados do MetaTrader e salva no DB)
-Install-Service -ServiceName "IRAI_Collector" -AppDirectory $RootDir -AppParameters "backend\workers\collector.py --interval 60 --force"
+Install-Service -ServiceName "IRAI_Collector" -AppDirectory $RootDir -AppParameters "backend\workers\collector.py --interval 20 --force"
 
 # 3. Sincronizador Firebase (Puxa da API e manda pra Nuvem)
 Install-Service -ServiceName "IRAI_FirebaseSync" -AppDirectory $RootDir -AppParameters ""

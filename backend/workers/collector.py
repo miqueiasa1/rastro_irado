@@ -20,7 +20,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from backend.db import get_connection, DB_PATH, init_db
+from backend.db import get_connection, DB_PATH, init_db, save_live_snapshots
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -306,9 +306,33 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_
     return results
 
 
+def persist_live_snapshots_cycle(db_path):
+    """Calcula e persiste snapshots ao vivo para os alvos ativos no ciclo atual."""
+    try:
+        from backend.irai.engine import IRAIEngine
+        from backend.irai.nwe import compute_nwe
+        from datetime import date
+
+        today_str = date.today().isoformat()
+        engine = IRAIEngine(db_path)
+        
+        saved_count = 0
+        for t_info in engine.registered_targets:
+            target = t_info["target"]
+            snapshots = engine.compute_from_db(today_str, target=target, version="v2", timeframe="M5", persist_state=True)
+            if snapshots:
+                series_data = [s.__dict__ for s in snapshots]
+                series_data = compute_nwe(series_data)
+                count = save_live_snapshots(db_path, target, today_str, series_data, timeframe="M5", is_live_captured=1)
+                saved_count += count
+        log.info(f"  [Live Snapshots] {saved_count} snapshots persistidos com sucesso")
+    except Exception as e:
+        log.warning(f"  [Live Snapshots] Erro ao persistir: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="IRAI - Collector worker")
-    parser.add_argument("--interval", type=int, default=60, help="Intervalo em segundos (default: 60)")
+    parser.add_argument("--interval", type=int, default=20, help="Intervalo em segundos (default: 20)")
     parser.add_argument("--once", action="store_true", help="Executa apenas um ciclo")
     parser.add_argument("--force", action="store_true", help="Ignora verificacao de horario")
     parser.add_argument("--db", default=DB_PATH, help="Caminho do banco SQLite")
@@ -340,6 +364,8 @@ def main():
                 log.info(f"  {sym:<12} bid={r['bid']:<12.2f} +{r['inserted']} barras")
             else:
                 log.warning(f"  {sym:<12} ERRO: {r.get('error', '?')}")
+
+        persist_live_snapshots_cycle(args.db)
 
         if args.once:
             break

@@ -1,32 +1,32 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: Otimização do Cálculo NWE
+milestone_name: Otimização do Cálculo NWE & Estabilização Live
 status: executing
-last_updated: "2026-07-24T20:15:00.000Z"
-last_activity: 2026-07-24
+last_updated: "2026-07-30T22:29:00.000Z"
+last_activity: 2026-07-30
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 6
-  completed_plans: 6
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 7
+  completed_plans: 7
 ---
 
 ## Current Position
 
-Phase: 6
-Plan: All complete (1/1)
+Phase: 12
+Plan: 12-PLAN-01 complete ✓
 Status: Phase complete ✓
-Last activity: 2026-07-24
+Last activity: 2026-07-30
 
 ## Accumulated Context
 
 - O cálculo atual do NWE no frontend é realizado em tempo de renderização em Javascript (`computeNWE` no React), com complexidade O(n²), degradando severamente a performance com o aumento das séries temporais.
 - A migração deve assegurar paridade matemática e visual com o modelo atual: suavização kernel Gaussiana com bandwidth = 8 e envelope traçado por 3 desvios/MAD (Median Absolute Deviation).
 - Fase 4 completou robustez de infraestrutura: guard `_add_column` concorrente, init_db no startup de API e Collector, testes do guard Kalman, auditoria GEX. Engine.py inalterado.
-- Fase 5 adicionada: Expansão de Ativos no Rastro (Índices Globais: DE40, US2000, JP225, CHINA50).
-- Fase 6 adicionada: Comparação Detalhada e Alinhamento com o Fork (auditoria de conflitos do branch `breno/main`).
+- Fase 5 completou expansão de ativos no rastro (DE40, US2000, JP225, CHINA50).
+- Fase 6 completou auditoria de conflitos e alinhamento com o fork.
+- Fase 12 completou Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode): tabela `irai_live_snapshots`, persistência automática no `collector.py`, endpoint API `/api/irai/series?mode=live`, indicador de status no frontend e 20/20 testes unitários passando.
 
 ### Roadmap Evolution
-- Phase 5 added: Expansão de Ativos no Rastro (Índices Globais: DE40, US2000, JP225, etc.)
-- Phase 6 added: Comparação Detalhada e Alinhamento com o Fork
+- Phase 12 added & completed: Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode)

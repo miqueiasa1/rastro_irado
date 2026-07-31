@@ -153,7 +153,7 @@ export default function Overview({ onSelectTarget }) {
         } catch (e) { console.error('Overview poll error:', e) }
       }, 120_000)
     } else {
-      // Local: simple HTTP polling every 60s
+      // Local: simple HTTP polling every 20s
       pollTimer = setInterval(async () => {
         if (!mounted) return
         try {
@@ -163,7 +163,7 @@ export default function Overview({ onSelectTarget }) {
           const oData = await oRes.json()
           setOverview(oData.targets || [])
         } catch (e) { console.error('Overview poll error:', e) }
-      }, 60_000)
+      }, 20_000)
     }
     
     return () => {

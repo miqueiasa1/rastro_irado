@@ -103,6 +103,42 @@ CREATE TABLE IF NOT EXISTS garch_volatility (
     updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (session_date, symbol)
 );
+
+-- Snapshots imutáveis em tempo real (Zero-Repainting Live Mode)
+CREATE TABLE IF NOT EXISTS irai_live_snapshots (
+    target          TEXT NOT NULL,
+    timeframe       TEXT NOT NULL DEFAULT 'M5',
+    session_date    TEXT NOT NULL,
+    timestamp_utc   TEXT NOT NULL,
+    bar_idx         INTEGER NOT NULL,
+    p_up            REAL NOT NULL,
+    score           REAL NOT NULL,
+    verdict         TEXT NOT NULL,
+    verdict_color   TEXT NOT NULL,
+    price_diverge_z REAL,
+    price_diverges  INTEGER,
+    pair_z          REAL,
+    pair_factor     TEXT,
+    pair_beta       REAL,
+    pair_signal     TEXT,
+    win_return      REAL,
+    win_current     REAL,
+    win_open        REAL,
+    cum_delta       REAL,
+    cum_delta_norm  REAL,
+    nwe_center_price REAL,
+    nwe_upper_price  REAL,
+    nwe_lower_price  REAL,
+    nwe_slope        REAL,
+    nwe_up_price     REAL,
+    nwe_down_price   REAL,
+    is_ghost        INTEGER DEFAULT 0,
+    is_live_captured INTEGER DEFAULT 1,
+    created_at      TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (target, timeframe, session_date, timestamp_utc)
+);
+
+CREATE INDEX IF NOT EXISTS idx_live_snaps_lookup ON irai_live_snapshots(target, session_date, timeframe);
 """
 
 def get_connection(db_path=None):
@@ -136,6 +172,7 @@ def init_db(db_path=None):
     migrate_timeframe_constraint(db_path)
     migrate_kalman_state_timeframe(db_path)
     migrate_divergence_config(db_path)
+    migrate_live_snapshots(db_path)
     migrate_drop_snapshots(db_path)
 
 
@@ -430,6 +467,132 @@ def migrate_divergence_config(db_path=None):
 
     conn.commit()
     conn.close()
+
+
+def migrate_live_snapshots(db_path=None):
+    """Garante que a tabela irai_live_snapshots existe com schema e índices atualizados."""
+    conn = get_connection(db_path)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS irai_live_snapshots (
+            target          TEXT NOT NULL,
+            timeframe       TEXT NOT NULL DEFAULT 'M5',
+            session_date    TEXT NOT NULL,
+            timestamp_utc   TEXT NOT NULL,
+            bar_idx         INTEGER NOT NULL,
+            p_up            REAL NOT NULL,
+            score           REAL NOT NULL,
+            verdict         TEXT NOT NULL,
+            verdict_color   TEXT NOT NULL,
+            price_diverge_z REAL,
+            price_diverges  INTEGER,
+            pair_z          REAL,
+            pair_factor     TEXT,
+            pair_beta       REAL,
+            pair_signal     TEXT,
+            win_return      REAL,
+            win_current     REAL,
+            win_open        REAL,
+            cum_delta       REAL,
+            cum_delta_norm  REAL,
+            nwe_center_price REAL,
+            nwe_upper_price  REAL,
+            nwe_lower_price  REAL,
+            nwe_slope        REAL,
+            nwe_up_price     REAL,
+            nwe_down_price   REAL,
+            is_ghost        INTEGER DEFAULT 0,
+            is_live_captured INTEGER DEFAULT 1,
+            created_at      TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (target, timeframe, session_date, timestamp_utc)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_live_snaps_lookup ON irai_live_snapshots(target, session_date, timeframe)")
+    conn.commit()
+    conn.close()
+
+
+def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots: list, timeframe: str = "M5", is_live_captured: int = 1):
+    """Salva uma lista de snapshots (dict ou dataclass IRAISnapshot) no SQLite."""
+    if not snapshots:
+        return 0
+
+    should_close = False
+    if isinstance(conn_or_path, (str, type(None))):
+        conn = get_connection(conn_or_path)
+        should_close = True
+    else:
+        conn = conn_or_path
+
+    try:
+        rows_to_insert = []
+        for s in snapshots:
+            d = s if isinstance(s, dict) else (s.__dict__ if hasattr(s, '__dict__') else s)
+            rows_to_insert.append((
+                target,
+                timeframe,
+                session_date,
+                d.get("timestamp_utc") or d.get("timestamp"),
+                d.get("bar_idx", 0),
+                d.get("p_up", 50.0),
+                d.get("score", 0.0),
+                d.get("verdict", "indeciso"),
+                d.get("verdict_color", "#7A7F8A"),
+                d.get("price_diverge_z"),
+                1 if d.get("price_diverges") else 0,
+                d.get("pair_z"),
+                d.get("pair_factor"),
+                d.get("pair_beta"),
+                d.get("pair_signal"),
+                d.get("win_return", 0.0),
+                d.get("win_current", 0.0),
+                d.get("win_open", 0.0),
+                d.get("cum_delta", 0.0),
+                d.get("cum_delta_norm", 0.0),
+                d.get("nwe_center_price"),
+                d.get("nwe_upper_price"),
+                d.get("nwe_lower_price"),
+                d.get("nwe_slope"),
+                d.get("nwe_up_price"),
+                d.get("nwe_down_price"),
+                1 if d.get("is_ghost") else 0,
+                is_live_captured
+            ))
+
+        conn.executemany("""
+            INSERT OR REPLACE INTO irai_live_snapshots (
+                target, timeframe, session_date, timestamp_utc, bar_idx,
+                p_up, score, verdict, verdict_color, price_diverge_z, price_diverges,
+                pair_z, pair_factor, pair_beta, pair_signal, win_return, win_current,
+                win_open, cum_delta, cum_delta_norm, nwe_center_price, nwe_upper_price,
+                nwe_lower_price, nwe_slope, nwe_up_price, nwe_down_price, is_ghost, is_live_captured
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, rows_to_insert)
+        conn.commit()
+        return len(rows_to_insert)
+    finally:
+        if should_close:
+            conn.close()
+
+
+def get_live_snapshots(conn_or_path, target: str, session_date: str, timeframe: str = "M5") -> list[dict]:
+    """Recupera a série imutável de snapshots gravados para o ativo e sessão."""
+    should_close = False
+    if isinstance(conn_or_path, (str, type(None))):
+        conn = get_connection(conn_or_path)
+        should_close = True
+    else:
+        conn = conn_or_path
+
+    try:
+        rows = conn.execute("""
+            SELECT * FROM irai_live_snapshots
+            WHERE target = ? AND session_date = ? AND timeframe = ?
+            ORDER BY timestamp_utc ASC
+        """, (target, session_date, timeframe)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if should_close:
+            conn.close()
 
 
 def migrate_drop_snapshots(db_path=None):

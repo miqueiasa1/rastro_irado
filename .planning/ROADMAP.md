@@ -19,6 +19,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | 9 | Unificação do Frontend e Gráficos | Trazer Lightweight-charts e refatorações | 2026-08-10 |
 | 10 | Homologação e Verificação UAT | Testar final unificado em staging | 2026-08-12 |
 | 11 | Resolução Automática de Contratos Ativos B3 em Contas Demo | Mapear WIN$N/WDO$N/DI1$N para contratos vigentes no boot | 2026-07-27 |
+| 12 | Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode) | Complete (3/3) | 2026-07-30 |
 
 ---
 
@@ -94,6 +95,15 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
   1. O coletor detecta a ausência do símbolo contínuo e mapeia para o contrato futuro ativo equivalente de maior liquidez e com vencimento futuro.
   2. A gravação no SQLite é feita usando o símbolo contínuo original (`WIN$N`, `WDO$N`, `DI1$N`), garantindo compatibilidade do backend e frontend.
   3. API e Dashboard funcionam perfeitamente em contas demo.
+
+### Phase 12: Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode)
+* **Goal:** Criar e integrar uma tabela append-only (`irai_live_snapshots`) para gravar os snapshots calculados minuto a minuto em tempo real, eliminando 100% o repainting retroativo gerado pelo re-ancoramento dos preços de abertura B3 (09h00) e EUA (10h30).
+* **Requirements:** LIVE-SNAP-01, LIVE-SNAP-02, LIVE-SNAP-03
+* **Success Criteria:**
+  1. Tabela `irai_live_snapshots` criada e migrada com sucesso via `db.py`.
+  2. Worker `collector.py` gravando snapshots live ao final de cada ciclo de coleta.
+  3. Endpoint `/api/irai/series` suportando o parâmetro `mode=live` (padrão) com resposta instantânea e suporte ao modo `mode=recalculated`.
+  4. Interface web exibindo indicador visual **"LIVE IMUTÁVEL (Sem Repaint)"** com 100% de estabilidade nos dados passados.
 
 ## ✅ Concluídos
 

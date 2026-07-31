@@ -16,8 +16,8 @@ start "IRAI-API" cmd /c "cd /d %ROOT% && python -m uvicorn backend.api.main:app 
 timeout /t 3 /nobreak > nul
 
 :: Worker Collector
-echo [2/4] Iniciando Collector (intervalo 60s)...
-start "IRAI-Collector" cmd /c "cd /d %ROOT% && python backend\workers\collector.py --interval 60 --force"
+echo [2/4] Iniciando Collector (intervalo 20s)...
+start "IRAI-Collector" cmd /c "cd /d %ROOT% && python backend\workers\collector.py --interval 20 --force"
 
 :: Frontend
 echo [3/4] Iniciando Frontend (porta 5175)...

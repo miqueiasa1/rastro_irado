@@ -72,6 +72,9 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   
+  const [seriesMode, setSeriesMode] = useState("live");
+  const [isLiveMode, setIsLiveMode] = useState(true);
+
   const [gexWalls, setGexWalls] = useState([]);
   const [availableRuns, setAvailableRuns] = useState([]);
   const [selectedRun, setSelectedRun] = useState(null);
@@ -106,7 +109,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
       }
     }
     loadDates();
-    const poll = setInterval(loadDates, FIREBASE_URL ? 120_000 : 60_000);
+    const poll = setInterval(loadDates, FIREBASE_URL ? 120_000 : 20_000);
     return () => clearInterval(poll);
   }, []);
 
@@ -241,13 +244,14 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
         })
         .catch(e => { setError(e.message); setLoading(false); });
     } else {
-      const seriesPromise = fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}`).then(r => r.json());
+      const seriesPromise = fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}&mode=${seriesMode}`).then(r => r.json());
       const gexPromise = fetch(`${API}/api/gex?target=${encodeURIComponent(target)}&date=${date}`).then(r => r.json()).catch(() => null);
       const garchPromise = fetch(`${API}/api/garch?symbol=${encodeURIComponent(target === 'WIN$N' ? 'IBOV' : target)}&date=${date}`).then(r => r.json()).catch(() => null);
 
       Promise.all([seriesPromise, gexPromise, garchPromise])
         .then(([data, gexData, garchRes]) => {
           if (data.error) { setError(data.error); setLoading(false); return; }
+          setIsLiveMode(data.is_live_mode ?? (seriesMode === "live"));
           const isB3 = data.is_b3 || false;
           const processed = (data.series || []).map(s => {
             const timeDb = s.timestamp ? s.timestamp.substring(11, 16) : '00:00';
@@ -330,7 +334,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
 
     pollTimer = setInterval(() => {
       if (mounted) fetchSeries(effectiveDate, selectedTarget, true);
-    }, FIREBASE_URL ? 120_000 : 60_000);
+    }, FIREBASE_URL ? 120_000 : 20_000);
     
     return () => {
       mounted = false;
@@ -354,6 +358,9 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
     selectedRun,
     garchData,
     seriesInfo,
+    isLiveMode,
+    seriesMode,
+    setSeriesMode,
     fetchGexForRun,
     refetchSeries: () => fetchSeries(effectiveDate, selectedTarget, true)
   };

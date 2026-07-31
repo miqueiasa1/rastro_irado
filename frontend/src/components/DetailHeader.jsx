@@ -18,6 +18,9 @@ export function DetailHeader({
   selectedDate,
   setSelectedDate,
   firebaseUrl,
+  isLiveMode = true,
+  seriesMode = "live",
+  setSeriesMode,
 }) {
   return (
     <header className="app-header">
@@ -53,18 +56,20 @@ export function DetailHeader({
           }}>{now.time} · barra {validSeriesLength}</span>
         )}
 
-        {liveMode && (
+        {liveMode && isLiveMode && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 5,
             fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80',
-          }}>
+            background: 'rgba(74,222,128,0.1)', padding: '2px 8px', borderRadius: 4,
+            border: '1px solid rgba(74,222,128,0.3)',
+          }} title="Série imutável gravada em tempo real sem repainting retroativo">
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
               background: '#4ADE80',
               boxShadow: '0 0 6px #4ADE80',
               animation: 'pulse 2s infinite',
             }} />
-            LIVE (60s)
+            LIVE IMUTÁVEL (Sem Repaint)
           </div>
         )}
 

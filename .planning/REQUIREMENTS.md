@@ -30,11 +30,11 @@ Este documento especifica os requisitos funcionais e não-funcionais que devem s
 
 ---
 
-### 4. Robustez de Infraestrutura (INFRA)
+### 5. Armazenamento Imutável de Snapshots (LIVE-SNAP)
 
-- [ ] **INFRA-01**: O sistema deve suportar inicialização concorrente (API + Collector em boot simultâneo) sem crashes de migração, usando wrapper idempotente `_add_column` que captura `duplicate column` silenciosamente.
-- [ ] **INFRA-02**: O `save_kalman_state()` deve garantir monotonicidade temporal: replays históricos via `compute_from_db(persist_state=True)` não podem sobrescrever um estado de Kalman com `timestamp_utc` mais recente já persistido no banco.
-- [ ] **INFRA-03**: A tabela `gex_levels` deve ter seu schema auditado e garantido consistente (coluna `run_name` presente e funcional, sem dados órfãos).
+- [x] **LIVE-SNAP-01**: O sistema deve criar e migrar a tabela `irai_live_snapshots` com chave primária em `(target, timeframe, session_date, timestamp_utc)` e suporte a campos de P_up, Divergência de Preço Z-Score, Pair Spread Z-Score e NWE.
+- [x] **LIVE-SNAP-02**: O worker `collector.py` deve invocar a gravação dos snapshots ao vivo a cada conclusão de barra, marcando `is_live_captured=1`.
+- [x] **LIVE-SNAP-03**: O endpoint `/api/irai/series` e o frontend `useIraiData.js` devem consumir primariamente os dados imutáveis da tabela `irai_live_snapshots` quando em modo `live`, eliminando o repainting retroativo.
 
 ---
 
