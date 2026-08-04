@@ -29,8 +29,8 @@ TERMINALS = [
     {
         "name": "BR (XP)",
         "paths": [
-            r"C:\Program Files\MetaTrader 5\terminal64.exe",
             r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
+            r"C:\Program Files\MetaTrader 5\terminal64.exe",
         ],
         "source": "br",
         "symbols": ["WIN$N", "WDO$N", "DI1$N"],
@@ -88,11 +88,8 @@ def resolve_symbol(symbol: str) -> str:
     Mapeia símbolos contínuos (WIN$N, WDO$N, DI1$N) para os contratos futuros ativos reais
     caso o terminal conectado não ofereça suporte direto a eles (ex: contas de simulação/demo).
     """
-    # 1. Verifica se o terminal já reconhece o símbolo contínuo diretamente
-    info = mt5.symbol_info(symbol)
-    if info is not None:
-        mt5.symbol_select(symbol, True)
-        return symbol
+    # 1. Removido o suporte ao contrato contínuo nativo (bug no MT5 no dia de rolagem).
+    # Sempre resolvemos dinamicamente para o contrato futuro vigente.
 
     # 2. Caso contrário, resolvemos dinamicamente para o contrato futuro vigente
     now = time.time()

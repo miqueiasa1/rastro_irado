@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS irai_live_snapshots (
     win_return      REAL,
     win_current     REAL,
     win_open        REAL,
+    win_bar_open    REAL,
+    win_high        REAL,
+    win_low         REAL,
     cum_delta       REAL,
     cum_delta_norm  REAL,
     nwe_center_price REAL,
@@ -492,6 +495,9 @@ def migrate_live_snapshots(db_path=None):
             win_return      REAL,
             win_current     REAL,
             win_open        REAL,
+            win_bar_open    REAL,
+            win_high        REAL,
+            win_low         REAL,
             cum_delta       REAL,
             cum_delta_norm  REAL,
             nwe_center_price REAL,
@@ -507,6 +513,18 @@ def migrate_live_snapshots(db_path=None):
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_live_snaps_lookup ON irai_live_snapshots(target, session_date, timeframe)")
+    
+    # Migrar colunas se faltarem em bancos existentes
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(irai_live_snapshots)")
+    cols = [col[1] for col in cursor.fetchall()]
+    for col_name in ["win_bar_open", "win_high", "win_low"]:
+        if col_name not in cols:
+            try:
+                cursor.execute(f"ALTER TABLE irai_live_snapshots ADD COLUMN {col_name} REAL")
+            except Exception:
+                pass
+
     conn.commit()
     conn.close()
 
@@ -546,6 +564,9 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
                 d.get("win_return", 0.0),
                 d.get("win_current", 0.0),
                 d.get("win_open", 0.0),
+                d.get("win_bar_open", d.get("win_current", 0.0)),
+                d.get("win_high", d.get("win_current", 0.0)),
+                d.get("win_low", d.get("win_current", 0.0)),
                 d.get("cum_delta", 0.0),
                 d.get("cum_delta_norm", 0.0),
                 d.get("nwe_center_price"),
@@ -563,9 +584,10 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
                 target, timeframe, session_date, timestamp_utc, bar_idx,
                 p_up, score, verdict, verdict_color, price_diverge_z, price_diverges,
                 pair_z, pair_factor, pair_beta, pair_signal, win_return, win_current,
-                win_open, cum_delta, cum_delta_norm, nwe_center_price, nwe_upper_price,
-                nwe_lower_price, nwe_slope, nwe_up_price, nwe_down_price, is_ghost, is_live_captured
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                win_open, win_bar_open, win_high, win_low, cum_delta, cum_delta_norm,
+                nwe_center_price, nwe_upper_price, nwe_lower_price, nwe_slope,
+                nwe_up_price, nwe_down_price, is_ghost, is_live_captured
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows_to_insert)
         conn.commit()
         return len(rows_to_insert)

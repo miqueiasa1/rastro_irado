@@ -254,6 +254,7 @@ class IRAIEngine:
                 return
 
     def compute(self, bar_idx: int, win_current: float = 0, win_open: float = 0,
+                win_bar_open: float = None, win_high: float = None, win_low: float = None,
                 session_date: str = None, stale_threshold_sec: int = 600,
                 bars_per_session: int = BARS_PER_SESSION, factor_states: dict = None,
                 alpha: float = None, intercept: float = None,
@@ -363,6 +364,9 @@ class IRAIEngine:
             },
             win_return=round(win_return, 4),
             win_open=win_open,
+            win_bar_open=win_bar_open if (win_bar_open is not None and win_bar_open > 0) else win_current,
+            win_high=win_high if (win_high is not None and win_high > 0) else win_current,
+            win_low=win_low if (win_low is not None and win_low > 0) else win_current,
             win_current=win_current,
             stale_factors=stale_factors,
         )
@@ -413,7 +417,7 @@ class IRAIEngine:
         
         # 1. Verificar/carregar barras de hoje
         query_today = f"""
-            SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
+            SELECT symbol, source, timestamp_utc, open, high, low, close, real_volume, delta
             FROM market_bars
             WHERE timeframe = ?
               AND symbol IN ({placeholders})
@@ -434,7 +438,7 @@ class IRAIEngine:
         rows_warmup = []
         for sym in all_symbols:
             sym_warmup = conn.execute(f"""
-                SELECT symbol, timestamp_utc, open, high, low, close, real_volume, delta
+                SELECT symbol, source, timestamp_utc, open, high, low, close, real_volume, delta
                 FROM market_bars
                 WHERE timeframe = ? AND symbol = ? AND timestamp_utc < ?
                 ORDER BY timestamp_utc DESC
@@ -462,7 +466,7 @@ class IRAIEngine:
             ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             
             # Alinhar fuso horário: XP (BRT, UTC-3) para Tickmill (EEST, UTC+3) = +6 horas
-            if is_b3 and (d["symbol"] == data_target or d["symbol"].endswith("$N")):
+            if is_b3 and d.get("source") == "br":
                 ts_dt += timedelta(hours=6)
                 d["timestamp_utc"] = ts_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -681,7 +685,7 @@ class IRAIEngine:
             else:
                 is_pre_market = False
             
-            if target_cursor < len(target_bars) and target_bars[target_cursor]["timestamp"] <= ts and not is_pre_market:
+            if target_cursor < len(target_bars) and target_bars[target_cursor]["timestamp"] <= ts:
                 row = target_bars[target_cursor]
                 is_ghost_bar = (ts not in target_ts_set)
             else:
@@ -762,6 +766,9 @@ class IRAIEngine:
             snap = self.compute(
                 bar_idx=bar_idx,
                 win_current=float(row["close"]),
+                win_bar_open=float(row.get("open", row["close"])),
+                win_high=float(row.get("high", row["close"])),
+                win_low=float(row.get("low", row["close"])),
                 win_open=opens[data_target],
                 session_date=session_date,
                 bars_per_session=target_bars_per_session,
@@ -773,7 +780,7 @@ class IRAIEngine:
             )
 
             # Camada 2: Fallback V2→V1 — se Kalman divergiu demais, usar score estático
-            if version in ("v2", "both") and not is_ghost_bar and not is_pre_market:
+            if version in ("v2", "both"):
                 v1_score = sum(
                     t_weights.get(f"w_{active_labels.get(f, f)}", 0.0) *
                     local_factor_states[active_labels.get(f, f)].z_score

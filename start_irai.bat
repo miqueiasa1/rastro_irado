@@ -10,6 +10,16 @@ set ROOT=%~dp0
 set PYTHONPATH=%ROOT%
 set PYTHONIOENCODING=utf-8
 
+echo [0/4] Encerrando processos antigos (Limpando portas 8888 e 5175)...
+:: Tenta fechar as janelas do sistema anterior (se houver)
+taskkill /F /FI "WINDOWTITLE eq IRAI-*" /T > nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq Administrador: IRAI-*" /T > nul 2>&1
+
+:: Garante que as portas 8888 (API) e 5175 (Frontend) estão livres
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8888" ^| find "LISTENING"') do taskkill /f /pid %%a > nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5175" ^| find "LISTENING"') do taskkill /f /pid %%a > nul 2>&1
+timeout /t 2 /nobreak > nul
+
 :: Backend API
 echo [1/4] Iniciando FastAPI (porta 8888)...
 start "IRAI-API" cmd /c "cd /d %ROOT% && python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8888"

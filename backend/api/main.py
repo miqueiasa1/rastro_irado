@@ -479,9 +479,9 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
             score = last_dict["score"]
             verdict = last_dict["verdict"]
             win_return = last_dict["win_return"]
-            is_preview = last_dict["is_preview"]
-            is_cointegrated = last_dict["is_cointegrated"]
-            johansen_p_value = last_dict["johansen_p_value"]
+            is_preview = last_dict.get("is_preview", False)
+            is_cointegrated = last_dict.get("is_cointegrated", True)
+            johansen_p_value = last_dict.get("johansen_p_value", 0.05)
 
             sparkline = [round(s["p_up"], 1) for s in series_list[-24:]]
             flow_confirms = last_dict.get("flow_confirms")
@@ -679,9 +679,9 @@ def _snap_to_dict(snap) -> dict:
         "factors": snap.factors,
         "win_return": snap.win_return,
         "win_open": snap.win_open,
-        "win_bar_open": getattr(snap, "win_bar_open", snap.win_current),
-        "win_high": getattr(snap, "win_high", snap.win_current),
-        "win_low": getattr(snap, "win_low", snap.win_current),
+        "win_bar_open": getattr(snap, "win_bar_open", None) or snap.win_current,
+        "win_high": getattr(snap, "win_high", None) or snap.win_current,
+        "win_low": getattr(snap, "win_low", None) or snap.win_current,
         "win_current": snap.win_current,
         "stale_factors": snap.stale_factors,
         "bar_delta": snap.bar_delta,

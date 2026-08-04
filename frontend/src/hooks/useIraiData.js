@@ -201,7 +201,8 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
 
           const isB3 = tMeta.session_start_h && tMeta.session_start_h !== 0;
           const processed = s.map(x => {
-            const timeDb = x.timestamp ? x.timestamp.substring(11, 16) : '00:00';
+            const tsStr = x.timestamp_utc || x.timestamp;
+            const timeDb = tsStr ? tsStr.substring(11, 16) : (x.time || '00:00');
             const timeTickmill = timeDb;
             const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
             return {
@@ -254,7 +255,8 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           setIsLiveMode(data.is_live_mode ?? (seriesMode === "live"));
           const isB3 = data.is_b3 || false;
           const processed = (data.series || []).map(s => {
-            const timeDb = s.timestamp ? s.timestamp.substring(11, 16) : '00:00';
+            const tsStr = s.timestamp_utc || s.timestamp;
+            const timeDb = tsStr ? tsStr.substring(11, 16) : (s.time || '00:00');
             const timeTickmill = timeDb;
             const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
             return {

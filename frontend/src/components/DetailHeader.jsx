@@ -69,7 +69,7 @@ export function DetailHeader({
               boxShadow: '0 0 6px #4ADE80',
               animation: 'pulse 2s infinite',
             }} />
-            LIVE IMUTÁVEL (Sem Repaint)
+            LIVE 20s
           </div>
         )}
 

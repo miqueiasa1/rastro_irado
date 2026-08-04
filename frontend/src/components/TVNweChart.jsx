@@ -67,20 +67,22 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
     // Price Line (Top z-index)
     const winSeries = chartType === 'candle'
       ? chartInstance.addSeries(CandlestickSeries, {
-          upColor: "#22c55e",
-          downColor: "#ef4444",
-          borderVisible: false,
-          wickUpColor: "#22c55e",
-          wickDownColor: "#ef4444",
-          crosshairMarkerVisible: true,
-          priceLineVisible: false,
-        })
+        upColor: "#22c55e",
+        downColor: "#ef4444",
+        borderVisible: true,
+        borderUpColor: "#16a34a",
+        borderDownColor: "#dc2626",
+        wickUpColor: "#22c55e",
+        wickDownColor: "#ef4444",
+        crosshairMarkerVisible: true,
+        priceLineVisible: false,
+      })
       : chartInstance.addSeries(LineSeries, {
-          color: "#E2E8F0",
-          lineWidth: 1.5,
-          crosshairMarkerVisible: true,
-          priceLineVisible: false,
-        });
+        color: "#E2E8F0",
+        lineWidth: 1.5,
+        crosshairMarkerVisible: true,
+        priceLineVisible: false,
+      });
 
     seriesRefs.current = { winSeries, nweUpperSeries, nweLowerSeries, nweCenterSeries, markersApi: null };
   }, [chartInstance, chartType]);
@@ -91,12 +93,12 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
 
     const { winSeries, nweUpperSeries, nweLowerSeries, nweCenterSeries } = seriesRefs.current;
     if (!winSeries || !nweUpperSeries || !nweLowerSeries || !nweCenterSeries) return;
-    
+
     const winData = [];
     const nweUpperData = [];
     const nweLowerData = [];
     const nweCenterData = [];
-    
+
     const markers = [];
 
     history.forEach((d) => {
@@ -108,9 +110,11 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       if (chartType === 'candle') {
         const c = d.win_current;
         if (c != null && isFinite(c)) {
-          const o = d.win_bar_open != null ? d.win_bar_open : c;
-          const h = d.win_high != null ? d.win_high : c;
-          const l = d.win_low != null ? d.win_low : c;
+          const o = (d.win_bar_open != null && d.win_bar_open > 0) ? d.win_bar_open : c;
+          let h = (d.win_high != null && d.win_high > 0) ? d.win_high : Math.max(o, c);
+          let l = (d.win_low != null && d.win_low > 0) ? d.win_low : Math.min(o, c);
+          h = Math.max(h, o, c);
+          l = Math.min(l, o, c);
           winData.push({ time: t, open: o, high: h, low: l, close: c });
         }
       } else {
@@ -145,26 +149,79 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       } else {
         nweCenterData.push({ time: t });
       }
-      // Z-Score Concordance Markers (pair_z + price_diverge_z agreeing)
-      if (showZSignalMarkers && d.pair_z != null && d.price_diverge_z != null && d.win_current != null) {
+      // Z-Score & P Dinâmico Concordance Markers:
+      // 1. Branca: Concorda apenas com Z-Score Rastro (|rz| >= 2)
+      // 2. Verde/Vermelha: Concordam Z-Score Rastro e Z-Score Spread (rz e pz no mesmo sentido)
+      // 3. Gold Estrelinha: Concordam Z-Score Rastro, Z-Score Spread e P Dinâmico
+      if (showZSignalMarkers && d.price_diverge_z != null && d.win_current != null) {
         const pz = d.pair_z;
         const rz = d.price_diverge_z;
-        if (pz <= -2 && rz <= -2) {
-          markers.push({
-            time: t,
-            position: 'belowBar',
-            color: '#22C55E',
-            shape: 'circle',
-            text: 'C',
-          });
-        } else if (pz >= 2 && rz >= 2) {
-          markers.push({
-            time: t,
-            position: 'aboveBar',
-            color: '#EF4444',
-            shape: 'circle',
-            text: 'V',
-          });
+        const pUp = d.p_up != null ? d.p_up : 50;
+
+        const isRastroBuy = rz <= -2.0;
+        const isRastroSell = rz >= 2.0;
+        const isSpreadBuy = pz != null && pz <= -2.0;
+        const isSpreadSell = pz != null && pz >= 2.0;
+        const isPUpBuy = pUp > 50;
+        const isPUpSell = pUp < 50;
+
+        // COMPRA (Abaixo da Barra)
+        if (isRastroBuy) {
+          if (isSpreadBuy && isPUpBuy) {
+            markers.push({
+              time: t,
+              position: 'belowBar',
+              color: '#FFD700',
+              shape: 'circle',
+              text: '⭐',
+              size: 0,
+            });
+          } else if (isSpreadBuy) {
+            markers.push({
+              time: t,
+              position: 'belowBar',
+              color: '#22C55E',
+              shape: 'circle',
+              size: 1,
+            });
+          } else {
+            markers.push({
+              time: t,
+              position: 'belowBar',
+              color: '#FFFFFF',
+              shape: 'circle',
+              size: 1,
+            });
+          }
+        }
+        // VENDA (Acima da Barra)
+        else if (isRastroSell) {
+          if (isSpreadSell && isPUpSell) {
+            markers.push({
+              time: t,
+              position: 'aboveBar',
+              color: '#FFD700',
+              shape: 'circle',
+              text: '⭐',
+              size: 0,
+            });
+          } else if (isSpreadSell) {
+            markers.push({
+              time: t,
+              position: 'aboveBar',
+              color: '#EF4444',
+              shape: 'circle',
+              size: 1,
+            });
+          } else {
+            markers.push({
+              time: t,
+              position: 'aboveBar',
+              color: '#FFFFFF',
+              shape: 'circle',
+              size: 1,
+            });
+          }
         }
       }
 
@@ -184,7 +241,7 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       seriesRefs.current.markersApi = null;
     }
     if (markers.length > 0) {
-      const sortedMarkers = markers.sort((a, b) => a.time - b.time);
+      const sortedMarkers = markers.sort((a, b) => a.time - b.time).filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
       try {
         const markersApi = createSeriesMarkers(winSeries, sortedMarkers);
         seriesRefs.current.markersApi = markersApi;
@@ -221,8 +278,8 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
 
         let lineStyle = w.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid;
         const isWall = w.type === "wall" || w.type === "mid_wall";
-        const lineColor = isWall 
-          ? (w.type === "mid_wall" ? "#475569" : "#94A3B8") 
+        const lineColor = isWall
+          ? (w.type === "mid_wall" ? "#475569" : "#94A3B8")
           : (w.color || "#00e676");
 
         const line = winSeries.createPriceLine({
