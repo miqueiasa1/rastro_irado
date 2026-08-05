@@ -23,10 +23,10 @@ def compute_nwe(data: list[dict], history_closes: list[float] = None) -> list[di
     valid_data = [d for d in data if d.get("win_current") is not None and not d.get("is_ghost", False)]
     current_prices = [d["win_current"] for d in valid_data]
 
-    # Stitching de gap noturno (DESATIVADO para manter paridade com o gráfico de referência)
-    # if history_prices and current_prices:
-    #     gap = current_prices[0] - history_prices[-1]
-    #     history_prices = [p + gap for p in history_prices]
+    # Stitching de gap noturno: ajusta o histórico pelo gap de abertura para evitar distorção nas bandas no início do dia
+    if history_prices and current_prices:
+        gap = current_prices[0] - history_prices[-1]
+        history_prices = [p + gap for p in history_prices]
 
     all_prices = history_prices + current_prices
     n_all = len(all_prices)
