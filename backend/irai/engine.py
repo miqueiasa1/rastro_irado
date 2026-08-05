@@ -584,9 +584,12 @@ class IRAIEngine:
             if session_bars:
                 opens[sym] = float(session_bars[0]["open"])
             else:
+                # Se o ativo AINDA NÃO ABRIU na sessão atual (sem barras hoje):
+                # Usar o último fechamento conhecido como abertura de referência.
+                # Isso garante ret = 0.0, z_score = 0.0 e impede repainting/distorções antes da abertura oficial.
                 sym_bars = sorted([r for r in rows if r["symbol"] == sym], key=lambda r: r["timestamp"])
                 if sym_bars:
-                    opens[sym] = float(sym_bars[0]["open"])
+                    opens[sym] = float(sym_bars[-1]["close"])
 
         if data_target not in opens:
             return []
