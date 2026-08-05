@@ -182,6 +182,7 @@ export default function App() {
   const nweChartRef = useRef(null)
   const kalmanChartRef = useRef(null)
   const pairZChartRef = useRef(null)
+  const pairFixedZChartRef = useRef(null)
   const priceDivergeZChartRef = useRef(null)
 
   // Consumindo dados via Custom Hook
@@ -334,6 +335,7 @@ export default function App() {
         { chart: nweChartRef.current?.getChart(), series: nweChartRef.current?.getMainSeries(), key: 'nwe' },
         { chart: kalmanChartRef.current?.getChart(), series: kalmanChartRef.current?.getMainSeries(), key: 'kalman' },
         { chart: pairZChartRef.current?.getChart(), series: pairZChartRef.current?.getMainSeries(), key: 'pairZ' },
+        { chart: pairFixedZChartRef.current?.getChart(), series: pairFixedZChartRef.current?.getMainSeries(), key: 'pairFixedZ' },
         { chart: priceDivergeZChartRef.current?.getChart(), series: priceDivergeZChartRef.current?.getMainSeries(), key: 'priceDivergeZ' }
       ].filter(c => c.chart);
 
@@ -676,6 +678,15 @@ export default function App() {
                     targetLabel={now.pair_factor || "Sem Par Ativo"}
                     beta={now.pair_beta}
                   />
+                  {(selectedTarget === 'WIN$N' || selectedTarget === 'WDO$N' || now.pair_fixed_z != null) && (
+                    <SignalGauge
+                      title={selectedTarget === 'WIN$N' ? "Z-SCORE WDO" : (selectedTarget === 'WDO$N' ? "Z-SCORE WIN" : "Z-SCORE PAR FIXO")}
+                      type="pair_fixed_z"
+                      zValue={now.pair_fixed_z}
+                      targetLabel={now.pair_fixed_factor || (selectedTarget === 'WIN$N' ? "WDO" : "WIN")}
+                      beta={now.pair_fixed_beta}
+                    />
+                  )}
                   <SignalGauge
                     title="Z-SCORE DO RASTRO"
                     type="rastro_z"
@@ -873,22 +884,43 @@ export default function App() {
                   <div style={{ marginTop: 2, borderTop: '1px solid var(--border-dim)', display: 'flex', flexDirection: 'column', gap: 2 }}>
 
 
-                    {/* BOTTOM 1: Pairwise Z-Score (Pair Spread) */}
-                    {/* CRITICAL RULE: Renderizado obrigatoriamente se target for WIN$N para evitar que o painel suma sem dados. */}
-                    {(selectedTarget === 'WIN$N' || seriesWithNWE.some(s => s.pair_z != null)) && (
-                      <div>
+                    {/* BOTTOM 1: Pairwise Z-Score (Pair Spread Dinâmico) */}
+                    {/* CRITICAL RULE: Renderizado obrigatoriamente para todos os ativos conforme AGENTS.md Regra 1. */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0 1px' }}>
+                        <div style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                          letterSpacing: '0.1em', textTransform: 'uppercase',
+                        }}>
+                          z-score spread {now.pair_factor ? `(${now.pair_factor})` : ''}
+                        </div>
+                      </div>
+                      <TVPairwiseZScoreChart
+                        ref={pairZChartRef}
+                        history={seriesWithNWE}
+                        effectiveDate={effectiveDate}
+                        valueKey="pair_z"
+                        hideXAxis={true}
+                        height="75px"
+                      />
+                    </div>
+
+                    {/* BOTTOM 2: Fixed Pairwise Z-Score (Z-SCORE WDO / Z-SCORE WIN) */}
+                    {(selectedTarget === 'WIN$N' || selectedTarget === 'WDO$N' || seriesWithNWE.some(s => s.pair_fixed_z != null)) && (
+                      <div style={{ marginTop: 2 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0 1px' }}>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            z-score spread
+                            {selectedTarget === 'WIN$N' ? "z-score wdo" : (selectedTarget === 'WDO$N' ? "z-score win" : "z-score par fixo")}
                           </div>
                         </div>
                         <TVPairwiseZScoreChart
-                          ref={pairZChartRef}
+                          ref={pairFixedZChartRef}
                           history={seriesWithNWE}
                           effectiveDate={effectiveDate}
+                          valueKey="pair_fixed_z"
                           hideXAxis={true}
                           height="75px"
                         />

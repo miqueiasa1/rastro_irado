@@ -368,7 +368,8 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
 
     if mode == "live":
         live_snaps = get_live_snapshots(conn, target, session_date, timeframe=tf_query)
-        if live_snaps and len(live_snaps) > 0:
+        has_pair_fixed = any(s.get("pair_fixed_z") is not None for s in live_snaps) if live_snaps else False
+        if live_snaps and len(live_snaps) > 0 and (target not in ("WIN$N", "WDO$N") or has_pair_fixed):
             conn.close()
             for s in live_snaps:
                 ts_str = s.get("timestamp_utc") or s.get("timestamp")
@@ -524,6 +525,9 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
                 "pair_z": last_dict.get("pair_z"),
                 "pair_factor": last_dict.get("pair_factor"),
                 "pair_beta": last_dict.get("pair_beta"),
+                "pair_fixed_z": last_dict.get("pair_fixed_z"),
+                "pair_fixed_factor": last_dict.get("pair_fixed_factor"),
+                "pair_fixed_beta": last_dict.get("pair_fixed_beta"),
                 "nwe_slope": nwe_slope,
                 "is_preview": is_preview,
                 "is_cointegrated": is_cointegrated,
@@ -694,6 +698,10 @@ def _snap_to_dict(snap) -> dict:
         "pair_factor": getattr(snap, "pair_factor", None),
         "pair_beta": getattr(snap, "pair_beta", None),
         "pair_signal": getattr(snap, "pair_signal", None),
+        "pair_fixed_z": getattr(snap, "pair_fixed_z", None),
+        "pair_fixed_factor": getattr(snap, "pair_fixed_factor", None),
+        "pair_fixed_beta": getattr(snap, "pair_fixed_beta", None),
+        "pair_fixed_signal": getattr(snap, "pair_fixed_signal", None),
         "is_preview": getattr(snap, "is_preview", False),
         "is_ghost": getattr(snap, "is_ghost", False),
         "is_cointegrated": getattr(snap, "is_cointegrated", True),

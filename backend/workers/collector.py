@@ -310,6 +310,7 @@ def persist_live_snapshots_cycle(db_path):
         from backend.irai.nwe import compute_nwe
         from datetime import date
 
+        from backend.api.main import _snap_to_dict
         today_str = date.today().isoformat()
         engine = IRAIEngine(db_path)
         
@@ -318,7 +319,7 @@ def persist_live_snapshots_cycle(db_path):
             target = t_info["target"]
             snapshots = engine.compute_from_db(today_str, target=target, version="v2", timeframe="M5", persist_state=True)
             if snapshots:
-                series_data = [s.__dict__ for s in snapshots]
+                series_data = [_snap_to_dict(s) for s in snapshots]
                 series_data = compute_nwe(series_data)
                 count = save_live_snapshots(db_path, target, today_str, series_data, timeframe="M5", is_live_captured=1)
                 saved_count += count

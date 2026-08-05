@@ -9,7 +9,8 @@ const TVPairwiseZScoreChart = forwardRef(({
   hideXAxis = true,
   height = "75px",
   showExhaustionContra = true,
-  showExhaustionPro = true
+  showExhaustionPro = true,
+  valueKey = "pair_z"
 }, ref) => {
   const baseChartRef = useRef(null);
   const seriesRefs = useRef({});
@@ -85,7 +86,7 @@ const TVPairwiseZScoreChart = forwardRef(({
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
-      const zVal = d.pair_z;
+      const zVal = d[valueKey];
       if (zVal != null && isFinite(zVal)) {
         zData.push({
           time: t,
@@ -99,7 +100,7 @@ const TVPairwiseZScoreChart = forwardRef(({
 
     const sortData = (arr) => arr.sort((a, b) => a.time - b.time).filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
     zSeries.setData(sortData(zData));
-  }, [history, effectiveDate]);
+  }, [history, effectiveDate, valueKey]);
 
   const chartOptions = {
     leftPriceScale: {

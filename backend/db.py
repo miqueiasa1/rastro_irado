@@ -492,6 +492,10 @@ def migrate_live_snapshots(db_path=None):
             pair_factor     TEXT,
             pair_beta       REAL,
             pair_signal     TEXT,
+            pair_fixed_z    REAL,
+            pair_fixed_factor TEXT,
+            pair_fixed_beta REAL,
+            pair_fixed_signal TEXT,
             win_return      REAL,
             win_current     REAL,
             win_open        REAL,
@@ -518,10 +522,10 @@ def migrate_live_snapshots(db_path=None):
     cursor = conn.cursor()
     cursor.execute("PRAGMA table_info(irai_live_snapshots)")
     cols = [col[1] for col in cursor.fetchall()]
-    for col_name in ["win_bar_open", "win_high", "win_low"]:
+    for col_name, col_type in [("win_bar_open", "REAL"), ("win_high", "REAL"), ("win_low", "REAL"), ("pair_fixed_z", "REAL"), ("pair_fixed_factor", "TEXT"), ("pair_fixed_beta", "REAL"), ("pair_fixed_signal", "TEXT")]:
         if col_name not in cols:
             try:
-                cursor.execute(f"ALTER TABLE irai_live_snapshots ADD COLUMN {col_name} REAL")
+                cursor.execute(f"ALTER TABLE irai_live_snapshots ADD COLUMN {col_name} {col_type}")
             except Exception:
                 pass
 
@@ -561,6 +565,10 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
                 d.get("pair_factor"),
                 d.get("pair_beta"),
                 d.get("pair_signal"),
+                d.get("pair_fixed_z"),
+                d.get("pair_fixed_factor"),
+                d.get("pair_fixed_beta"),
+                d.get("pair_fixed_signal"),
                 d.get("win_return", 0.0),
                 d.get("win_current", 0.0),
                 d.get("win_open", 0.0),
@@ -583,11 +591,12 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
             INSERT OR REPLACE INTO irai_live_snapshots (
                 target, timeframe, session_date, timestamp_utc, bar_idx,
                 p_up, score, verdict, verdict_color, price_diverge_z, price_diverges,
-                pair_z, pair_factor, pair_beta, pair_signal, win_return, win_current,
-                win_open, win_bar_open, win_high, win_low, cum_delta, cum_delta_norm,
-                nwe_center_price, nwe_upper_price, nwe_lower_price, nwe_slope,
-                nwe_up_price, nwe_down_price, is_ghost, is_live_captured
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                pair_z, pair_factor, pair_beta, pair_signal,
+                pair_fixed_z, pair_fixed_factor, pair_fixed_beta, pair_fixed_signal,
+                win_return, win_current, win_open, win_bar_open, win_high, win_low,
+                cum_delta, cum_delta_norm, nwe_center_price, nwe_upper_price,
+                nwe_lower_price, nwe_slope, nwe_up_price, nwe_down_price, is_ghost, is_live_captured
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, rows_to_insert)
         conn.commit()
         return len(rows_to_insert)

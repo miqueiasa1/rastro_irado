@@ -78,11 +78,17 @@ class IRAISnapshot:
     johansen_p_value: float = 1.0
     is_cointegrated: bool = True
     
-    # Pairwise Signal
+    # Pairwise Signal (Dinâmico)
     pair_z: Optional[float] = None
     pair_factor: Optional[str] = None
     pair_beta: Optional[float] = None
     pair_signal: Optional[str] = None
+
+    # Par Fixo (Z-SCORE WDO no Índice, Z-SCORE WIN no Dólar)
+    pair_fixed_z: Optional[float] = None
+    pair_fixed_factor: Optional[str] = None
+    pair_fixed_beta: Optional[float] = None
+    pair_fixed_signal: Optional[str] = None
 
 
 def sigmoid(x: float) -> float:
@@ -662,6 +668,7 @@ class IRAIEngine:
         cum_pair_residual = 0.0
         recent_basket_spreads = []
         recent_pair_spreads = []
+        recent_fixed_pair_spreads = []
         factor_activity_window = { f_key: [] for f_key in active_factors }
 
         # Set de timestamps reais do target para detecção precisa de ghost bars
@@ -905,12 +912,55 @@ class IRAIEngine:
                 snap.pair_factor = pair_label
                 snap.pair_beta = round(float(beta_max), 3)
                 
-                if pair_z < -pair_threshold:
-                    snap.pair_signal = "buy"
-                elif pair_z > pair_threshold:
-                    snap.pair_signal = "sell"
-                else:
-                    snap.pair_signal = None
+                if pair_z is not None:
+                    if pair_z < -pair_threshold:
+                        snap.pair_signal = "buy"
+                    elif pair_z > pair_threshold:
+                        snap.pair_signal = "sell"
+                    else:
+                        snap.pair_signal = None
+
+                # 3. Fixed Pairwise Signal (Z-SCORE WDO no Índice, Z-SCORE WIN no Dólar)
+                target_pair_key = None
+                if target == "WIN$N":
+                    target_pair_key = "WDO$N"
+                elif target == "WDO$N":
+                    target_pair_key = "WIN$N"
+
+                if target_pair_key and target_pair_key in active_factors:
+                    fixed_idx = active_factors.index(target_pair_key)
+                    beta_fixed = current_betas[fixed_idx + 1]
+                    f_ret_fixed = obs_matrix[fixed_idx + 1]
+                    fixed_label = "WDO" if target_pair_key == "WDO$N" else ("WIN" if target_pair_key == "WIN$N" else active_labels.get(target_pair_key, target_pair_key))
+                    
+                    residuo_fixed = win_ret - (beta_fixed * f_ret_fixed)
+                    recent_fixed_pair_spreads.append(residuo_fixed)
+                    if len(recent_fixed_pair_spreads) > 100:
+                        recent_fixed_pair_spreads.pop(0)
+
+                    if len(recent_fixed_pair_spreads) >= 6:
+                        past_fixed = recent_fixed_pair_spreads[:-1]
+                        fixed_sigma = float(np.std(past_fixed))
+                        min_pair_sigma = pair_sigma_fallback if pair_sigma_fallback > 0.0005 else 0.002
+                        if fixed_sigma < min_pair_sigma:
+                            fixed_sigma = min_pair_sigma
+
+                        fixed_mean = float(np.mean(past_fixed))
+                        fixed_z = (residuo_fixed - fixed_mean) / fixed_sigma
+                        snap.pair_fixed_z = round(float(fixed_z), 2)
+                    else:
+                        fixed_z = 0.0
+                        snap.pair_fixed_z = None
+                    snap.pair_fixed_factor = fixed_label
+                    snap.pair_fixed_beta = round(float(beta_fixed), 3)
+
+                    if snap.pair_fixed_z is not None:
+                        if snap.pair_fixed_z < -pair_threshold:
+                            snap.pair_fixed_signal = "buy"
+                        elif snap.pair_fixed_z > pair_threshold:
+                            snap.pair_fixed_signal = "sell"
+                        else:
+                            snap.pair_fixed_signal = None
             else:
                 # Fallback se V1 ou pré-mercado
                 if target_div_sigma > 0:

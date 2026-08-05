@@ -510,6 +510,16 @@ function AssetCard({ card, onClick }) {
           else if (pz > 0.5) { pzSignal = 'VENDA L.'; pzColor = '#F87171'; }
         }
 
+        const pfz = card.pair_fixed_z;
+        let pfzSignal = 'NEUTRO';
+        let pfzColor = '#64748B';
+        if (pfz != null) {
+          if (pfz <= -2.0) { pfzSignal = 'COMPRA'; pfzColor = '#10B981'; }
+          else if (pfz < -0.5) { pfzSignal = 'COMPRA L.'; pfzColor = '#4ADE80'; }
+          else if (pfz >= 2.0) { pfzSignal = 'VENDA'; pfzColor = '#EF4444'; }
+          else if (pfz > 0.5) { pfzSignal = 'VENDA L.'; pfzColor = '#F87171'; }
+        }
+
         const rz = card.price_diverge_z;
         let rzSignal = 'NEUTRO';
         let rzColor = '#64748B';
@@ -535,6 +545,14 @@ function AssetCard({ card, onClick }) {
                 {pz != null ? `${pz >= 0 ? '+' : ''}${pz.toFixed(2)}` : 'N/A'} ({pzSignal})
               </span>
             </div>
+            {(card.target === 'WIN$N' || card.target === 'WDO$N' || pfz != null) && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
+                <span style={{ color: '#64748B' }}>{card.target === 'WIN$N' ? 'Z WDO:' : (card.target === 'WDO$N' ? 'Z WIN:' : 'Z PAR FIXO:')}</span>
+                <span style={{ color: pfzColor, fontWeight: 600 }}>
+                  {pfz != null ? `${pfz >= 0 ? '+' : ''}${pfz.toFixed(2)}` : 'N/A'} ({pfzSignal})
+                </span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
               <span style={{ color: '#64748B' }}>Z RASTRO:</span>
               <span style={{ color: rzColor, fontWeight: 600 }}>

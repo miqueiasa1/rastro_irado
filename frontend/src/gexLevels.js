@@ -1,13 +1,13 @@
 /**
  * GEX (Gamma Exposure) Levels — Extraídos do jumba_tradingview.pine
- * Atualizado em: 2026-08-05 07:39
+ * Atualizado em: 2026-08-05 08:59
  * 
  * Tipos: wall, mid_wall, min_gamma, gamma_flip, max_gamma
  */
 
 const GEX_LEVELS = {
   "WIN$N": [
-    { price: 167298.643, label: "MIN GAMMA (Piso)", color: "#ff1744", width: 3, style: "solid", type: "min_gamma" },
+    { price: 166940.402, label: "MIN GAMMA (Piso)", color: "#ff1744", width: 3, style: "solid", type: "min_gamma" },
     { price: 169536.898, label: "MAGICWALL * (IBOV 169000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
     { price: 170038.486, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 170540.075, label: "MAGICWALL * (IBOV 170000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
@@ -18,7 +18,7 @@ const GEX_LEVELS = {
     { price: 173048.018, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 173549.606, label: "MAGICWALL * (IBOV 173000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
     { price: 174552.783, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
-    { price: 174649.586, label: "GAMMA FLIP (Pivot)", color: "#ffd600", width: 2, style: "solid", type: "gamma_flip" },
+    { price: 174636.057, label: "GAMMA FLIP (Pivot)", color: "#ffd600", width: 2, style: "solid", type: "gamma_flip" },
     { price: 175555.96, label: "MAGICWALL * (IBOV 175000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
     { price: 176057.548, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 176559.137, label: "MAGICWALL *** (IBOV 176000)", color: "#00e676", width: 3, style: "solid", type: "wall" },
@@ -40,7 +40,7 @@ const GEX_LEVELS = {
     { price: 185587.729, label: "MAGICWALL * (IBOV 185000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
     { price: 186089.318, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 186590.906, label: "MAGICWALL * (IBOV 186000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
-    { price: 187718.392, label: "MAX GAMMA (Teto)", color: "#00b0ff", width: 3, style: "solid", type: "max_gamma" },
+    { price: 188434.874, label: "MAX GAMMA (Teto)", color: "#00b0ff", width: 3, style: "solid", type: "max_gamma" },
   ],
   "US500": [
     { price: 7681.18, label: "MAGICWALL * (SPY 763)", color: "#00e676", width: 1, style: "solid", type: "wall" },
@@ -117,7 +117,7 @@ const GEX_LEVELS = {
     { price: 70000.0, label: "MAGICWALL * (BTC 70000)", color: "#00e676", width: 1, style: "solid", type: "wall" },
   ],
   "WDO$N": [
-    { price: 4975.22, label: "MIN GAMMA (Piso)", color: "#ff1744", width: 3, style: "solid", type: "min_gamma" },
+    { price: 4980.53, label: "MIN GAMMA (Piso)", color: "#ff1744", width: 3, style: "solid", type: "min_gamma" },
     { price: 5080.0, label: "MAGICWALL * (DOL 5080)", color: "#00e676", width: 1, style: "solid", type: "wall" },
     { price: 5090.0, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 5100.0, label: "MAGICWALL * (DOL 5100)", color: "#00e676", width: 1, style: "solid", type: "wall" },
@@ -135,7 +135,7 @@ const GEX_LEVELS = {
     { price: 5250.0, label: "MAGICWALL ** (DOL 5250)", color: "#00e676", width: 2, style: "solid", type: "wall" },
     { price: 5265.0, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 5280.0, label: "MAGICWALL * (DOL 5280)", color: "#00e676", width: 1, style: "solid", type: "wall" },
-    { price: 5280.24, label: "GAMMA FLIP (Pivot)", color: "#ffd600", width: 2, style: "solid", type: "gamma_flip" },
+    { price: 5284.29, label: "GAMMA FLIP (Pivot)", color: "#ffd600", width: 2, style: "solid", type: "gamma_flip" },
     { price: 5290.0, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
     { price: 5300.0, label: "MAGICWALL * (DOL 5300)", color: "#00e676", width: 1, style: "solid", type: "wall" },
     { price: 5325.0, label: "MIDLEWALL", color: "#90a4ae", width: 1, style: "dashed", type: "mid_wall" },
