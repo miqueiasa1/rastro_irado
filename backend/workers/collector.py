@@ -166,10 +166,12 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
         real_vol = float(bar[7]) if len(bar) > 7 and bar[7] else 0
         delta = compute_bar_delta(o, h, l, c, real_vol)
 
-        # Barra mais recente (em formação) → REPLACE para atualizar OHLCV a cada ciclo
-        # Barras antigas (fechadas) → IGNORE para não reescrever dados finalizados
-        is_current_bar = (i == len(rates) - 1)
-        verb = "INSERT OR REPLACE" if is_current_bar else "INSERT OR IGNORE"
+        # Barras recentes (últimas 2) → REPLACE para capturar OHLC final correto
+        # A penúltima barra pode ter sido gravada parcialmente no ciclo anterior
+        # enquanto ainda estava em formação, e agora está fechada com dados finais.
+        # Barras mais antigas → IGNORE para não reescrever dados já finalizados
+        is_recent_bar = (i >= len(rates) - 2)
+        verb = "INSERT OR REPLACE" if is_recent_bar else "INSERT OR IGNORE"
 
         try:
             cursor.execute(
