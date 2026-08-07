@@ -311,6 +311,7 @@ def persist_live_snapshots_cycle(db_path):
         from datetime import date
 
         from backend.api.main import _snap_to_dict
+        from backend.db import get_connection as _get_conn
         today_str = date.today().isoformat()
         engine = IRAIEngine(db_path)
         
@@ -320,7 +321,24 @@ def persist_live_snapshots_cycle(db_path):
             snapshots = engine.compute_from_db(today_str, target=target, version="v2", timeframe="M5", persist_state=True)
             if snapshots:
                 series_data = [_snap_to_dict(s) for s in snapshots]
-                series_data = compute_nwe(series_data)
+
+                # Buscar history_closes do dia anterior para warm-up das bandas NWE
+                target_db = t_info.get("data_proxy") or target
+                if not target_db:
+                    target_db = target
+                try:
+                    conn_hist = _get_conn(db_path)
+                    prev_rows = conn_hist.execute("""
+                        SELECT close FROM market_bars
+                        WHERE symbol = ? AND timeframe = 'M5' AND timestamp_utc < ?
+                        ORDER BY timestamp_utc DESC LIMIT 190
+                    """, (target_db, f"{today_str}T00:00:00Z")).fetchall()
+                    conn_hist.close()
+                    history_closes = [r["close"] for r in reversed(prev_rows)]
+                except Exception:
+                    history_closes = []
+
+                series_data = compute_nwe(series_data, history_closes)
                 count = save_live_snapshots(db_path, target, today_str, series_data, timeframe="M5", is_live_captured=1)
                 saved_count += count
         log.info(f"  [Live Snapshots] {saved_count} snapshots persistidos com sucesso")
