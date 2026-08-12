@@ -142,66 +142,47 @@ export function DetailHeader({
         </div>
 
         {/* LIVE button + date dropdown */}
-        {!firebaseUrl ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-            <button
-              onClick={() => setLiveMode(true)}
-              style={{
-                fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-                letterSpacing: '0.1em', padding: '6px 11px',
-                borderRadius: '4px 0 0 4px',
-                border: `1px solid ${liveMode ? '#4ADE80' : '#334155'}`,
-                borderRight: 'none',
-                background: liveMode ? 'rgba(74,222,128,0.12)' : '#1E293B',
-                color: liveMode ? '#4ADE80' : '#475569',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex', alignItems: 'center', gap: 5,
-              }}
-            >
-              {liveMode && (
-                <span style={{
-                  display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                  background: '#4ADE80',
-                  boxShadow: '0 0 5px #4ADE80',
-                  animation: 'pulse 2s infinite',
-                }} />
-              )}
-              LIVE
-            </button>
-            <select
-              value={liveMode ? (dates[0] || '') : (selectedDate || '')}
-              onChange={e => {
-                setLiveMode(false);
-                setSelectedDate(e.target.value);
-              }}
-              style={{
-                borderRadius: '0 4px 4px 0',
-                borderLeft: `1px solid ${liveMode ? '#4ADE8033' : '#334155'}`,
-                opacity: liveMode ? 0.5 : 1,
-              }}
-            >
-              {dates.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        ) : (
-          <div style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-            letterSpacing: '0.1em', padding: '6px 11px',
-            borderRadius: 4,
-            border: '1px solid #4ADE80',
-            background: 'rgba(74,222,128,0.12)',
-            color: '#4ADE80',
-            display: 'flex', alignItems: 'center', gap: 5,
-          }}>
-            <span style={{
-              display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-              background: '#4ADE80', boxShadow: '0 0 5px #4ADE80',
-              animation: 'pulse 2s infinite',
-            }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+          <button
+            onClick={() => setLiveMode(true)}
+            style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.1em', padding: '6px 11px',
+              borderRadius: '4px 0 0 4px',
+              border: `1px solid ${liveMode ? '#4ADE80' : '#334155'}`,
+              borderRight: 'none',
+              background: liveMode ? 'rgba(74,222,128,0.12)' : '#1E293B',
+              color: liveMode ? '#4ADE80' : '#475569',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            {liveMode && (
+              <span style={{
+                display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                background: '#4ADE80',
+                boxShadow: '0 0 5px #4ADE80',
+                animation: 'pulse 2s infinite',
+              }} />
+            )}
             LIVE
-          </div>
-        )}
+          </button>
+          <select
+            value={liveMode ? (dates[0] || '') : (selectedDate || '')}
+            onChange={e => {
+              setLiveMode(false);
+              setSelectedDate(e.target.value);
+            }}
+            style={{
+              borderRadius: '0 4px 4px 0',
+              borderLeft: `1px solid ${liveMode ? '#4ADE8033' : '#334155'}`,
+              opacity: liveMode ? 0.5 : 1,
+            }}
+          >
+            {dates.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
       </div>
     </header>
   );

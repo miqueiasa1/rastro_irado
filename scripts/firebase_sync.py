@@ -47,11 +47,16 @@ def clean_for_firebase(val):
     if isinstance(val, dict):
         new_dict = {}
         for k, v in val.items():
-            safe_k = str(k).replace('$', '_').replace('.', '_').replace('#', '_').replace('[', '_').replace(']', '_').replace('/', '_')
+            safe_k = str(k).replace('$', '_').replace('.', '_').replace('#', '_').replace('[', '_').replace(']', '_').replace('/', '_').replace(':', '_')
             new_dict[safe_k] = clean_for_firebase(v)
         return new_dict
     elif isinstance(val, list):
         return [clean_for_firebase(x) for x in val]
+    elif isinstance(val, float):
+        import math
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
     else:
         return val
 
@@ -170,26 +175,99 @@ def sync():
     }
     if health_data:
         update_payload["health"] = clean_for_firebase(health_data)
+
+    # Health Watchdog status (from local JSON file)
+    try:
+        import json as _json
+        from pathlib import Path
+        watchdog_path = Path(__file__).resolve().parent.parent / "data" / "health_status.json"
+        if watchdog_path.exists():
+            with open(watchdog_path, encoding="utf-8") as f:
+                watchdog_data = _json.load(f)
+            # Calculate age
+            generated_at = watchdog_data.get("generated_at", "")
+            age_s = 0
+            try:
+                from datetime import datetime as _dt, timezone as _tz
+                gen_dt = _dt.fromisoformat(generated_at)
+                age_s = (_dt.now(_tz.utc) - gen_dt).total_seconds()
+            except Exception:
+                pass
+            update_payload["health_watchdog"] = clean_for_firebase({
+                "available": True,
+                "healthy": watchdog_data.get("healthy"),
+                "stale": age_s > 15 * 60,
+                "generated_at": generated_at,
+                "age_seconds": round(age_s),
+                "components": watchdog_data.get("components", []),
+            })
+    except Exception as e:
+        print(f"  [Watchdog] Não consegui ler health_status.json: {e}")
     
     for safe_target, target_series in series_map.items():
+        update_payload[f"series/{current_date}/{safe_target}"] = clean_for_firebase(target_series)
         update_payload[f"series/{safe_target}"] = clean_for_firebase(target_series)
         
     for safe_target, target_summary in summaries_map.items():
+        update_payload[f"summaries/{current_date}/{safe_target}"] = clean_for_firebase(target_summary)
         update_payload[f"summaries/{safe_target}"] = clean_for_firebase(target_summary)
 
     for safe_target, target_history in history_map.items():
+        update_payload[f"history/{current_date}/{safe_target}"] = clean_for_firebase(target_history)
         update_payload[f"history/{safe_target}"] = clean_for_firebase(target_history)
     
     for safe_target, target_garch in garch_map.items():
+        update_payload[f"garch/{current_date}/{safe_target}"] = clean_for_firebase(target_garch)
         update_payload[f"garch/{safe_target}"] = clean_for_firebase(target_garch)
+
+    if overview_data:
+        update_payload[f"overview/{current_date}"] = clean_for_firebase(overview_data)
     
     # 6. Gravar usando SDK do Firebase Admin (garante autenticação nativa)
-    try:
-        ref = db.reference('/')
-        ref.update(update_payload)
-        print("  [Sucesso] Payload enviado ao Firebase.")
-    except Exception as e:
-        print(f"  [Erro] Falha ao enviar para o Firebase: {e}")
+    # Pré-sanitização: garantir que o payload inteiro é JSON-serializável
+    import math
+    def _deep_sanitize(obj):
+        if isinstance(obj, dict):
+            return {k: _deep_sanitize(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_deep_sanitize(v) for v in obj]
+        elif isinstance(obj, float):
+            if math.isnan(obj) or math.isinf(obj):
+                return None
+            return obj
+        elif isinstance(obj, (int, bool, str, type(None))):
+            return obj
+        else:
+            return str(obj)  # numpy, Decimal, etc.
+    
+    update_payload = _deep_sanitize(update_payload)
+    
+    # Enviar em lotes de no máximo BATCH_SIZE chaves (payload gigante falha no Firebase)
+    BATCH_SIZE = 30
+    keys = list(update_payload.keys())
+    total_ok = 0
+    total_err = 0
+    
+    for i in range(0, len(keys), BATCH_SIZE):
+        batch_keys = keys[i:i + BATCH_SIZE]
+        batch = {k: update_payload[k] for k in batch_keys}
+        try:
+            db.reference('/').update(batch)
+            total_ok += len(batch_keys)
+        except Exception as e:
+            print(f"  [Aviso] Lote {i//BATCH_SIZE + 1} falhou ({e}), enviando individualmente...")
+            for key in batch_keys:
+                try:
+                    db.reference(f'/{key}').set(update_payload[key])
+                    total_ok += 1
+                except Exception as e2:
+                    print(f"    [!!] {key}: {e2}")
+                    total_err += 1
+    
+    if total_err == 0:
+        print(f"  [Sucesso] {total_ok} chaves enviadas ao Firebase.")
+    else:
+        print(f"  [Parcial] {total_ok} OK, {total_err} erros.")
 
 if __name__ == "__main__":
     print(f"Iniciando Sincronizador Firebase (SDK de Produção)")

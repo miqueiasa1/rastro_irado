@@ -17,6 +17,7 @@ venv/
 data/irai.db
 data/*.db-wal
 data/*.db-shm
+data/health_status.json
 
 # IDE
 .idea/

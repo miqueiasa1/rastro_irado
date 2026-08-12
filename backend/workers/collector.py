@@ -147,8 +147,26 @@ def resolve_symbol(symbol: str) -> str:
 
 
 def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, timeframe: str, mt5_timeframe, n_bars: int = 5, resolved_symbol: str = None) -> int:
-    """Coleta as N barras de um símbolo no timeframe informado."""
+    """Coleta barras de um símbolo no timeframe informado com alinhamento de fuso e backfill dinâmico."""
     query_symbol = resolved_symbol if resolved_symbol else symbol
+
+    # Backfill dinâmico: se n_bars é pequeno (ciclo normal), verifica lacuna desde a última barra gravada
+    if n_bars <= 10:
+        try:
+            last_row = conn.execute("""
+                SELECT MAX(timestamp_utc) as max_ts FROM market_bars
+                WHERE symbol = ? AND timeframe = ?
+            """, (symbol, timeframe)).fetchone()
+            if last_row and last_row[0]:
+                last_dt = datetime.fromisoformat(last_row[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+                now_dt = datetime.now(timezone.utc)
+                diff_sec = (now_dt - last_dt).total_seconds()
+                tf_sec = 300 if timeframe == "M5" else (60 if timeframe == "M1" else 300)
+                missing_bars = int(diff_sec / tf_sec) + 3
+                n_bars = max(n_bars, min(missing_bars, 300))
+        except Exception:
+            pass
+
     rates = mt5.copy_rates_from_pos(query_symbol, mt5_timeframe, 0, n_bars)
 
     if rates is None or len(rates) == 0:
@@ -158,7 +176,12 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
     cursor = conn.cursor()
 
     for i, bar in enumerate(rates):
-        ts = datetime.fromtimestamp(bar[0], tz=timezone.utc)
+        bar_timestamp = float(bar[0])
+        # Unificação no Fuso Forex (Tickmill/Axi GMT+3): Converter B3 (XP BRT) somando 6 horas
+        if source == "br":
+            bar_timestamp += 6 * 3600
+
+        ts = datetime.fromtimestamp(bar_timestamp, tz=timezone.utc)
         ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         o, h, l, c = float(bar[1]), float(bar[2]), float(bar[3]), float(bar[4])
@@ -167,9 +190,6 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
         delta = compute_bar_delta(o, h, l, c, real_vol)
 
         # Barras recentes (últimas 2) → REPLACE para capturar OHLC final correto
-        # A penúltima barra pode ter sido gravada parcialmente no ciclo anterior
-        # enquanto ainda estava em formação, e agora está fechada com dados finais.
-        # Barras mais antigas → IGNORE para não reescrever dados já finalizados
         is_recent_bar = (i >= len(rates) - 2)
         verb = "INSERT OR REPLACE" if is_recent_bar else "INSERT OR IGNORE"
 
@@ -192,8 +212,10 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
 
 
 def is_b3_session() -> bool:
-    """Verifica se está dentro do horário do pregão B3 Futuros/Ações (08:50–18:30 BRT)."""
+    """Verifica se está dentro do horário do pregão B3 Futuros/Ações (08:50–18:30 BRT, Seg-Sex)."""
     now = datetime.now()
+    if now.weekday() >= 5:
+        return False
     h, m = now.hour, now.minute
     # Futuros B3 (WIN/WDO/DI1): abertura às 09:00 (pré-abertura 08:55). Coleta inicia às 08:50 BRT.
     if h < 8 or (h == 8 and m < 50):
@@ -364,38 +386,55 @@ def main():
     init_db(args.db)  # Auto-heal schema no boot
 
     cycle = 0
+    HEALTH_CHECK_EVERY = 15  # A cada 15 ciclos (~5 min com interval=20s)
 
     while True:
         cycle += 1
-        
-        conn = get_connection(args.db)
+        conn = None
+        try:
+            conn = get_connection(args.db)
 
-        b3_open = args.force or is_b3_session()
+            b3_open = args.force or is_b3_session()
 
-        log.info(f"--- Ciclo {cycle} {'(B3 aberta)' if b3_open else '(apenas internacional)'} ---")
-        results = run_collection_cycle(conn, skip_br=not b3_open, cycle_num=cycle)
+            log.info(f"--- Ciclo {cycle} {'(B3 aberta)' if b3_open else '(apenas internacional)'} ---")
+            results = run_collection_cycle(conn, skip_br=not b3_open, cycle_num=cycle)
 
-        for sym, r in results.items():
-            if r.get("status") == "skipped":
-                continue  # Silencioso para ativos fora do horário
-            if r["status"] == "ok":
-                log.info(f"  {sym:<12} bid={r['bid']:<12.2f} +{r['inserted']} barras")
-            else:
-                log.warning(f"  {sym:<12} ERRO: {r.get('error', '?')}")
+            for sym, r in results.items():
+                if r.get("status") == "skipped":
+                    continue  # Silencioso para ativos fora do horário
+                if r["status"] == "ok":
+                    log.info(f"  {sym:<12} bid={r['bid']:<12.2f} +{r['inserted']} barras")
+                else:
+                    log.warning(f"  {sym:<12} ERRO: {r.get('error', '?')}")
 
-        persist_live_snapshots_cycle(args.db)
+            persist_live_snapshots_cycle(args.db)
+
+            # Health Watchdog embutido — roda a cada ~5 min
+            if cycle % HEALTH_CHECK_EVERY == 0 or cycle == 1:
+                try:
+                    from scripts.health_watchdog import run_health_check
+                    run_health_check()
+                except Exception as e:
+                    log.warning(f"  [Health Watchdog] Erro: {e}")
+
+            # Notificar API sobre novos dados para push via WebSocket
+            try:
+                import requests
+                requests.post("http://127.0.0.1:8888/api/internal/notify_update", timeout=1.0)
+            except Exception as e:
+                log.debug(f"Falha ao notificar API local: {e}")
+
+        except Exception as e:
+            log.error(f"Erro no ciclo {cycle} do Collector: {e}. Recuperando no próximo ciclo...", exc_info=True)
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
         if args.once:
             break
-
-        # Notificar API sobre novos dados para push via WebSocket
-        try:
-            import requests
-            requests.post("http://127.0.0.1:8888/api/internal/notify_update", timeout=1.0)
-        except Exception as e:
-            log.debug(f"Falha ao notificar API local: {e}")
-
-        conn.close()
 
         log.info(f"  Proximo ciclo em {args.interval}s...")
         time.sleep(args.interval)

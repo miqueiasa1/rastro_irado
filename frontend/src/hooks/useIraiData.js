@@ -178,12 +178,18 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
     if (FIREBASE_URL) {
       const baseUrl = FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '');
       const safeTarget = target.replace('$', '_').replace('.', '_');
+
+      const isHistorical = Boolean(date && dates.length > 0 && date !== dates[0]);
+      const seriesUrl = isHistorical ? `${baseUrl}/series/${date}/${safeTarget}.json` : `${baseUrl}/series/${safeTarget}.json`;
+      const summariesUrl = isHistorical ? `${baseUrl}/summaries/${date}/${safeTarget}.json` : `${baseUrl}/summaries/${safeTarget}.json`;
+      const historyUrl = isHistorical ? `${baseUrl}/history/${date}/${safeTarget}.json` : `${baseUrl}/history/${safeTarget}.json`;
+      const garchUrl = isHistorical ? `${baseUrl}/garch/${date}/${safeTarget}.json` : `${baseUrl}/garch/${safeTarget}.json`;
       
       const fetches = [
-        fetch(`${baseUrl}/series/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/summaries/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/history/${safeTarget}.json`).then(r => r.json()),
-        fetch(`${baseUrl}/garch/${safeTarget}.json`).then(r => r.json()).catch(() => null)
+        fetch(seriesUrl).then(r => r.json()).catch(() => null),
+        fetch(summariesUrl).then(r => r.json()).catch(() => null),
+        fetch(historyUrl).then(r => r.json()).catch(() => null),
+        fetch(garchUrl).then(r => r.json()).catch(() => null)
       ];
       
       const shouldFetchLastUpdate = silent || isFirstLoadRef.current;
@@ -195,9 +201,14 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
       Promise.all(fetches)
         .then(([seriesData, summariesData, historyData, garchDataRes, lastUpdateData]) => {
           const tMeta = targetsMeta.find(t => t.target === target) || {};
-          const s = seriesData || [];
-          const sum = summariesData || {};
-          const history_closes = historyData || [];
+          let s = [];
+          if (Array.isArray(seriesData)) {
+            s = seriesData;
+          } else if (seriesData && typeof seriesData === 'object' && !seriesData.error) {
+            s = Object.values(seriesData);
+          }
+          const sum = (summariesData && !summariesData.error) ? summariesData : {};
+          const history_closes = Array.isArray(historyData) ? historyData : (historyData && typeof historyData === 'object' ? Object.values(historyData) : []);
 
           const isB3 = tMeta.session_start_h && tMeta.session_start_h !== 0;
           const processed = s.map(x => {

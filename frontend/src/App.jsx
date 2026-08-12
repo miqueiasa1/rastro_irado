@@ -287,6 +287,7 @@ export default function App() {
     const timeToNwePrice = new Map();
     const timeToKalmanPrice = new Map();
     const timeToPairZPrice = new Map();
+    const timeToPairFixedZPrice = new Map();
     const timeToPriceDivergeZPrice = new Map();
 
     (seriesWithNWE || []).forEach(s => {
@@ -301,12 +302,13 @@ export default function App() {
         }
       }
       timeToPairZPrice.set(t, s.pair_z ?? 0);
+      timeToPairFixedZPrice.set(t, s.pair_fixed_z ?? 0);
       timeToPriceDivergeZPrice.set(t, s.price_diverge_z ?? 0);
     });
 
     crosshairMapsRef.current = {
       timeToProbPrice, timeToNwePrice, timeToKalmanPrice,
-      timeToPairZPrice, timeToPriceDivergeZPrice
+      timeToPairZPrice, timeToPairFixedZPrice, timeToPriceDivergeZPrice
     };
   }, [seriesWithNWE, effectiveDate]);
 
@@ -317,6 +319,7 @@ export default function App() {
     if (nweChartRef.current?.getChart()) parts.push('nwe');
     if (kalmanChartRef.current?.getChart()) parts.push('kalman');
     if (pairZChartRef.current?.getChart()) parts.push('pairZ');
+    if (pairFixedZChartRef.current?.getChart()) parts.push('pairFixedZ');
     if (priceDivergeZChartRef.current?.getChart()) parts.push('priceDivergeZ');
     return parts.join(',');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -416,6 +419,7 @@ export default function App() {
                 else if (other.key === 'nwe') priceMap = maps.timeToNwePrice;
                 else if (other.key === 'kalman') priceMap = maps.timeToKalmanPrice;
                 else if (other.key === 'pairZ') priceMap = maps.timeToPairZPrice;
+                else if (other.key === 'pairFixedZ') priceMap = maps.timeToPairFixedZPrice;
                 else if (other.key === 'priceDivergeZ') priceMap = maps.timeToPriceDivergeZPrice;
 
                 if (priceMap) {
@@ -434,7 +438,7 @@ export default function App() {
         c.chart.subscribeCrosshairMove(handler);
         crosshairHandlers.push({ chart: c.chart, handler });
       });
-    }, 300);
+    }, 50);
 
     return () => {
       clearTimeout(timer);
@@ -449,7 +453,7 @@ export default function App() {
         } catch { /* ignore */ }
       });
     };
-  }, [chartType, seriesWithNWE, timeframe, selectedTarget, effectiveDate]);
+  }, [chartType, seriesWithNWE, timeframe, selectedTarget, effectiveDate, chartFingerprint]);
 
   // Force timescale alignment on every data update to ensure they stay in sync
   const prevAlignKey = useRef('');
@@ -470,6 +474,7 @@ export default function App() {
         nweChartRef.current?.getChart(),
         kalmanChartRef.current?.getChart(),
         pairZChartRef.current?.getChart(),
+        pairFixedZChartRef.current?.getChart(),
         priceDivergeZChartRef.current?.getChart()
       ].filter(Boolean);
 

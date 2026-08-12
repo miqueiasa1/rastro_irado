@@ -534,7 +534,13 @@ def migrate_live_snapshots(db_path=None):
 
 
 def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots: list, timeframe: str = "M5", is_live_captured: int = 1):
-    """Salva uma lista de snapshots (dict ou dataclass IRAISnapshot) no SQLite."""
+    """Salva snapshots no SQLite com política Zero-Repainting:
+    
+    - Barras fechadas (0..N-1): INSERT OR IGNORE — uma vez gravadas, são IMUTÁVEIS.
+      Isso impede que recálculos futuros do engine (ex: troca de fator dominante às 10h30)
+      sobrescrevam valores históricos de pair_z, pair_factor, NWE etc.
+    - Última barra (N): INSERT OR REPLACE — é a barra em formação, atualizada a cada ciclo.
+    """
     if not snapshots:
         return 0
 
@@ -545,50 +551,47 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
     else:
         conn = conn_or_path
 
-    try:
-        rows_to_insert = []
-        for s in snapshots:
-            d = s if isinstance(s, dict) else (s.__dict__ if hasattr(s, '__dict__') else s)
-            rows_to_insert.append((
-                target,
-                timeframe,
-                session_date,
-                d.get("timestamp_utc") or d.get("timestamp"),
-                d.get("bar_idx", 0),
-                d.get("p_up", 50.0),
-                d.get("score", 0.0),
-                d.get("verdict", "indeciso"),
-                d.get("verdict_color", "#7A7F8A"),
-                d.get("price_diverge_z"),
-                1 if d.get("price_diverges") else 0,
-                d.get("pair_z"),
-                d.get("pair_factor"),
-                d.get("pair_beta"),
-                d.get("pair_signal"),
-                d.get("pair_fixed_z"),
-                d.get("pair_fixed_factor"),
-                d.get("pair_fixed_beta"),
-                d.get("pair_fixed_signal"),
-                d.get("win_return", 0.0),
-                d.get("win_current", 0.0),
-                d.get("win_open", 0.0),
-                d.get("win_bar_open", d.get("win_current", 0.0)),
-                d.get("win_high", d.get("win_current", 0.0)),
-                d.get("win_low", d.get("win_current", 0.0)),
-                d.get("cum_delta", 0.0),
-                d.get("cum_delta_norm", 0.0),
-                d.get("nwe_center_price"),
-                d.get("nwe_upper_price"),
-                d.get("nwe_lower_price"),
-                d.get("nwe_slope"),
-                d.get("nwe_up_price"),
-                d.get("nwe_down_price"),
-                1 if d.get("is_ghost") else 0,
-                is_live_captured
-            ))
+    def _snap_to_tuple(s):
+        d = s if isinstance(s, dict) else (s.__dict__ if hasattr(s, '__dict__') else s)
+        return (
+            target,
+            timeframe,
+            session_date,
+            d.get("timestamp_utc") or d.get("timestamp"),
+            d.get("bar_idx", 0),
+            d.get("p_up", 50.0),
+            d.get("score", 0.0),
+            d.get("verdict", "indeciso"),
+            d.get("verdict_color", "#7A7F8A"),
+            d.get("price_diverge_z"),
+            1 if d.get("price_diverges") else 0,
+            d.get("pair_z"),
+            d.get("pair_factor"),
+            d.get("pair_beta"),
+            d.get("pair_signal"),
+            d.get("pair_fixed_z"),
+            d.get("pair_fixed_factor"),
+            d.get("pair_fixed_beta"),
+            d.get("pair_fixed_signal"),
+            d.get("win_return", 0.0),
+            d.get("win_current", 0.0),
+            d.get("win_open", 0.0),
+            d.get("win_bar_open", d.get("win_current", 0.0)),
+            d.get("win_high", d.get("win_current", 0.0)),
+            d.get("win_low", d.get("win_current", 0.0)),
+            d.get("cum_delta", 0.0),
+            d.get("cum_delta_norm", 0.0),
+            d.get("nwe_center_price"),
+            d.get("nwe_upper_price"),
+            d.get("nwe_lower_price"),
+            d.get("nwe_slope"),
+            d.get("nwe_up_price"),
+            d.get("nwe_down_price"),
+            1 if d.get("is_ghost") else 0,
+            is_live_captured
+        )
 
-        conn.executemany("""
-            INSERT OR REPLACE INTO irai_live_snapshots (
+    COLUMNS_SQL = """(
                 target, timeframe, session_date, timestamp_utc, bar_idx,
                 p_up, score, verdict, verdict_color, price_diverge_z, price_diverges,
                 pair_z, pair_factor, pair_beta, pair_signal,
@@ -596,10 +599,26 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
                 win_return, win_current, win_open, win_bar_open, win_high, win_low,
                 cum_delta, cum_delta_norm, nwe_center_price, nwe_upper_price,
                 nwe_lower_price, nwe_slope, nwe_up_price, nwe_down_price, is_ghost, is_live_captured
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, rows_to_insert)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+    try:
+        # Barras fechadas (0..N-1): IMUTÁVEIS — INSERT OR IGNORE preserva valores originais
+        closed_bars = [_snap_to_tuple(s) for s in snapshots[:-1]]
+        if closed_bars:
+            conn.executemany(
+                f"INSERT OR IGNORE INTO irai_live_snapshots {COLUMNS_SQL}",
+                closed_bars
+            )
+
+        # Última barra (N): MUTÁVEL — INSERT OR REPLACE atualiza a barra em formação
+        open_bar = [_snap_to_tuple(snapshots[-1])]
+        conn.executemany(
+            f"INSERT OR REPLACE INTO irai_live_snapshots {COLUMNS_SQL}",
+            open_bar
+        )
+
         conn.commit()
-        return len(rows_to_insert)
+        return len(snapshots)
     finally:
         if should_close:
             conn.close()

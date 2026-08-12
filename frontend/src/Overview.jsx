@@ -20,6 +20,15 @@ const OVERVIEW_STYLES = `
   }
   .badge-blink { animation: badgeBlink 1.5s infinite ease-in-out; }
 
+  /* Health Modal */
+  .health-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .health-modal { background: #0F172A; border: 1px solid #334155; border-radius: 12px; padding: 24px; min-width: 380px; max-width: 500px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+  .health-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 6px; margin-bottom: 4px; font-family: var(--font-mono); font-size: 11px; }
+  .health-row:hover { background: rgba(255,255,255,0.03); }
+  .health-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .health-btn { background: none; border: 1px solid #334155; border-radius: 4px; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 9px; transition: all 0.2s; }
+  .health-btn:hover { background: #1E293B; border-color: #475569; }
+
   /* Mobile Responsive Overrides */
   .overview-container { padding: 24px 32px; max-width: 1400px; margin: 0 auto; font-family: var(--font-sans); color: #C8C8D4; }
   .overview-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 24px; }
@@ -35,6 +44,7 @@ const OVERVIEW_STYLES = `
     .overview-grid-pending { grid-template-columns: 1fr !important; }
     .asset-card { padding: 12px !important; }
     .sparkline-wrapper { margin-top: 16px !important; }
+    .health-modal { min-width: unset; margin: 16px; }
   }
 `
 const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
@@ -74,11 +84,77 @@ function Sparkline({ data, width = '100%', height = 24 }) {
   )
 }
 
+const COMPONENT_LABELS = {
+  'source:tickmill': { label: 'Tickmill', icon: '🌐' },
+  'source:br': { label: 'B3 (XP)', icon: '🇧🇷' },
+  'source:axi': { label: 'Axi ETFs', icon: '📊' },
+  'firebase': { label: 'Firebase Sync', icon: '🔥' },
+  'service:api': { label: 'API Server', icon: '🖥️' },
+  'service:collector': { label: 'Collector', icon: '⚙️' },
+  'processes': { label: 'Processos', icon: '⚙️' },
+  // Firebase RTDB sanitiza ':' para '_' nas chaves
+  'source_tickmill': { label: 'Tickmill', icon: '🌐' },
+  'source_br': { label: 'B3 (XP)', icon: '🇧🇷' },
+  'source_axi': { label: 'Axi ETFs', icon: '📊' },
+  'service_api': { label: 'API Server', icon: '🖥️' },
+  'service_collector': { label: 'Collector', icon: '⚙️' },
+}
+
+function HealthModal({ data, onClose }) {
+  if (!data) return null
+  const components = data.components || []
+  const allOk = data.healthy
+  const ageMin = data.age_seconds ? Math.round(data.age_seconds / 60) : '?'
+
+  return (
+    <div className="health-modal-overlay" onClick={onClose}>
+      <div className="health-modal" onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-serif)', fontSize: 18, color: allOk ? '#4ADE80' : '#F87171', fontWeight: 500 }}>
+              {allOk ? 'Sistema Saudavel' : 'Problemas Detectados'}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B', marginTop: 2 }}>
+              Atualizado ha {ageMin} min{data.stale ? ' (DEFASADO)' : ''}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'none', border: 'none', color: '#64748B', fontSize: 18,
+            cursor: 'pointer', padding: '4px 8px', lineHeight: 1
+          }}>x</button>
+        </div>
+
+        {components.map((c, i) => {
+          const meta = COMPONENT_LABELS[c.endpoint] || { label: c.endpoint, icon: '?' }
+          return (
+            <div key={i} className="health-row">
+              <span className="health-dot" style={{ background: c.healthy ? '#4ADE80' : '#F87171' }} />
+              <span style={{ color: '#94A3B8', minWidth: 24 }}>{meta.icon}</span>
+              <span style={{ color: '#C8C8D4', flex: 1 }}>{meta.label}</span>
+              <span style={{ color: c.healthy ? '#4ADE80' : '#F87171', textAlign: 'right', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {c.message}
+              </span>
+            </div>
+          )
+        })}
+
+        {components.length === 0 && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#475569', textAlign: 'center', padding: 20 }}>
+            Watchdog ainda nao executou
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Overview({ onSelectTarget }) {
   const [targets, setTargets] = useState([])
   const [overview, setOverview] = useState([])
   const [loading, setLoading] = useState(true)
   const [health, setHealth] = useState(null)
+  const [showHealthModal, setShowHealthModal] = useState(false)
+  const [watchdogData, setWatchdogData] = useState(null)
 
   useEffect(() => {
     async function fetchHealth() {
@@ -293,8 +369,36 @@ export default function Overview({ onSelectTarget }) {
           ) : (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#64748B' }}>Conectando Global...</div>
           )}
+
+          {/* Health Status Button */}
+          <button
+            className="health-btn"
+            onClick={async () => {
+              try {
+                const url = FIREBASE_URL
+                  ? `${FIREBASE_URL.replace(/\.json$/, '').replace(/\/$/, '')}/health_watchdog.json`
+                  : `${API}/api/health/watchdog`
+                const res = await fetch(url)
+                const data = await res.json()
+                setWatchdogData(data)
+                setShowHealthModal(true)
+              } catch (e) {
+                setWatchdogData({ available: false, healthy: false, components: [], stale: true, age_seconds: 0 })
+                setShowHealthModal(true)
+              }
+            }}
+            style={{
+              color: watchdogData?.healthy === true ? '#4ADE80' : watchdogData?.healthy === false ? '#F87171' : '#94A3B8',
+            }}
+          >
+            <span style={{ fontSize: 12 }}>&#9829;</span>
+            HEALTH
+          </button>
         </div>
       </header>
+
+      {/* Health Status Modal */}
+      {showHealthModal && <HealthModal data={watchdogData} onClose={() => setShowHealthModal(false)} />}
 
       {/* Active Models Grid */}
       <div className="overview-grid">

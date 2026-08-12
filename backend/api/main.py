@@ -238,6 +238,56 @@ async def health():
         "global_last_bar": forex_last,
         "global_delay_min": forex_delay_min,
     }
+
+@app.get("/api/health/sources")
+async def health_sources():
+    """Última barra M5 por fonte (br/tickmill/axi). Usado pelo watchdog para
+    checar defasagem sem abrir o banco diretamente."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT source, MAX(timestamp_utc) as ts
+            FROM market_bars
+            WHERE timeframe = 'M5'
+            GROUP BY source
+        """).fetchall()
+        return {"sources": {row["source"]: row["ts"] for row in rows}}
+    finally:
+        conn.close()
+
+
+@app.get("/api/health/watchdog")
+async def health_watchdog_status():
+    """Último ciclo do watchdog de saúde — leitura do instantâneo local
+    gravado por scripts/health_watchdog.py a cada ~5 min."""
+    from pathlib import Path
+    snapshot_path = Path(DB_PATH).resolve().parent / "health_status.json"
+    if not snapshot_path.exists():
+        return {"available": False, "message": "Watchdog ainda não executou"}
+
+    import json as _json
+    with open(snapshot_path, encoding="utf-8") as f:
+        snapshot = _json.load(f)
+
+    # Verificar se está defasado (>15 min sem atualização)
+    generated_at = snapshot.get("generated_at", "")
+    age_s = 0
+    try:
+        gen_dt = datetime.fromisoformat(generated_at)
+        from datetime import timezone
+        age_s = (datetime.now(timezone.utc) - gen_dt).total_seconds()
+    except Exception:
+        pass
+
+    return {
+        "available": True,
+        "healthy": snapshot.get("healthy"),
+        "stale": age_s > 15 * 60,
+        "generated_at": generated_at,
+        "age_seconds": round(age_s),
+        "components": snapshot.get("components", []),
+    }
+
 @app.get("/api/gex")
 async def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(None)):
     """Retorna os níveis de GEX para um ativo, data e run específicos."""
@@ -351,8 +401,10 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
     print(f"[CACHE MISS] {cache_key} - mode={mode}...", flush=True)
 
     conn = get_connection()
-    target_db = next((t["data_proxy"] for t in engine.registered_targets if t["target"] == target), target)
-    if not target_db: target_db = target
+    target_info = next((t for t in engine.registered_targets if t["target"].lower() == target.lower() or (t.get("data_proxy") and t["data_proxy"].lower() == target.lower())), {})
+    target_real = target_info.get("target") or target
+    target_db = target_info.get("data_proxy") or target_real
+
     tf_query = "M5" if timeframe == "both" else timeframe
     prev_rows = conn.execute("""
         SELECT close FROM market_bars
@@ -360,16 +412,14 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
         ORDER BY timestamp_utc DESC LIMIT 190
     """, (target_db, tf_query, f"{session_date}T00:00:00Z")).fetchall()
     
-    target_info = next((t for t in engine.registered_targets if t["target"] == target), {})
     is_b3 = target_info.get("session_start_h", 0) != 0
     div_cfg = target_info.get("divergence_config", {})
     divergence_threshold = div_cfg.get("threshold", 2.0)
     history_closes = [r["close"] for r in reversed(prev_rows)]
 
     if mode == "live":
-        live_snaps = get_live_snapshots(conn, target, session_date, timeframe=tf_query)
-        has_pair_fixed = any(s.get("pair_fixed_z") is not None for s in live_snaps) if live_snaps else False
-        if live_snaps and len(live_snaps) > 0 and (target not in ("WIN$N", "WDO$N") or has_pair_fixed):
+        live_snaps = get_live_snapshots(conn, target_real, session_date, timeframe=tf_query)
+        if live_snaps and len(live_snaps) > 0:
             conn.close()
             for s in live_snaps:
                 ts_str = s.get("timestamp_utc") or s.get("timestamp")

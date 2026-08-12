@@ -22,12 +22,12 @@ timeout /t 2 /nobreak > nul
 
 :: Backend API
 echo [1/4] Iniciando FastAPI (porta 8888)...
-start "IRAI-API" cmd /c "cd /d %ROOT% && python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8888"
+start "IRAI-API" cmd /c "cd /d %ROOT% && :loop && python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8888 || (echo [API CAIU] Reiniciando em 5s... && timeout /t 5 && goto loop)"
 timeout /t 3 /nobreak > nul
 
 :: Worker Collector
 echo [2/4] Iniciando Collector (intervalo 20s)...
-start "IRAI-Collector" cmd /c "cd /d %ROOT% && python backend\workers\collector.py --interval 20 --force"
+start "IRAI-Collector" cmd /c "cd /d %ROOT% && :loop && python backend\workers\collector.py --interval 20 --force || (echo [COLLECTOR CAIU] Reiniciando em 5s... && timeout /t 5 && goto loop)"
 
 :: Frontend
 echo [3/4] Iniciando Frontend (porta 5175)...
@@ -35,7 +35,7 @@ start "IRAI-Frontend" cmd /c "cd /d %ROOT%\frontend && npm run dev"
 
 :: Firebase Sync
 echo [4/4] Iniciando Firebase Sync...
-start "IRAI-FirebaseSync" cmd /c "cd /d %ROOT% && python scripts\firebase_sync.py"
+start "IRAI-FirebaseSync" cmd /c "cd /d %ROOT% && :loop && python scripts\firebase_sync.py || (echo [FIREBASE SYNC CAIU] Reiniciando em 5s... && timeout /t 5 && goto loop)"
 
 timeout /t 3 /nobreak > nul
 echo.

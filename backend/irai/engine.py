@@ -470,12 +470,6 @@ class IRAIEngine:
             d = dict(r)
             ts_str = d["timestamp_utc"]
             ts_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            
-            # Alinhar fuso horário: XP (BRT, UTC-3) para Tickmill (EEST, UTC+3) = +6 horas
-            if is_b3 and d.get("source") == "br":
-                ts_dt += timedelta(hours=6)
-                d["timestamp_utc"] = ts_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
             d["timestamp"] = ts_dt
             d["hour"] = d["timestamp"].hour
             rows.append(d)
@@ -668,6 +662,7 @@ class IRAIEngine:
         cum_pair_residual = 0.0
         recent_basket_spreads = []
         recent_pair_spreads = []
+        factor_spread_history = { f_key: [] for f_key in active_factors }
         recent_fixed_pair_spreads = []
         factor_activity_window = { f_key: [] for f_key in active_factors }
 
@@ -690,8 +685,7 @@ class IRAIEngine:
                 target_cursor += 1
                 
             if is_b3:
-                session_start_shifted = (session_start + 6) % 24
-                is_pre_market = (ts.hour < session_start_shifted)
+                is_pre_market = (ts.hour < session_start)
             else:
                 is_pre_market = False
             
@@ -880,6 +874,16 @@ class IRAIEngine:
                 if len(active_candidate_indices) == 0:
                     active_candidate_indices = list(range(len(active_factors)))
 
+                # Rastrear histórico de resíduo de TODOS os fatores individualmente (Isolamento de histórico por par)
+                for idx, f_key in enumerate(active_factors):
+                    b_f = current_betas[idx + 1]
+                    r_f = obs_matrix[idx + 1]
+                    res_f = win_ret - (b_f * r_f)
+                    f_hist = factor_spread_history.setdefault(f_key, [])
+                    f_hist.append(res_f)
+                    if len(f_hist) > 100:
+                        f_hist.pop(0)
+
                 betas_candidates = [(idx, abs(current_betas[idx + 1])) for idx in active_candidate_indices]
                 betas_candidates.sort(key=lambda x: x[1], reverse=True)
                 max_idx = betas_candidates[0][0]
@@ -890,11 +894,9 @@ class IRAIEngine:
                 pair_factor_key = active_factors[max_idx]
                 pair_label = active_labels.get(pair_factor_key, pair_factor_key)
                 
-                # Resíduo do Par
+                # Resíduo do Par Dominante utilizando SOMENTE o histórico limpo do fator escolhido
+                recent_pair_spreads = factor_spread_history.get(pair_factor_key, [])
                 residuo = win_ret - (beta_max * f_ret_max)
-                recent_pair_spreads.append(residuo)
-                if len(recent_pair_spreads) > 100:
-                    recent_pair_spreads.pop(0)
                     
                 if len(recent_pair_spreads) >= 6:
                     past_pair_spreads = recent_pair_spreads[:-1]
