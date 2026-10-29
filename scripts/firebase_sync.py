@@ -131,6 +131,7 @@ def sync():
     summaries_map = {}
     history_map = {}
     garch_map = {}
+    gex_map = {}
     for target_obj in targets:
         target = target_obj['target']
         safe_target = target.replace('$', '_').replace('.', '_')
@@ -165,6 +166,13 @@ def sync():
             garch_map[safe_target] = garch_data
             if safe_target in summaries_map and isinstance(summaries_map[safe_target], dict):
                 summaries_map[safe_target]["garch"] = garch_data
+
+        # Puxar dados de GEX para o alvo
+        gex_data = fetch_json(f"{LOCAL_API}/api/gex?target={target_encoded}&date={current_date}")
+        if gex_data and isinstance(gex_data.get("levels"), list) and len(gex_data["levels"]) > 0:
+            gex_map[safe_target] = gex_data
+            if safe_target in summaries_map and isinstance(summaries_map[safe_target], dict):
+                summaries_map[safe_target]["gex"] = gex_data
     
     # 5. Montar payload flat para atualização atômica via SDK
     update_payload = {
@@ -220,8 +228,15 @@ def sync():
         update_payload[f"garch/{current_date}/{safe_target}"] = clean_for_firebase(target_garch)
         update_payload[f"garch/{safe_target}"] = clean_for_firebase(target_garch)
 
+    for safe_target, target_gex in gex_map.items():
+        update_payload[f"summaries/gex/{current_date}/{safe_target}"] = clean_for_firebase(target_gex)
+        update_payload[f"summaries/gex/{safe_target}"] = clean_for_firebase(target_gex)
+
     if overview_data:
         update_payload[f"overview/{current_date}"] = clean_for_firebase(overview_data)
+
+    # Pine Script: publicado apenas pelo sync diário (scripts/sync_gex_to_irai.py → pine_vault).
+    # Não reenviar aqui a cada 60s (desperdício de banda e sobrescreve metadados).
     
     # 6. Gravar usando SDK do Firebase Admin (garante autenticação nativa)
     # Pré-sanitização: garantir que o payload inteiro é JSON-serializável
@@ -272,9 +287,13 @@ def sync():
 if __name__ == "__main__":
     print(f"Iniciando Sincronizador Firebase (SDK de Produção)")
     print(f"Alvo: {FIREBASE_URL}")
+    failures = 0
     while True:
         try:
             sync()
+            failures = 0
         except Exception as e:
-            print(f"[{time.strftime('%H:%M:%S')}] [Erro Crítico Loop]: {e}")
-        time.sleep(60)
+            failures += 1
+            print(f"[{time.strftime('%H:%M:%S')}] [Erro Crítico Loop #{failures}]: {e}")
+        # Backoff exponencial em falhas consecutivas (60s → 120s → 240s … até 15 min)
+        time.sleep(min(60 * (2 ** min(failures, 4)), 900) if failures else 60)

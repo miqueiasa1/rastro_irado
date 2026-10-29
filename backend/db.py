@@ -177,6 +177,15 @@ def init_db(db_path=None):
     migrate_divergence_config(db_path)
     migrate_live_snapshots(db_path)
     migrate_drop_snapshots(db_path)
+    migrate_win_top8_asset(db_path)
+
+
+def migrate_win_top8_asset(db_path=None):
+    """Garante que WIN$N_TOP8 fique desativado em asset_models."""
+    conn = get_connection(db_path)
+    conn.execute("UPDATE asset_models SET active = 0 WHERE target = 'WIN$N_TOP8'")
+    conn.commit()
+    conn.close()
 
 
 def _add_column(conn, sql):

@@ -62,7 +62,11 @@ def _is_br_session_hours(now_utc):
 
 
 def _is_axi_session_hours(now_utc):
-    return now_utc.weekday() < 5 and AXI_SESSION_START_UTC_H <= now_utc.hour < AXI_SESSION_END_UTC_H
+    """Pregão americano 09:30–16:00 de Nova York (acompanha o DST automaticamente)."""
+    from zoneinfo import ZoneInfo
+    ny = now_utc.astimezone(ZoneInfo("America/New_York"))
+    minutes = ny.hour * 60 + ny.minute
+    return ny.weekday() < 5 and (9 * 60 + 30) <= minutes < (16 * 60)
 
 
 def _parse_bar_dt(ts):
@@ -96,33 +100,66 @@ def _kill_stale_service_process(script_name):
                 pass
 
 
-def _normalize_age_seconds(raw_age_s):
-    """Ajusta o fuso horário para calcular a diferença real entre BRT, UTC e MT5 Server Time (+3h)."""
-    # Se a diferença estiver em torno de -3h (-14400s a -7200s), o timestamp da barra
-    # veio com offset de +3h do servidor MT5/BRT. Adicionamos 3h para obter a idade real.
-    if -14400 <= raw_age_s <= -7200:
-        return raw_age_s + 3 * 3600
-    elif 7200 <= raw_age_s <= 14400:
-        return raw_age_s - 3 * 3600
-    elif raw_age_s < 0:
-        return abs(raw_age_s)
-    return raw_age_s
+def _bar_age_seconds(ts):
+    """Idade real de uma barra do banco.
+    O banco grava no relógio do broker (NY+7, GMT+3/GMT+2 conforme o DST americano — ver
+    backend/timeconv.py), então comparamos com "agora" no MESMO relógio. A heurística antiga
+    (subtrair 3h de idades entre 2h e 4h) escondia quedas reais de 2–4h e foi removida."""
+    from backend.timeconv import now_broker_wall
+    age = (now_broker_wall() - _parse_bar_dt(ts)).total_seconds()
+    return max(age, 0.0)
+
+
+NSSM_SERVICES = {"collector": "IRAI_Collector", "api": "IRAI_API", "firebase_sync": "IRAI_FirebaseSync"}
+_RESTART_HISTORY = {}
+MAX_RESTARTS_PER_HOUR = 4
+
+
+def _nssm_service_exists(svc):
+    try:
+        r = subprocess.run(["sc", "query", svc], capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def _try_restart_service(service_name):
-    """Reinicia automaticamente um serviço desativado (com cooldown de 60s), matando instâncias travadas."""
+    """Reinicia um serviço parado/travado.
+    A15 (auditoria): prioriza o NSSM (`sc stop`/`sc start` do serviço Windows) em vez de matar
+    processos por nome e subir cópias soltas fora do NSSM. Limite de 4 reinícios/hora por serviço
+    (antes: a cada 60s sem limite → loop de restart)."""
     now = time.time()
     last_restart = _RESTART_COOLDOWNS.get(service_name, 0)
-    if now - last_restart < 60:
+    if now - last_restart < 120:
         return
-
+    history = [t for t in _RESTART_HISTORY.get(service_name, []) if now - t < 3600]
+    if len(history) >= MAX_RESTARTS_PER_HOUR:
+        print(f"[watchdog] {service_name}: {len(history)} reinícios na última hora — suspendendo auto-restart (verifique manualmente).", flush=True)
+        return
+    history.append(now)
+    _RESTART_HISTORY[service_name] = history
     _RESTART_COOLDOWNS[service_name] = now
     root_dir = Path(__file__).resolve().parent.parent
 
+    svc = NSSM_SERVICES.get(service_name)
+    if svc and sys.platform == "win32" and _nssm_service_exists(svc):
+        print(f"[watchdog] AUTO-RESTART via serviço Windows: {svc}", flush=True)
+        try:
+            # Destacado: se o serviço reiniciado for o próprio collector, o comando sobrevive ao stop.
+            subprocess.Popen(
+                ["cmd", "/c", f"sc stop {svc} & timeout /t 5 /nobreak >nul & sc start {svc}"],
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                close_fds=True,
+            )
+        except Exception as e:
+            print(f"[watchdog] ERRO ao reiniciar {svc}: {e}", flush=True)
+        return
+
+    # Fallback (modo dev, sem NSSM): processos avulsos, casando pelo caminho/módulo exato
     cmd_map = {
-        "collector": ([sys.executable, str(root_dir / "backend" / "workers" / "collector.py"), "--interval", "20", "--force"], "collector.py"),
-        "api": ([sys.executable, "-m", "uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8888"], "main.py"),
-        "firebase_sync": ([sys.executable, str(root_dir / "scripts" / "firebase_sync.py")], "firebase_sync.py"),
+        "collector": ([sys.executable, str(root_dir / "backend" / "workers" / "collector.py"), "--interval", "20", "--force"], str(root_dir / "backend" / "workers" / "collector.py")),
+        "api": ([sys.executable, "-m", "uvicorn", "backend.api.main:app", "--host", "127.0.0.1", "--port", "8888"], "backend.api.main:app"),
+        "firebase_sync": ([sys.executable, str(root_dir / "scripts" / "firebase_sync.py")], str(root_dir / "scripts" / "firebase_sync.py")),
     }
 
     item = cmd_map.get(service_name)
@@ -172,8 +209,7 @@ def check_source_staleness(now_utc):
     if ts is None:
         problems.append(("source:tickmill", "Nenhuma barra M5 encontrada", False))
     else:
-        raw_age_s = (now_utc - _parse_bar_dt(ts)).total_seconds()
-        age_s = _normalize_age_seconds(raw_age_s)
+        age_s = _bar_age_seconds(ts)
         if age_s > STALENESS_THRESHOLD_S["tickmill"]:
             problems.append(("source:tickmill", f"Última barra há {age_s / 60:.0f} min", False))
         else:
@@ -185,8 +221,7 @@ def check_source_staleness(now_utc):
         if ts is None:
             problems.append(("source:br", "Sem barra M5 durante sessão B3", False))
         else:
-            raw_age_s = (now_utc - _parse_bar_dt(ts)).total_seconds()
-            age_s = _normalize_age_seconds(raw_age_s)
+            age_s = _bar_age_seconds(ts)
             if age_s > STALENESS_THRESHOLD_S["br"]:
                 problems.append(("source:br", f"Última barra há {age_s / 60:.0f} min", False))
             else:
@@ -200,8 +235,7 @@ def check_source_staleness(now_utc):
         if ts is None:
             problems.append(("source:axi", "Sem barra M5 durante pregão americano", False))
         else:
-            raw_age_s = (now_utc - _parse_bar_dt(ts)).total_seconds()
-            age_s = _normalize_age_seconds(raw_age_s)
+            age_s = _bar_age_seconds(ts)
             if age_s > STALENESS_THRESHOLD_S["axi"]:
                 problems.append(("source:axi", f"Última barra há {age_s / 60:.0f} min", False))
             else:
@@ -224,6 +258,7 @@ def check_firebase_liveness(now_utc):
 
     age_s = abs(now_utc.timestamp() - last_update)
     if age_s > FIREBASE_STALENESS_THRESHOLD_S:
+        _try_restart_service("firebase_sync")  # A15: antes o sync parado nunca era reiniciado
         return [("firebase", f"Parado há {age_s / 60:.0f} min (limiar: {FIREBASE_STALENESS_THRESHOLD_S / 60:.0f} min)", False)]
     return [("firebase", f"OK (atualizado há {age_s / 60:.0f} min)", True)]
 
@@ -255,8 +290,7 @@ def check_local_services():
             data = json.loads(resp.read().decode("utf-8"))
         last_bar = data.get("last_bar")
         if last_bar:
-            bar_dt = _parse_bar_dt(last_bar)
-            age = _normalize_age_seconds((_now_utc() - bar_dt).total_seconds())
+            age = _bar_age_seconds(last_bar)
             if age < 120:  # Barra recente = collector ativo
                 results.append(("service:collector", f"OK (ultima barra ha {age:.0f}s)", True))
             else:

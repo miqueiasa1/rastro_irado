@@ -10,7 +10,9 @@ const TVPriceDivergeZScoreChart = forwardRef(({
   threshold = 2.0,
   height = "75px",
   showExhaustionContra = true,
-  showExhaustionPro = true
+  showExhaustionPro = true,
+  valueKey = "price_diverge_z",
+  lineColor = null,
 }, ref) => {
   const baseChartRef = useRef(null);
   const seriesRefs = useRef({});
@@ -29,6 +31,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({
   const handleChartCreated = useCallback((chart) => {
     const zSeries = chart.addSeries(LineSeries, {
       lineWidth: 1.8,
+      color: lineColor || "#64748B",
       priceLineVisible: false,
       crosshairMarkerVisible: true,
       autoscaleInfoProvider: (original) => {
@@ -114,12 +117,12 @@ const TVPriceDivergeZScoreChart = forwardRef(({
       const t = parseTimeToTimestamp(effectiveDate, d.time);
       if (t === 0) return;
 
-      const zVal = d.price_diverge_z;
+      const zVal = d[valueKey] != null ? d[valueKey] : d.price_diverge_z;
       if (zVal != null && isFinite(zVal)) {
         zData.push({
           time: t,
           value: zVal,
-          color: getCategoryColor(zVal)
+          color: lineColor || getCategoryColor(zVal)
         });
       } else {
         zData.push({ time: t }); // whitespace
@@ -128,7 +131,7 @@ const TVPriceDivergeZScoreChart = forwardRef(({
 
     const sortData = (arr) => arr.sort((a, b) => a.time - b.time).filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
     zSeries.setData(sortData(zData));
-  }, [history, effectiveDate, threshold]);
+  }, [history, effectiveDate, threshold, valueKey, lineColor]);
 
   const chartOptions = {
     leftPriceScale: {

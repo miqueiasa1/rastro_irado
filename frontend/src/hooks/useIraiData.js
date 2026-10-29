@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import GEX_LEVELS, { getGexLevels } from "../gexLevels";
-import { toLocalTime } from "../utils/time";
+import { toLocalTime, brokerToBrtOffsetHours, sessionTimeLabel } from "../utils/time";
 
-const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL;
+const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const FIREBASE_URL = (import.meta.env.DEV || isLocalhost) ? null : import.meta.env.VITE_FIREBASE_URL;
 const API = FIREBASE_URL ? null : 'http://localhost:8888';
 
-const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5') => {
+// Preenche a série com pontos vazios até o fim da sessão (whitespace no gráfico).
+// Horas podem passar de 24 ("24:15") para pontos após a meia-noite do broker.
+const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5', brtOffsetH = -6) => {
   if (!series || series.length === 0) return series;
 
   const lastTimeStr = series[series.length - 1].time; // ex: "18:05"
@@ -25,27 +28,21 @@ const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5') => {
   else if (timeframe === 'M30') stepMinutes = 30;
   else if (timeframe === 'H1') stepMinutes = 60;
 
-  let targetEndH = isB3 ? 0 : 23;
-  let targetEndM = isB3 ? 30 : 59;
-  
-  if (timeframe === 'H1') {
-    targetEndM = 0;
-    if (isB3) targetEndH = 0;
-  } else if (timeframe === 'M30') {
-    targetEndM = 30;
-  } else if (timeframe === 'M15') {
-    targetEndM = 45;
-  }
+  // Fim da sessão em minutos do relógio do broker:
+  //  - B3: 18:30 BRT → 24:30 (verão americano) ou 23:30 (inverno americano)
+  //  - Globais: última barra do dia (23:59 → último múltiplo do timeframe)
+  const endMinutes = isB3
+    ? (18 * 60 + 30) - brtOffsetH * 60
+    : (24 * 60) - stepMinutes;
 
   const maxPaddedLength = series.length + Math.ceil(24 * 60 / stepMinutes);
 
-  while (true) {
-    if (currentH === targetEndH && currentM >= targetEndM) break;
-    if (padded.length > maxPaddedLength) break; 
+  while (currentH * 60 + currentM + stepMinutes <= endMinutes) {
+    if (padded.length > maxPaddedLength) break;
 
     currentM += stepMinutes;
     if (currentM >= 60) {
-      currentH = (currentH + Math.floor(currentM / 60)) % 24;
+      currentH = currentH + Math.floor(currentM / 60);
       currentM = currentM % 60;
     }
 
@@ -55,7 +52,7 @@ const padSeriesToFullDay = (series, isB3 = false, timeframe = 'M5') => {
 
     padded.push({
       time: timeTickmill,
-      time_local: isB3 ? toLocalTime(timeTickmill, -6) : null
+      time_local: isB3 ? toLocalTime(timeTickmill, brtOffsetH) : null
     });
   }
   return padded;
@@ -81,6 +78,18 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
   const [garchData, setGarchData] = useState(null);
   
   const isFirstLoadRef = useRef(true);
+  const selectedRunRef = useRef(null);
+  // A9: cada fetch recebe um id; respostas de requisições antigas (outro ativo/data/timeframe ou
+  // poll ultrapassado) são descartadas para não sobrescrever a tela atual.
+  const requestSeqRef = useRef(0);
+  const pollInFlightRef = useRef(false);
+  // A2: valores lidos dentro do fetchSeries via ref (evita closure obsoleta de `dates`/`seriesMode`)
+  const datesRef = useRef(dates);
+  const seriesModeRef = useRef(seriesMode);
+  useEffect(() => {
+    datesRef.current = dates;
+    seriesModeRef.current = seriesMode;
+  }, [dates, seriesMode]);
 
   const effectiveDate = liveMode ? (dates.length > 0 ? dates[0] : selectedDate) : selectedDate;
 
@@ -167,7 +176,15 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
   // Fetch series data
   const fetchSeries = useCallback((date, target, silent = false) => {
     if (!date) return;
+    if (silent && pollInFlightRef.current) return; // poll anterior ainda em voo: pula este tick
+    const reqId = ++requestSeqRef.current;
+    const isStale = () => reqId !== requestSeqRef.current;
+    if (silent) pollInFlightRef.current = true;
+    const done = () => { if (silent) pollInFlightRef.current = false; };
+    const dates = datesRef.current;
+    const seriesMode = seriesModeRef.current;
     if (!silent) {
+      selectedRunRef.current = null;
       setLoading(true);
       setSeries([]);
       setSummary(null);
@@ -184,12 +201,14 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
       const summariesUrl = isHistorical ? `${baseUrl}/summaries/${date}/${safeTarget}.json` : `${baseUrl}/summaries/${safeTarget}.json`;
       const historyUrl = isHistorical ? `${baseUrl}/history/${date}/${safeTarget}.json` : `${baseUrl}/history/${safeTarget}.json`;
       const garchUrl = isHistorical ? `${baseUrl}/garch/${date}/${safeTarget}.json` : `${baseUrl}/garch/${safeTarget}.json`;
+      const gexUrl = isHistorical ? `${baseUrl}/summaries/gex/${date}/${safeTarget}.json` : `${baseUrl}/summaries/gex/${safeTarget}.json`;
       
       const fetches = [
         fetch(seriesUrl).then(r => r.json()).catch(() => null),
         fetch(summariesUrl).then(r => r.json()).catch(() => null),
         fetch(historyUrl).then(r => r.json()).catch(() => null),
-        fetch(garchUrl).then(r => r.json()).catch(() => null)
+        fetch(garchUrl).then(r => r.json()).catch(() => null),
+        fetch(gexUrl).then(r => r.json()).catch(() => null)
       ];
       
       const shouldFetchLastUpdate = silent || isFirstLoadRef.current;
@@ -199,7 +218,9 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
       }
 
       Promise.all(fetches)
-        .then(([seriesData, summariesData, historyData, garchDataRes, lastUpdateData]) => {
+        .then(([seriesData, summariesData, historyData, garchDataRes, gexDataRes, lastUpdateData]) => {
+          done();
+          if (isStale()) return;
           const tMeta = targetsMeta.find(t => t.target === target) || {};
           let s = [];
           if (Array.isArray(seriesData)) {
@@ -211,11 +232,12 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           const history_closes = Array.isArray(historyData) ? historyData : (historyData && typeof historyData === 'object' ? Object.values(historyData) : []);
 
           const isB3 = tMeta.session_start_h && tMeta.session_start_h !== 0;
+          const brtOffsetH = brokerToBrtOffsetHours(date);
           const processed = s.map(x => {
             const tsStr = x.timestamp_utc || x.timestamp;
-            const timeDb = tsStr ? tsStr.substring(11, 16) : (x.time || '00:00');
+            const timeDb = tsStr ? sessionTimeLabel(tsStr, date) : (x.time || '00:00');
             const timeTickmill = timeDb;
-            const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
+            const timeBrt = isB3 ? toLocalTime(timeDb, brtOffsetH) : null;
             return {
               ...x,
               time: timeTickmill,
@@ -232,7 +254,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             if (sliced.length === 0) sliced = processed;
           }
 
-          setSeries(padSeriesToFullDay(sliced, isB3, timeframe));
+          setSeries(padSeriesToFullDay(sliced, isB3, timeframe, brtOffsetH));
           setSummary(sum);
           setSeriesInfo({ 
             display_name: tMeta.display_name, 
@@ -243,9 +265,18 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             accuracy: sum?.accuracy,
             divergence_threshold: tMeta.divergence_config?.threshold || 2.0
           });
-          setGexWalls(getGexLevels(target));
-          setAvailableRuns([]);
-          setSelectedRun(null);
+          const finalGex = (gexDataRes && Array.isArray(gexDataRes.levels) && gexDataRes.levels.length > 0)
+            ? gexDataRes
+            : ((sum && sum.gex && Array.isArray(sum.gex.levels) && sum.gex.levels.length > 0) ? sum.gex : null);
+          if (finalGex) {
+            setGexWalls(finalGex.levels);
+            setAvailableRuns(finalGex.available_runs || []);
+            setSelectedRun(finalGex.selected_run || null);
+          } else {
+            setGexWalls(getGexLevels(target));
+            setAvailableRuns([]);
+            setSelectedRun(null);
+          }
           const finalGarch = (sum && sum.garch && Array.isArray(sum.garch.history)) ? sum.garch : ((garchDataRes && Array.isArray(garchDataRes.history)) ? garchDataRes : null);
           setGarchData(finalGarch);
           setLoading(false);
@@ -254,22 +285,26 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           }
           setError(null);
         })
-        .catch(e => { setError(e.message); setLoading(false); });
+        .catch(e => { done(); if (isStale()) return; setError(e.message); setLoading(false); });
     } else {
+      const runParam = (silent && selectedRunRef.current) ? `&run=${encodeURIComponent(selectedRunRef.current)}` : '';
       const seriesPromise = fetch(`${API}/api/irai/series?session_date=${date}&target=${encodeURIComponent(target)}&version=v2&timeframe=${timeframe}&mode=${seriesMode}`).then(r => r.json());
-      const gexPromise = fetch(`${API}/api/gex?target=${encodeURIComponent(target)}&date=${date}`).then(r => r.json()).catch(() => null);
+      const gexPromise = fetch(`${API}/api/gex?target=${encodeURIComponent(target)}&date=${date}${runParam}`).then(r => r.json()).catch(() => null);
       const garchPromise = fetch(`${API}/api/garch?symbol=${encodeURIComponent(target === 'WIN$N' ? 'IBOV' : target)}&date=${date}`).then(r => r.json()).catch(() => null);
 
       Promise.all([seriesPromise, gexPromise, garchPromise])
         .then(([data, gexData, garchRes]) => {
+          done();
+          if (isStale()) return;
           if (data.error) { setError(data.error); setLoading(false); return; }
           setIsLiveMode(data.is_live_mode ?? (seriesMode === "live"));
           const isB3 = data.is_b3 || false;
+          const brtOffsetH = brokerToBrtOffsetHours(date);
           const processed = (data.series || []).map(s => {
             const tsStr = s.timestamp_utc || s.timestamp;
-            const timeDb = tsStr ? tsStr.substring(11, 16) : (s.time || '00:00');
+            const timeDb = tsStr ? sessionTimeLabel(tsStr, date) : (s.time || '00:00');
             const timeTickmill = timeDb;
-            const timeBrt = isB3 ? toLocalTime(timeDb, -6) : null;
+            const timeBrt = isB3 ? toLocalTime(timeDb, brtOffsetH) : null;
             return {
               ...s,
               time: timeTickmill,
@@ -285,7 +320,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             if (sliced.length === 0) sliced = processed; // fallback
           }
 
-          setSeries(padSeriesToFullDay(sliced, isB3, timeframe));
+          setSeries(padSeriesToFullDay(sliced, isB3, timeframe, brtOffsetH));
           setSummary(data.summary);
           setSeriesInfo({ 
             display_name: data.display_name, 
@@ -317,13 +352,14 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
           setLastUpdate(new Date());
           setError(null);
         })
-        .catch(e => { setError(e.message); setLoading(false); });
+        .catch(e => { done(); if (isStale()) return; setError(e.message); setLoading(false); });
     }
   }, [targetsMeta, timeframe]);
 
   const fetchGexForRun = useCallback((runName) => {
     if (FIREBASE_URL || !effectiveDate) return;
-    fetch(`${API}/api/gex?target=${encodeURIComponent(selectedTarget)}&date=${effectiveDate}&run=${runName}`)
+    selectedRunRef.current = runName;
+    fetch(`${API}/api/gex?target=${encodeURIComponent(selectedTarget)}&date=${effectiveDate}&run=${encodeURIComponent(runName)}`)
       .then(r => r.json())
       .then(gexData => {
         if (gexData && Array.isArray(gexData.levels)) {

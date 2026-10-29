@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { calculateConviction } from './utils/signalAnalyzer'
+import { PineDownloadButton } from './components/PineDownloadModal'
 
 const OVERVIEW_STYLES = `
   @keyframes borderGlowGreen {
@@ -47,7 +48,8 @@ const OVERVIEW_STYLES = `
     .health-modal { min-width: unset; margin: 16px; }
   }
 `
-const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
+const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+const FIREBASE_URL = (import.meta.env.DEV || isLocalhost) ? null : import.meta.env.VITE_FIREBASE_URL
 const API = FIREBASE_URL ? null : 'http://localhost:8888'
 
 function Sparkline({ data, width = '100%', height = 24 }) {
@@ -85,19 +87,19 @@ function Sparkline({ data, width = '100%', height = 24 }) {
 }
 
 const COMPONENT_LABELS = {
-  'source:tickmill': { label: 'Tickmill', icon: '🌐' },
-  'source:br': { label: 'B3 (XP)', icon: '🇧🇷' },
-  'source:axi': { label: 'Axi ETFs', icon: '📊' },
-  'firebase': { label: 'Firebase Sync', icon: '🔥' },
-  'service:api': { label: 'API Server', icon: '🖥️' },
-  'service:collector': { label: 'Collector', icon: '⚙️' },
-  'processes': { label: 'Processos', icon: '⚙️' },
+  'source:tickmill': { label: 'Tickmill', icon: 'ðŸŒ' },
+  'source:br': { label: 'B3 (XP)', icon: 'ðŸ‡§ðŸ‡·' },
+  'source:axi': { label: 'Axi ETFs', icon: 'ðŸ“Š' },
+  'firebase': { label: 'Firebase Sync', icon: 'ðŸ”¥' },
+  'service:api': { label: 'API Server', icon: 'ðŸ–¥ï¸' },
+  'service:collector': { label: 'Collector', icon: 'âš™ï¸' },
+  'processes': { label: 'Processos', icon: 'âš™ï¸' },
   // Firebase RTDB sanitiza ':' para '_' nas chaves
-  'source_tickmill': { label: 'Tickmill', icon: '🌐' },
-  'source_br': { label: 'B3 (XP)', icon: '🇧🇷' },
-  'source_axi': { label: 'Axi ETFs', icon: '📊' },
-  'service_api': { label: 'API Server', icon: '🖥️' },
-  'service_collector': { label: 'Collector', icon: '⚙️' },
+  'source_tickmill': { label: 'Tickmill', icon: 'ðŸŒ' },
+  'source_br': { label: 'B3 (XP)', icon: 'ðŸ‡§ðŸ‡·' },
+  'source_axi': { label: 'Axi ETFs', icon: 'ðŸ“Š' },
+  'service_api': { label: 'API Server', icon: 'ðŸ–¥ï¸' },
+  'service_collector': { label: 'Collector', icon: 'âš™ï¸' },
 }
 
 function HealthModal({ data, onClose }) {
@@ -324,7 +326,7 @@ export default function Overview({ onSelectTarget }) {
             fontFamily: 'var(--font-mono)', fontSize: 10,
             color: '#3A3A4A', marginTop: 4, letterSpacing: '0.12em',
           }}>
-            INTRADAY RISK APPETITE INDEX · {calibrated.length} MODELOS ATIVOS
+            INTRADAY RISK APPETITE INDEX Â· {calibrated.length} MODELOS ATIVOS
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -394,6 +396,9 @@ export default function Overview({ onSelectTarget }) {
             <span style={{ fontSize: 12 }}>&#9829;</span>
             HEALTH
           </button>
+
+          {/* Pine Script Download Button (protegido por senha validada no servidor) */}
+          <PineDownloadButton firebaseUrl={FIREBASE_URL} />
         </div>
       </header>
 
@@ -415,7 +420,7 @@ export default function Overview({ onSelectTarget }) {
             color: '#334155', marginTop: 24, marginBottom: 8,
             letterSpacing: '0.15em', textTransform: 'uppercase',
           }}>
-            Aguardando dados · {pending.length} ativos
+            Aguardando dados Â· {pending.length} ativos
           </div>
           <div className="overview-grid-pending">
             {pending.map(card => (
@@ -450,7 +455,7 @@ export default function Overview({ onSelectTarget }) {
         fontFamily: 'var(--font-mono)', fontSize: 9, color: '#1E293B',
         display: 'flex', justifyContent: 'space-between',
       }}>
-        <span>IRAI Multi-Asset v2.0 · Cross-asset macro factor models</span>
+        <span>IRAI Multi-Asset v2.0 Â· Cross-asset macro factor models</span>
         <span>Push em tempo real ativo</span>
       </div>
     </div>
@@ -482,7 +487,7 @@ function AssetCard({ card, onClick }) {
   const hasAlert = isReturnDivergentBuy || isReturnDivergentSell;
   const alertClass = hasAlert ? (isBuy ? 'card-alert-green' : 'card-alert-red') : '';
 
-  // Convicção calibrada por Shrinkage (mesmo algoritmo do SignalGauge)
+  // ConvicÃ§Ã£o calibrada por Shrinkage (mesmo algoritmo do SignalGauge)
   const { conviction, convLabel, convColor } = calculateConviction(
     pUp,
     accuracy,
@@ -544,7 +549,7 @@ function AssetCard({ card, onClick }) {
         alignItems: 'flex-end', marginTop: 10,
       }}>
         <div>
-          {/* Direction label — large */}
+          {/* Direction label â€” large */}
           <div style={{
             fontFamily: 'var(--font-serif)', fontSize: 24,
             color: signalColor, fontWeight: 400, lineHeight: 1,
@@ -553,10 +558,10 @@ function AssetCard({ card, onClick }) {
           <div style={{ display: 'flex', gap: 12 }}>
             <div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: convColor, marginTop: 4, fontWeight: 600 }}>
-                convicção {conviction}%
+                convicÃ§Ã£o {conviction}%
               </div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#2A2A36', marginTop: 2 }}>
-                P(↑) {pUp.toFixed(0)}%
+                P(â†‘) {pUp.toFixed(0)}%
               </div>
             </div>
           </div>
@@ -564,8 +569,8 @@ function AssetCard({ card, onClick }) {
 
         {/* Indicators Column (D P Z E) */}
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          {/* D: Divergência de Retorno (Cor fixa, sem blink local) */}
-          <div title="Divergência de Retorno %" style={{
+          {/* D: DivergÃªncia de Retorno (Cor fixa, sem blink local) */}
+          <div title="DivergÃªncia de Retorno %" style={{
             width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
             background: (isReturnDivergentBuy || isReturnDivergentSell) ? (isReturnDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
@@ -574,7 +579,7 @@ function AssetCard({ card, onClick }) {
           }}>D</div>
 
           {/* P: Pullback / NWE Divergence (Blink) */}
-          <div title="Pullback / Divergência Gauss" className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
+          <div title="Pullback / DivergÃªncia Gauss" className={(isNweDivergentBuy || isNweDivergentSell) ? 'badge-blink' : ''} style={{
             width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
             background: (isNweDivergentBuy || isNweDivergentSell) ? (isNweDivergentBuy ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
@@ -591,8 +596,8 @@ function AssetCard({ card, onClick }) {
             border: `1px solid ${card.price_diverges ? (isBuy ? 'rgba(74,222,128,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(148,163,184,0.1)'}`
           }}>Z</div>
 
-          {/* E: Exaustão NWE (Blink) */}
-          <div title="Exaustão Gauss" className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
+          {/* E: ExaustÃ£o NWE (Blink) */}
+          <div title="ExaustÃ£o Gauss" className={(isNweExhaustionUp || isNweExhaustionDown) ? 'badge-blink' : ''} style={{
             width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
             borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600,
             background: (isNweExhaustionUp || isNweExhaustionDown) ? (isNweExhaustionUp ? 'rgba(74,222,128,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(148,163,184,0.05)',
@@ -672,14 +677,14 @@ function AssetCard({ card, onClick }) {
         marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 7,
         color: '#475569', display: 'flex', justifyContent: 'space-between',
       }}>
-        <span>acc {accuracy ? accuracy.toFixed(0) : '0'}% · p-val: {card.johansen_p_value != null ? Number(card.johansen_p_value).toFixed(3) : '1.000'}</span>
+        <span>acc {accuracy ? accuracy.toFixed(0) : '0'}% Â· p-val: {card.johansen_p_value != null ? Number(card.johansen_p_value).toFixed(3) : '1.000'}</span>
         <span style={{ color: card.is_cointegrated !== false ? '#4ADE80' : '#F87171', fontWeight: 600 }}>
-          {card.is_cointegrated !== false ? 'coint ✓' : 'coint ✗'}
+          {card.is_cointegrated !== false ? 'coint âœ“' : 'coint âœ—'}
         </span>
         <span>{card.bars || 0} barras</span>
       </div>
 
-      {/* Sparkline (Dinâmico) */}
+      {/* Sparkline (DinÃ¢mico) */}
       <div className="sparkline-wrapper">
         <Sparkline data={card.sparkline} />
       </div>

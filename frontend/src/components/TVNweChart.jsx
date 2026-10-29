@@ -2,6 +2,7 @@ import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from "re
 import { LineSeries, CandlestickSeries, LineStyle, createSeriesMarkers } from "lightweight-charts";
 import BaseLightweightChart from "./BaseLightweightChart";
 import { parseTimeToTimestamp } from "../utils/time";
+import { isForexTarget } from "../utils/forex";
 
 const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, showMidWalls = false, effectiveDate, selectedTarget, hideXAxis = true, chartType = 'line', showGarchBands = false, garchVolPct = null, showZSignalMarkers = true }, ref) => {
   const baseChartRef = useRef(null);
@@ -149,78 +150,76 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       } else {
         nweCenterData.push({ time: t });
       }
-      // Z-Score & P Dinâmico Concordance Markers:
-      // 1. Branca: Concorda apenas com Z-Score Rastro (|rz| >= 2)
-      // 2. Verde/Vermelha: Concordam Z-Score Rastro e Z-Score Spread (rz e pz no mesmo sentido)
-      // 3. Gold Estrelinha: Concordam Z-Score Rastro, Z-Score Spread e P Dinâmico
-      if (showZSignalMarkers && d.price_diverge_z != null && d.win_current != null) {
-        const pz = d.pair_z;
-        const rz = d.price_diverge_z;
-        const pUp = d.p_up != null ? d.p_up : 50;
+      // Sinais e Marcadores no Gráfico:
+      // - FOREX: Pintura exclusiva nas extremidades das bandas NWE (Upper/Lower) com o Rastro Macro
+      // - DEMAIS ATIVOS (WIN, WDO, US500, etc.): Lógica original de concordância Rastro + Z-Score
+      if (showZSignalMarkers && d.win_current != null) {
+        const isForex = isForexTarget(selectedTarget);
 
-        const isRastroBuy = rz <= -2.0;
-        const isRastroSell = rz >= 2.0;
-        const isSpreadBuy = pz != null && pz <= -2.0;
-        const isSpreadSell = pz != null && pz >= 2.0;
-        const isPUpBuy = pUp > 50;
-        const isPUpSell = pUp < 50;
+        if (isForex && d.nwe_upper_price != null && d.nwe_lower_price != null) {
+          // Lógica Forex: Somente nos topos e fundos reais do envelope
+          const pUp = d.p_up != null ? d.p_up : 50;
+          const currentPrice = d.win_current;
+          const highPrice = (d.win_bar_open != null && d.win_high != null && d.win_high > 0) ? d.win_high : currentPrice;
+          const lowPrice = (d.win_bar_open != null && d.win_low != null && d.win_low > 0) ? d.win_low : currentPrice;
 
-        // COMPRA (Abaixo da Barra)
-        if (isRastroBuy) {
-          if (isSpreadBuy && isPUpBuy) {
-            markers.push({
-              time: t,
-              position: 'belowBar',
-              color: '#FFD700',
-              shape: 'circle',
-              text: '⭐',
-              size: 0,
-            });
-          } else if (isSpreadBuy) {
-            markers.push({
-              time: t,
-              position: 'belowBar',
-              color: '#22C55E',
-              shape: 'circle',
-              size: 1,
-            });
-          } else {
-            markers.push({
-              time: t,
-              position: 'belowBar',
-              color: '#FFFFFF',
-              shape: 'circle',
-              size: 1,
-            });
+          const upper = d.nwe_upper_price;
+          const lower = d.nwe_lower_price;
+          const bandHalfWidth = (upper - lower) / 2;
+
+          const isTouchingUpper = highPrice >= (upper - 0.08 * bandHalfWidth) || currentPrice >= (upper - 0.08 * bandHalfWidth);
+          const isTouchingLower = lowPrice <= (lower + 0.08 * bandHalfWidth) || currentPrice <= (lower + 0.08 * bandHalfWidth);
+
+          if (isTouchingUpper) {
+            const isRastroSell = pUp <= 48;
+            const isRastroStrongSell = pUp <= 40;
+            const isExhaustionSell = pUp >= 60 && (highPrice >= upper || currentPrice >= upper);
+
+            if (isRastroStrongSell || (isRastroSell && currentPrice >= upper)) {
+              markers.push({ time: t, position: 'aboveBar', color: '#FFD700', shape: 'circle', text: '⭐', size: 0 });
+            } else if (isRastroSell || isExhaustionSell) {
+              markers.push({ time: t, position: 'aboveBar', color: '#EF4444', shape: 'circle', text: '⭐', size: 0 });
+            }
+          } else if (isTouchingLower) {
+            const isRastroBuy = pUp >= 52;
+            const isRastroStrongBuy = pUp >= 60;
+            const isExhaustionBuy = pUp <= 40 && (lowPrice <= lower || currentPrice <= lower);
+
+            if (isRastroStrongBuy || (isRastroBuy && currentPrice <= lower)) {
+              markers.push({ time: t, position: 'belowBar', color: '#FFD700', shape: 'circle', text: '⭐', size: 0 });
+            } else if (isRastroBuy || isExhaustionBuy) {
+              markers.push({ time: t, position: 'belowBar', color: '#22C55E', shape: 'circle', text: '⭐', size: 0 });
+            }
           }
-        }
-        // VENDA (Acima da Barra)
-        else if (isRastroSell) {
-          if (isSpreadSell && isPUpSell) {
-            markers.push({
-              time: t,
-              position: 'aboveBar',
-              color: '#FFD700',
-              shape: 'circle',
-              text: '⭐',
-              size: 0,
-            });
-          } else if (isSpreadSell) {
-            markers.push({
-              time: t,
-              position: 'aboveBar',
-              color: '#EF4444',
-              shape: 'circle',
-              size: 1,
-            });
-          } else {
-            markers.push({
-              time: t,
-              position: 'aboveBar',
-              color: '#FFFFFF',
-              shape: 'circle',
-              size: 1,
-            });
+        } else if (!isForex && d.price_diverge_z != null) {
+          // Lógica Original para Não-Forex (WIN, WDO, US500, etc.): Concordância Rastro + Z-Scores
+          const pz = d.pair_z;
+          const rz = d.price_diverge_z;
+          const pUp = d.p_up != null ? d.p_up : 50;
+
+          const isRastroBuy = rz <= -2.0;
+          const isRastroSell = rz >= 2.0;
+          const isSpreadBuy = pz != null && pz <= -2.0;
+          const isSpreadSell = pz != null && pz >= 2.0;
+          const isPUpBuy = pUp > 50;
+          const isPUpSell = pUp < 50;
+
+          if (isRastroBuy) {
+            if (isSpreadBuy && isPUpBuy) {
+              markers.push({ time: t, position: 'belowBar', color: '#FFD700', shape: 'circle', text: '⭐', size: 0 });
+            } else if (isSpreadBuy) {
+              markers.push({ time: t, position: 'belowBar', color: '#22C55E', shape: 'circle', size: 1 });
+            } else {
+              markers.push({ time: t, position: 'belowBar', color: '#FFFFFF', shape: 'circle', size: 1 });
+            }
+          } else if (isRastroSell) {
+            if (isSpreadSell && isPUpSell) {
+              markers.push({ time: t, position: 'aboveBar', color: '#FFD700', shape: 'circle', text: '⭐', size: 0 });
+            } else if (isSpreadSell) {
+              markers.push({ time: t, position: 'aboveBar', color: '#EF4444', shape: 'circle', size: 1 });
+            } else {
+              markers.push({ time: t, position: 'aboveBar', color: '#FFFFFF', shape: 'circle', size: 1 });
+            }
           }
         }
       }
@@ -248,16 +247,9 @@ const TVNweChart = forwardRef(({ history = [], walls = [], showGex = false, show
       } catch { /* ignore if markers API not available */ }
     }
 
-    // Auto-fit timeline zoom only once per session/target load
-    if (!hasFittedRef.current) {
-      setTimeout(() => {
-        const currentChart = baseChartRef.current?.getChart();
-        if (currentChart) {
-          currentChart.timeScale().fitContent();
-          hasFittedRef.current = true;
-        }
-      }, 50);
-    }
+    // Zoom/posi??o inicial e preserva??o (Regras 2 e 3) s?o controlados exclusivamente pelo App.jsx,
+    // que aplica o MESMO range l?gico a todos os gr?ficos. Um fitContent local aqui propagaria um
+    // range diferente para os demais pain?is.
   }, [history, effectiveDate, chartType, chartInstance, showZSignalMarkers]);
 
   // Set GEX Walls

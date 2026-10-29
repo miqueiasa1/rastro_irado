@@ -21,6 +21,9 @@ from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.db import get_connection, DB_PATH, init_db, save_live_snapshots
+from backend.timeconv import brt_epoch_to_broker_epoch, now_broker_wall
+
+TIMEFRAME_SECONDS = {"M1": 60, "M2": 120, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600}
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 
@@ -33,17 +36,27 @@ TERMINALS = [
             r"C:\Program Files\MetaTrader 5\terminal64.exe",
         ],
         "source": "br",
-        "symbols": ["WIN$N", "WDO$N", "DI1$N"],
+        "symbols": [
+            "WIN$N", "WDO$N", "DI1$N",
+            "VALE3", "PETR4", "ITUB4", "BBDC4", "ELET3", "WEGE3", "ABEV3", "B3SA3",
+        ],
     },
     {
         "name": "Tickmill",
         "path": r"C:\Program Files\Tickmill MT5 Terminal\terminal64.exe",
         "source": "tickmill",
         "symbols": [
+            # Macro, Índices Globais & Commodities
             "DXY", "BRENT", "CHINA50", "USDMXN", "VIX", "BTCUSD",
             "US500", "US30", "USTEC", "DE40", "US2000", "JP225", "XAUUSD",
-            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
-            "CADCHF", "AUDNZD", "EURGBP", "EURCHF", "EURJPY", "GBPJPY", "EURAUD",
+            # Matriz Completa Forex (28 Pares das 8 Moedas Principais)
+            "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
+            "EURGBP", "EURCHF", "EURJPY", "EURAUD", "EURCAD", "EURNZD",
+            "GBPJPY", "GBPAUD", "GBPCAD", "GBPCHF", "GBPNZD",
+            "AUDNZD", "AUDCAD", "AUDCHF", "AUDJPY",
+            "NZDCAD", "NZDCHF", "NZDJPY",
+            "CADCHF", "CADJPY",
+            "CHFJPY",
         ],
     },
     {
@@ -159,13 +172,14 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
             """, (symbol, timeframe)).fetchone()
             if last_row and last_row[0]:
                 last_dt = datetime.fromisoformat(last_row[0].replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
-                now_dt = datetime.now(timezone.utc)
+                # O banco usa o relógio do broker (NY+7): comparar com "agora" no mesmo relógio
+                now_dt = now_broker_wall()
                 diff_sec = (now_dt - last_dt).total_seconds()
-                tf_sec = 300 if timeframe == "M5" else (60 if timeframe == "M1" else 300)
-                missing_bars = int(diff_sec / tf_sec) + 3
+                tf_sec = TIMEFRAME_SECONDS.get(timeframe, 300)
+                missing_bars = int(max(diff_sec, 0) / tf_sec) + 3
                 n_bars = max(n_bars, min(missing_bars, 300))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"Backfill check falhou para {symbol} {timeframe}: {e}")
 
     rates = mt5.copy_rates_from_pos(query_symbol, mt5_timeframe, 0, n_bars)
 
@@ -177,9 +191,10 @@ def collect_recent_bars(symbol: str, source: str, conn: sqlite3.Connection, time
 
     for i, bar in enumerate(rates):
         bar_timestamp = float(bar[0])
-        # Unificação no Fuso Forex (Tickmill/Axi GMT+3): Converter B3 (XP BRT) somando 6 horas
+        # Unificação no relógio do broker (Tickmill/Axi = NY+7: GMT+3 no verão americano, GMT+2 no inverno).
+        # O terminal XP entrega a B3 em BRT: converter com offset dinâmico (+6h ou +5h).
         if source == "br":
-            bar_timestamp += 6 * 3600
+            bar_timestamp = brt_epoch_to_broker_epoch(bar_timestamp)
 
         ts = datetime.fromtimestamp(bar_timestamp, tz=timezone.utc)
         ts_iso = ts.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -336,12 +351,14 @@ def persist_live_snapshots_cycle(db_path):
 
         from backend.api.main import _snap_to_dict
         from backend.db import get_connection as _get_conn
-        today_str = date.today().isoformat()
+        from backend.timeconv import current_session_date
         engine = IRAIEngine(db_path)
         
         saved_count = 0
         for t_info in engine.registered_targets:
             target = t_info["target"]
+            # B3: dia de Brasília. Globais: dia do broker (vira às 17:00 NY) — evita ~6h/noite sem snapshots.
+            today_str = current_session_date(t_info.get("session_start_h", 0) != 0)
             snapshots = engine.compute_from_db(today_str, target=target, version="v2", timeframe="M5", persist_state=True)
             if snapshots:
                 series_data = [_snap_to_dict(s) for s in snapshots]

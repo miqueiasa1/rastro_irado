@@ -15,14 +15,17 @@ from typing import Optional
 
 import sys, os
 import pandas as pd
+import scipy.special as sp
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.db import get_connection, DB_PATH, load_kalman_state, save_kalman_state
 from backend.irai.kalman import KalmanFilterWrapper
 from backend.irai.johansen import check_cointegration
+from backend.irai.forex_basket import is_forex_pair, FOREX_28_PAIRS, compute_currency_basket_spread
+from backend.timeconv import b3_session_bounds_broker, b3_bars_per_session
 
 
 # ── Alias de símbolos ─────────────────────────────────────
-SYMBOL_ALIASES = {}  # WDO$N agora tem barras próprias no banco
+SYMBOL_ALIASES = {"WIN$N_TOP8": "WIN$N"}
 
 def resolve_symbol(sym: str) -> str:
     """Resolve alias para o símbolo real no banco."""
@@ -32,6 +35,19 @@ def resolve_symbol(sym: str) -> str:
 TARGET = "WIN$N"
 FACTOR_LABELS = {}  # carregado do DB
 BARS_PER_SESSION = 108
+
+# Normaliza??o temporal do z-score dos fatores.
+# False (padr?o): z = ret / ?_sess?o. Coerente com a calibra??o (log?stica ajustada sobre o retorno do
+#   preg?o inteiro): sob martingale, o retorno parcial ? a melhor estimativa do retorno final.
+#   ? tamb?m o comportamento efetivo que o sistema sempre teve (o t_frac antigo saturava em 1.0
+#   por contar as barras de warm-up).
+# True: z = ret / (???t). Padroniza o retorno parcial, mas explode nos primeiros minutos da sess?o
+#   (P(?) satura em 0/100 logo ap?s a abertura). S? ativar junto com uma recalibra??o que use o mesmo crit?rio.
+Z_TIME_SCALING = False
+
+# Piso de volatilidade dos res?duos de par/cesta, em % (res?duos em %): 0,01% = 1 bp.
+# Evita z explosivo com mercado parado sem anular o sinal (o res?duo da cesta cambial ? ~0,01?0,03%).
+MIN_RESIDUAL_SIGMA_PCT = 0.01
 
 
 @dataclass
@@ -74,7 +90,10 @@ class IRAISnapshot:
     flow_confirms: Optional[bool] = None  # True=confirma, False=diverge, None=neutro
     price_diverges: bool = False
     price_diverge_z: Optional[float] = None
+    price_diverge_basket_z: Optional[float] = None  # Modo 1: Resíduo de Cesta (Pair Trading Basket)
+    price_diverge_probit_z: Optional[float] = None  # Modo 2: Probit Normalizado (P_up vs Retorno Z)
     is_preview: bool = False  # True = preview pré-abertura (sem dados do target)
+    is_pre_market: bool = False  # True = barra anterior à abertura da sessão do alvo (Regra 4)
     johansen_p_value: float = 1.0
     is_cointegrated: bool = True
     
@@ -283,7 +302,7 @@ class IRAIEngine:
         if t_frac > 1.0:
             t_frac = 1.0
         
-        sqrt_t = np.sqrt(t_frac)
+        sqrt_t = np.sqrt(t_frac) if Z_TIME_SCALING else 1.0
         now_str = datetime.now().isoformat()
         session_date = session_date or date.today().isoformat()
 
@@ -418,7 +437,11 @@ class IRAIEngine:
         conn = get_connection(self.db_path)
 
         # Pegar barras da sessão (usa símbolos do banco)
-        all_symbols = list(set([data_target] + db_factors))
+        is_target_forex = is_forex_pair(target)
+        if is_target_forex:
+            all_symbols = list(set([data_target] + db_factors + FOREX_28_PAIRS))
+        else:
+            all_symbols = list(set([data_target] + db_factors))
         placeholders = ",".join(["?"] * len(all_symbols))
         
         # 1. Verificar/carregar barras de hoje
@@ -430,9 +453,18 @@ class IRAIEngine:
               AND timestamp_utc >= ? AND timestamp_utc < ?
             ORDER BY timestamp_utc
         """
-        start = f"{session_date}T00:00:00Z"
-        end_dt = datetime.fromisoformat(session_date) + timedelta(days=1)
-        end = end_dt.strftime("%Y-%m-%dT00:00:00Z")
+        # Convenção do banco: relógio do broker (NY+7). Ver backend/timeconv.py.
+        is_b3 = cfg.get("session_start_h", 0) != 0
+        day_start_utc = datetime.fromisoformat(session_date).replace(tzinfo=timezone.utc)
+        end_dt = day_start_utc + timedelta(days=1)
+        if is_b3:
+            # Pregão B3 definido no relógio de Brasília (09:00–18:30 BRT), convertido p/ broker
+            # com offset dinâmico (+6h no verão americano, +5h no inverno).
+            b3_open_utc, b3_close_utc = b3_session_bounds_broker(session_date)
+            if b3_close_utc + timedelta(minutes=5) > end_dt:
+                end_dt = b3_close_utc + timedelta(minutes=5)
+        start = day_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         rows_today = conn.execute(query_today, [timeframe] + all_symbols + [start, end]).fetchall()
         
@@ -460,9 +492,8 @@ class IRAIEngine:
         
         conn.close()
 
-        # Detectar sessão via config do modelo (antes de iterar rows)
+        # Detectar sessão via config do modelo (is_b3 já definido acima)
         session_start = cfg.get("session_start_h", 0)
-        is_b3 = session_start != 0
 
         # Converter sqlite3.Row para dicts com timestamp parsed e hora extraída
         rows = []
@@ -497,6 +528,9 @@ class IRAIEngine:
             bars_per_hour = 1
 
         target_bars_per_session = int(duration_h * bars_per_hour)
+        if is_b3:
+            # Pregão regular B3: 09:00–18:30 BRT (independe do DST americano)
+            target_bars_per_session = b3_bars_per_session(timeframe)
         if target_bars_per_session <= 0:
             target_bars_per_session = BARS_PER_SESSION
 
@@ -577,17 +611,32 @@ class IRAIEngine:
         # Filter by session removed to allow 24/7 continuous timeline
 
         # Opens = primeira barra de cada símbolo da sessão atual (hoje)
-        session_start_utc = datetime.fromisoformat(session_date).replace(tzinfo=timezone.utc)
+        # day_start_utc = 00:00 do broker (início do dia para fatores e ativos globais)
+        # target_session_open_utc = início da sessão do TARGET:
+        #   - B3: 09:00 BRT convertido (o after-market de ontem, 18:00–18:30 BRT, cai após 00:00 do
+        #     broker e NÃO pode virar a "abertura de hoje" — Regra 4 / Zero-Repainting)
+        #   - Globais: 00:00 do broker
+        session_start_utc = day_start_utc
+        target_session_open_utc = b3_open_utc if is_b3 else day_start_utc
+        # Para alvos B3 a calibração (scripts/calibrate_universal.py) mede o retorno dos FATORES na
+        # mesma janela do pregão B3. O motor online precisa usar a mesma base: open dos fatores =
+        # primeira barra a partir da abertura da B3. Para alvos globais, a base é 00:00 do broker.
+        factor_session_start_utc = target_session_open_utc if is_b3 else session_start_utc
         opens = {}
+        # Primeira barra de sessão de cada símbolo. Antes dela o símbolo "ainda não abriu":
+        # retorno = 0 (Regra 4 — evita que o forward-fill do fechamento de ontem gere ret = −gap).
+        first_session_ts = {}
         for sym in all_symbols:
-            session_bars = sorted([r for r in rows if r["symbol"] == sym and r["timestamp"] >= session_start_utc], key=lambda r: r["timestamp"])
+            sym_session_start = target_session_open_utc if sym == data_target else factor_session_start_utc
+            session_bars = sorted([r for r in rows if r["symbol"] == sym and r["timestamp"] >= sym_session_start], key=lambda r: r["timestamp"])
             if session_bars:
                 opens[sym] = float(session_bars[0]["open"])
+                first_session_ts[sym] = session_bars[0]["timestamp"]
             else:
                 # Se o ativo AINDA NÃO ABRIU na sessão atual (sem barras hoje):
                 # Usar o último fechamento conhecido como abertura de referência.
                 # Isso garante ret = 0.0, z_score = 0.0 e impede repainting/distorções antes da abertura oficial.
-                sym_bars = sorted([r for r in rows if r["symbol"] == sym], key=lambda r: r["timestamp"])
+                sym_bars = sorted([r for r in rows if r["symbol"] == sym and r["timestamp"] < sym_session_start], key=lambda r: r["timestamp"])
                 if sym_bars:
                     opens[sym] = float(sym_bars[-1]["close"])
 
@@ -603,6 +652,15 @@ class IRAIEngine:
             fb = sorted([r for r in rows if r["symbol"] == db_sym], key=lambda r: r["timestamp"])
             factor_prices[factor] = [(r["timestamp"], float(r["close"])) for r in fb] if fb else []
 
+        # Pré-indexar preços de forex para o cálculo de Cesta Cambial (Forex Basket Spread)
+        forex_pair_prices = {}
+        if is_target_forex:
+            for f_sym in FOREX_28_PAIRS:
+                fb = sorted([r for r in rows if r["symbol"] == f_sym], key=lambda r: r["timestamp"])
+                forex_pair_prices[f_sym] = [(r["timestamp"], float(r["close"])) for r in fb] if fb else []
+        forex_cursors = {f_sym: 0 for f_sym in FOREX_28_PAIRS}
+        recent_forex_basket_spreads = []
+
         # Iterar sobre barras do target e alinhar com todas as timestamps para forward-fill
         target_bars = sorted([r for r in rows if r["symbol"] == data_target], key=lambda r: r["timestamp"])
         all_timestamps = sorted(set(r["timestamp"] for r in rows))
@@ -610,7 +668,9 @@ class IRAIEngine:
         snapshots = []
         cum_delta = 0.0
         cum_real_vol = 0.0
+        session_volume_bars = 0
         target_cursor = 0
+        tf_seconds = {"M1": 60, "M2": 120, "M5": 300, "M15": 900, "M30": 1800, "H1": 3600}.get(timeframe, 300)
         
         # --- Kalman Filter Setup ---
         kf = None
@@ -635,11 +695,19 @@ class IRAIEngine:
             
             if saved_state:
                 if len(saved_state["state_mean"]) == n_dim_state:
-                    kf.set_state(saved_state["state_mean"], saved_state["state_covariance"])
-                    # Inicializar pesos locais com o estado dinâmico final do Kalman do dia anterior
+                    clean_mean = np.array(saved_state["state_mean"])
                     for i, factor in enumerate(active_factors):
                         label = active_labels.get(factor, factor)
-                        local_factor_states[label].weight = saved_state["state_mean"][i+1]
+                        sw = t_weights.get(f"w_{label}", 0.0)
+                        if sw < 0:
+                            clean_mean[i+1] = np.clip(clean_mean[i+1], 3.0 * sw, 0.0)
+                        elif sw > 0:
+                            clean_mean[i+1] = np.clip(clean_mean[i+1], 0.0, 3.0 * sw)
+                    kf.set_state(clean_mean, saved_state["state_covariance"])
+                    # Inicializar pesos locais com o estado dinâmico sanitizado do Kalman
+                    for i, factor in enumerate(active_factors):
+                        label = active_labels.get(factor, factor)
+                        local_factor_states[label].weight = clean_mean[i+1]
                 else:
                     print(f"[Kalman Warning] Discarding saved state for {slug} due to dimension mismatch ({len(saved_state['state_mean'])} != {n_dim_state})")
         
@@ -669,25 +737,31 @@ class IRAIEngine:
         # Set de timestamps reais do target para detecção precisa de ghost bars
         target_ts_set = set(r["timestamp"] for r in target_bars)
 
-        # Buscar último close de ontem para ghost bars pré-mercado
-        conn_prev = get_connection(self.db_path)
-        prev_close_row = conn_prev.execute("""
-            SELECT close FROM market_bars
-            WHERE symbol = ? AND timeframe = ? AND timestamp_utc < ?
-            ORDER BY timestamp_utc DESC LIMIT 1
-        """, (data_target, timeframe, f"{session_date}T00:00:00Z")).fetchone()
-        conn_prev.close()
-        pre_market_close = float(prev_close_row["close"]) if prev_close_row else opens.get(data_target, 0)
+        # Último preço conhecido do target ANTES da abertura da sessão (inclui after-market de ontem)
+        pre_session_bars = [r for r in target_bars if r["timestamp"] < target_session_open_utc]
+        if pre_session_bars:
+            pre_market_close = float(pre_session_bars[-1]["close"])
+        else:
+            conn_prev = get_connection(self.db_path)
+            prev_close_row = conn_prev.execute("""
+                SELECT close FROM market_bars
+                WHERE symbol = ? AND timeframe = ? AND timestamp_utc < ?
+                ORDER BY timestamp_utc DESC LIMIT 1
+            """, (data_target, timeframe, target_session_open_utc.strftime("%Y-%m-%dT%H:%M:%SZ"))).fetchone()
+            conn_prev.close()
+            pre_market_close = float(prev_close_row["close"]) if prev_close_row else opens.get(data_target, 0)
         pre_market_open = pre_market_close  # Open = last known close for ghost bars
 
         for bar_idx, ts in enumerate(all_timestamps):
             while target_cursor < len(target_bars) - 1 and target_bars[target_cursor + 1]["timestamp"] <= ts:
                 target_cursor += 1
                 
-            if is_b3:
-                is_pre_market = (ts.hour < session_start)
-            else:
-                is_pre_market = False
+            # Pré-sessão: B3 antes das 09:00 BRT; globais antes das 00:00 do broker (= barras de warm-up).
+            # Em pré-sessão: retorno do alvo = 0, Kalman NÃO é atualizado e os históricos de resíduo
+            # não são alimentados (A1 — antes o warm-up de ontem era reaplicado contra o open de HOJE).
+            is_pre_market = (ts < target_session_open_utc)
+            # Índice da barra DENTRO da sessão (relógio), base do t_frac = √t (C6 — antes contava o warm-up)
+            session_bar_idx = int((ts - target_session_open_utc).total_seconds() // tf_seconds)
             
             if target_cursor < len(target_bars) and target_bars[target_cursor]["timestamp"] <= ts:
                 row = target_bars[target_cursor]
@@ -706,6 +780,30 @@ class IRAIEngine:
                 factor_cursors[factor] = cursor
                 if cursor < len(prices) and prices[cursor][0] <= ts:
                     self.update_price(factor, prices[cursor][1], ts.isoformat(), factor_states=local_factor_states)
+                f_first = first_session_ts.get(factor_to_db.get(factor, factor))
+                if f_first is None or ts < f_first:
+                    # Fator ainda não negociou na sessão: preço = open de referência → ret 0
+                    f_state = local_factor_states.get(active_labels.get(factor, factor))
+                    if f_state is not None and f_state.open_price > 0:
+                        f_state.current_price = f_state.open_price
+
+            # Atualizar preços e retornos de todos os pares Forex para o cálculo de Cesta Cambial
+            current_forex_rets = {}
+            if is_target_forex:
+                for f_sym, p_list in forex_pair_prices.items():
+                    if not p_list:
+                        continue
+                    cursor = forex_cursors[f_sym]
+                    while cursor < len(p_list) - 1 and p_list[cursor + 1][0] <= ts:
+                        cursor += 1
+                    forex_cursors[f_sym] = cursor
+                    f_first = first_session_ts.get(f_sym)
+                    if cursor < len(p_list) and p_list[cursor][0] <= ts and f_first is not None and ts >= f_first:
+                        f_close = p_list[cursor][1]
+                        f_open = opens.get(f_sym, 0.0)
+                        if f_open > 0:
+                            # Em % (mesma unidade de win_ret) — A2: antes ia em fração e a cesta era ignorada
+                            current_forex_rets[f_sym] = (f_close - f_open) / f_open * 100.0
 
             is_coint = True
             p_val = 0.01
@@ -746,6 +844,9 @@ class IRAIEngine:
                     if len(f_wins) > 20:
                         f_wins.pop(0)
                     
+                # Capture PRIOR betas (before observation update) for innovation residual calculation
+                prior_betas, _ = kf.get_state()
+
                 # Update Kalman ONLY if the target market is actually trading
                 if not is_ghost_bar and not is_pre_market:
                     kf.update(observation=win_ret, observation_matrix=np.array([obs_matrix]))
@@ -757,10 +858,14 @@ class IRAIEngine:
                     # whereas local_intercept is a logistic regression intercept used in sigmoid().
                     for i, factor in enumerate(active_factors):
                         label = active_labels.get(factor, factor)
-                        # Camada 1: Weight Clamping — impedir drift excessivo dos betas Kalman
+                        # Camada 1: Weight Clamping com preservação de sinal econômico
                         static_weight = t_weights.get(f"w_{label}", 0.0)
-                        max_abs = max(3.0 * abs(static_weight), 0.5)
-                        clamped = float(np.clip(current_betas[i+1], -max_abs, max_abs))
+                        if static_weight < 0:
+                            clamped = float(np.clip(current_betas[i+1], 3.0 * static_weight, 0.0))
+                        elif static_weight > 0:
+                            clamped = float(np.clip(current_betas[i+1], 0.0, 3.0 * static_weight))
+                        else:
+                            clamped = float(np.clip(current_betas[i+1], -0.5, 0.5))
                         local_factor_states[label].weight = clamped
                         current_betas[i+1] = clamped
             else:
@@ -768,7 +873,7 @@ class IRAIEngine:
                 pass
 
             snap = self.compute(
-                bar_idx=bar_idx,
+                bar_idx=max(session_bar_idx, 0),
                 win_current=float(row["close"]),
                 win_bar_open=float(row.get("open", row["close"])),
                 win_high=float(row.get("high", row["close"])),
@@ -810,20 +915,25 @@ class IRAIEngine:
             snap.win_low = float(row.get("low", row["close"]))
             snap.timestamp = ts.isoformat()
             snap.is_ghost = is_ghost_bar
+            snap.is_pre_market = is_pre_market
             
             if is_pre_market:
                 snap.win_return = 0.0
 
             # Cumulative Delta
-            bar_d = 0.0 if is_ghost_bar else float(row.get("delta") or 0)
-            rv = 0.0 if is_ghost_bar else float(row.get("real_volume") or 0)
+            # Delta acumulado zera na abertura da sessão (C6 — antes somava o warm-up de ontem)
+            in_session_bar = (not is_ghost_bar) and (not is_pre_market)
+            bar_d = float(row.get("delta") or 0) if in_session_bar else 0.0
+            rv = float(row.get("real_volume") or 0) if in_session_bar else 0.0
             cum_delta += bar_d
             cum_real_vol += rv
+            if in_session_bar:
+                session_volume_bars += 1
 
             snap.bar_delta = round(bar_d, 0)
             snap.cum_delta = round(cum_delta, 0)
 
-            avg_vol = cum_real_vol / (bar_idx + 1) if bar_idx >= 0 else 1
+            avg_vol = cum_real_vol / session_volume_bars if session_volume_bars > 0 else 0
             if avg_vol > 0:
                 snap.cum_delta_norm = round(cum_delta / avg_vol, 3)
             else:
@@ -837,90 +947,116 @@ class IRAIEngine:
                 snap.flow_confirms = False
             elif snap.p_up < 45 and cum_delta > 0:
                 snap.flow_confirms = False
-            else:
-                snap.flow_confirms = None
-
             # Multi-Factor Basket Arbitrage Z-Score & Pairwise Signal (v2 Kalman Only)
             if version in ("v2", "both") and kf is not None and len(active_factors) > 0 and snap.t_frac > 0 and not is_ghost_bar and not is_pre_market:
-                # 1. Z-Score Rastro (Pair Trading entre Ativo Target e a Cesta de Ativos)
-                predicted_win_ret = float(np.dot(current_betas, obs_matrix))
-                residuo_basket = win_ret - predicted_win_ret
+                # 1. Z-Score Rastro (Cálculo dos 2 Modos: Cesta Multi-Fatorial vs. Probit P_up)
+                # Modo A: Cesta Multi-Fatorial (Pair Trading Spread vs Basket Macro Ponderado)
+                predicted_macro_ret = sum(prior_betas[idx + 1] * obs_matrix[idx + 1] for idx in range(len(active_factors)))
+                residuo_basket = win_ret - predicted_macro_ret
                 recent_basket_spreads.append(residuo_basket)
                 if len(recent_basket_spreads) > 100:
                     recent_basket_spreads.pop(0)
 
                 if len(recent_basket_spreads) >= 6:
-                    past_basket_spreads = recent_basket_spreads[:-1]
-                    basket_sigma = float(np.std(past_basket_spreads))
-                    min_basket_sigma = target_div_sigma if target_div_sigma > 0.0005 else 0.002
+                    past_basket = recent_basket_spreads[:-1]
+                    basket_sigma = float(np.std(past_basket))
+                    min_basket_sigma = MIN_RESIDUAL_SIGMA_PCT
                     if basket_sigma < min_basket_sigma:
                         basket_sigma = min_basket_sigma
-                    basket_mean = float(np.mean(past_basket_spreads))
-                    price_div_z = (residuo_basket - basket_mean) / basket_sigma
-                    snap.price_diverge_z = round(float(price_div_z), 2)
-                    snap.price_diverges = bool(abs(price_div_z) >= 2.0)
+                    basket_z = (residuo_basket - 0.0) / basket_sigma
+                    snap.price_diverge_basket_z = round(float(basket_z), 2)
                 else:
-                    snap.price_diverge_z = 0.0
-                    snap.price_diverges = False
+                    snap.price_diverge_basket_z = None
 
-                # 2. Pairwise Signal (Fator Único Dominante - Resíduo Cumulativo de Preço)
-                active_candidate_indices = []
-                for idx, f_key in enumerate(active_factors):
-                    recent_f_rets = factor_activity_window.get(f_key, [])
-                    # Fator considerado ativo se teve movimentação recente (retorno diferente do valor estático nas últimas 15 barras)
-                    if len(recent_f_rets) >= 3 and any(abs(r - recent_f_rets[0]) > 1e-6 for r in recent_f_rets[-15:]):
-                        active_candidate_indices.append(idx)
-
-                if len(active_candidate_indices) == 0:
-                    active_candidate_indices = list(range(len(active_factors)))
-
-                # Rastrear histórico de resíduo de TODOS os fatores individualmente (Isolamento de histórico por par)
-                for idx, f_key in enumerate(active_factors):
-                    b_f = current_betas[idx + 1]
-                    r_f = obs_matrix[idx + 1]
-                    res_f = win_ret - (b_f * r_f)
-                    f_hist = factor_spread_history.setdefault(f_key, [])
-                    f_hist.append(res_f)
-                    if len(f_hist) > 100:
-                        f_hist.pop(0)
-
-                betas_candidates = [(idx, abs(current_betas[idx + 1])) for idx in active_candidate_indices]
-                betas_candidates.sort(key=lambda x: x[1], reverse=True)
-                max_idx = betas_candidates[0][0]
-
-                beta_max = current_betas[max_idx + 1]
-                f_ret_max = obs_matrix[max_idx + 1]
+                # Modo B: Probabilístico / Probit (Z Price Realizado vs Z Macro Probit)
+                sqrt_t = (np.sqrt(snap.t_frac) if snap.t_frac > 0 else 1.0) if Z_TIME_SCALING else 1.0
+                target_sigma_denom = (target_div_sigma * 100.0 * sqrt_t) if sqrt_t > 0 else 0.1
+                if target_sigma_denom < 0.1:
+                    target_sigma_denom = 0.1
+                win_z_normalized = (win_ret / target_sigma_denom) if target_sigma_denom > 0 else 0.0
                 
-                pair_factor_key = active_factors[max_idx]
-                pair_label = active_labels.get(pair_factor_key, pair_factor_key)
-                
-                # Resíduo do Par Dominante utilizando SOMENTE o histórico limpo do fator escolhido
-                recent_pair_spreads = factor_spread_history.get(pair_factor_key, [])
-                residuo = win_ret - (beta_max * f_ret_max)
-                    
-                if len(recent_pair_spreads) >= 6:
-                    past_pair_spreads = recent_pair_spreads[:-1]
-                    pair_sigma = float(np.std(past_pair_spreads))
-                    min_pair_sigma = pair_sigma_fallback if pair_sigma_fallback > 0.0005 else 0.002
-                    if pair_sigma < min_pair_sigma:
-                        pair_sigma = min_pair_sigma
-                    
-                    residuo_mean = float(np.mean(past_pair_spreads))
-                    pair_z = (residuo - residuo_mean) / pair_sigma
-                    snap.pair_z = round(float(pair_z), 2)
+                p_clamped = max(0.001, min(0.999, snap.p_up / 100.0))
+                z_macro = float(sp.ndtri(p_clamped))
+                price_div_probit = win_z_normalized - z_macro
+                snap.price_diverge_probit_z = round(float(price_div_probit), 2)
+
+                # Por padrão do backend: usa o Resíduo de Cesta se disponível, senão Probit
+                snap.price_diverge_z = snap.price_diverge_basket_z if snap.price_diverge_basket_z is not None else snap.price_diverge_probit_z
+                snap.price_diverges = bool(abs(snap.price_diverge_z or 0.0) >= 2.0)
+
+                # 2. Pairwise Signal (Forex Basket Spread para moedas, Fator Único Dominante para outros ativos)
+                if is_target_forex:
+                    basket_res = compute_currency_basket_spread(
+                        target=target,
+                        target_return=win_ret,
+                        current_pair_returns=current_forex_rets,
+                        recent_spread_history=recent_forex_basket_spreads,
+                        min_sigma=MIN_RESIDUAL_SIGMA_PCT,  # retornos em %
+                        threshold=pair_threshold,
+                    )
+                    snap.pair_z = basket_res["pair_z"]
+                    snap.pair_factor = basket_res["pair_factor"]
+                    snap.pair_beta = basket_res["pair_beta"]
+                    snap.pair_signal = basket_res["pair_signal"]
                 else:
-                    pair_z = 0.0
-                    snap.pair_z = None
-                snap.pair_factor = pair_label
-                snap.pair_beta = round(float(beta_max), 3)
-                
-                if pair_z is not None:
-                    if pair_z < -pair_threshold:
-                        snap.pair_signal = "buy"
-                    elif pair_z > pair_threshold:
-                        snap.pair_signal = "sell"
+                    active_candidate_indices = []
+                    for idx, f_key in enumerate(active_factors):
+                        recent_f_rets = factor_activity_window.get(f_key, [])
+                        # Fator considerado ativo se teve movimentação recente (retorno diferente do valor estático nas últimas 15 barras)
+                        if len(recent_f_rets) >= 3 and any(abs(r - recent_f_rets[0]) > 1e-6 for r in recent_f_rets[-15:]):
+                            active_candidate_indices.append(idx)
+
+                    if len(active_candidate_indices) == 0:
+                        active_candidate_indices = list(range(len(active_factors)))
+
+                    # Rastrear histórico de resíduo de TODOS os fatores individualmente (Isolamento de histórico por par)
+                    for idx, f_key in enumerate(active_factors):
+                        b_f = prior_betas[idx + 1]
+                        r_f = obs_matrix[idx + 1]
+                        res_f = win_ret - (b_f * r_f)
+                        f_hist = factor_spread_history.setdefault(f_key, [])
+                        f_hist.append(res_f)
+                        if len(f_hist) > 100:
+                            f_hist.pop(0)
+
+                    betas_candidates = [(idx, abs(prior_betas[idx + 1])) for idx in active_candidate_indices]
+                    betas_candidates.sort(key=lambda x: x[1], reverse=True)
+                    max_idx = betas_candidates[0][0]
+
+                    beta_max = prior_betas[max_idx + 1]
+                    f_ret_max = obs_matrix[max_idx + 1]
+                    
+                    pair_factor_key = active_factors[max_idx]
+                    pair_label = active_labels.get(pair_factor_key, pair_factor_key)
+                    
+                    # Resíduo do Par Dominante utilizando SOMENTE o histórico limpo do fator escolhido
+                    recent_pair_spreads = factor_spread_history.get(pair_factor_key, [])
+                    residuo = win_ret - (beta_max * f_ret_max)
+                        
+                    if len(recent_pair_spreads) >= 6:
+                        past_pair_spreads = recent_pair_spreads[:-1]
+                        pair_sigma = float(np.std(past_pair_spreads))
+                        # M5 spread noise floor: 0,1% (resíduos em %)
+                        min_pair_sigma = MIN_RESIDUAL_SIGMA_PCT
+                        if pair_sigma < min_pair_sigma:
+                            pair_sigma = min_pair_sigma
+                        
+                        residuo_mean = 0.0
+                        pair_z = (residuo - residuo_mean) / pair_sigma
+                        snap.pair_z = round(float(pair_z), 2)
                     else:
-                        snap.pair_signal = None
+                        pair_z = 0.0
+                        snap.pair_z = None
+                    snap.pair_factor = pair_label
+                    snap.pair_beta = round(float(beta_max), 3)
+                    
+                    if pair_z is not None:
+                        if pair_z < -pair_threshold:
+                            snap.pair_signal = "buy"
+                        elif pair_z > pair_threshold:
+                            snap.pair_signal = "sell"
+                        else:
+                            snap.pair_signal = None
 
                 # 3. Fixed Pairwise Signal (Z-SCORE WDO no Índice, Z-SCORE WIN no Dólar)
                 target_pair_key = None
@@ -931,7 +1067,7 @@ class IRAIEngine:
 
                 if target_pair_key and target_pair_key in active_factors:
                     fixed_idx = active_factors.index(target_pair_key)
-                    beta_fixed = current_betas[fixed_idx + 1]
+                    beta_fixed = prior_betas[fixed_idx + 1]
                     f_ret_fixed = obs_matrix[fixed_idx + 1]
                     fixed_label = "WDO" if target_pair_key == "WDO$N" else ("WIN" if target_pair_key == "WIN$N" else active_labels.get(target_pair_key, target_pair_key))
                     
@@ -943,11 +1079,12 @@ class IRAIEngine:
                     if len(recent_fixed_pair_spreads) >= 6:
                         past_fixed = recent_fixed_pair_spreads[:-1]
                         fixed_sigma = float(np.std(past_fixed))
-                        min_pair_sigma = pair_sigma_fallback if pair_sigma_fallback > 0.0005 else 0.002
+                        # M5 spread noise floor: 0,1% (resíduos em %)
+                        min_pair_sigma = MIN_RESIDUAL_SIGMA_PCT
                         if fixed_sigma < min_pair_sigma:
                             fixed_sigma = min_pair_sigma
 
-                        fixed_mean = float(np.mean(past_fixed))
+                        fixed_mean = 0.0
                         fixed_z = (residuo_fixed - fixed_mean) / fixed_sigma
                         snap.pair_fixed_z = round(float(fixed_z), 2)
                     else:
@@ -965,7 +1102,10 @@ class IRAIEngine:
                             snap.pair_fixed_signal = None
             else:
                 # Fallback se V1 ou pré-mercado
-                if target_div_sigma > 0:
+                if is_pre_market or is_ghost_bar:
+                    snap.price_diverge_z = 0.0
+                    snap.price_diverges = False
+                elif target_div_sigma > 0:
                     W = 60
                     idx_prev = max(0, target_cursor - W)
                     price_prev = float(target_bars[idx_prev]["close"]) if idx_prev < len(target_bars) else float(row["close"])

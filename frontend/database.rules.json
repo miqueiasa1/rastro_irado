@@ -1,0 +1,18 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "dates": { ".read": true },
+    "overview": { ".read": true },
+    "targets": { ".read": true },
+    "series": { "$target": { ".read": true } },
+    "summaries": { "$target": { ".read": true } },
+    "history": { "$target": { ".read": true } },
+    "garch": { "$target": { ".read": true } },
+    "health": { ".read": true },
+    "health_watchdog": { ".read": true },
+    "last_update": { ".read": true },
+    "pine_vault": { "$key": { ".read": true } }
+  }
+}
+

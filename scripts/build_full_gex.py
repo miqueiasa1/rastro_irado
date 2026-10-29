@@ -17,6 +17,7 @@ target_map = {
     'russell_us2000_walls_cache.json': 'US2000',
     'nikkei_jp225_walls_cache.json': 'JP225',
     'china_fxi_walls_cache.json': 'CHINA50',
+    'dxy_uup_walls_cache.json': 'DXY',
 }
 
 js_out = """/**

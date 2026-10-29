@@ -177,6 +177,31 @@ def generate_js(data):
     return '\n'.join(lines)
 
 
+def _read_env_value(name):
+    """Lê uma variável do ambiente ou do .env na raiz do projeto."""
+    val = os.environ.get(name)
+    if val:
+        return val.strip()
+    env_path = os.path.join(PROJECT_ROOT, '.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as ef:
+            for line in ef:
+                if line.strip().startswith(f"{name}="):
+                    return line.strip().split("=", 1)[1].strip()
+    return None
+
+
+def pine_vault_key():
+    """Chave do cofre do Pine no RTDB: sha256('<salt>:<senha>') em hex.
+    Deve bater com o cálculo feito no frontend (PineDownloadModal.jsx)."""
+    import hashlib
+    password = _read_env_value("PINE_PASSWORD")
+    salt = _read_env_value("PINE_SALT")
+    if not password or not salt:
+        return None
+    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+
+
 if __name__ == '__main__':
     # Resolve path
     pine_path = os.path.normpath(PINE_PATH)
@@ -197,6 +222,17 @@ if __name__ == '__main__':
         f.write(js)
 
     print(f"Salvo em: {OUTPUT_PATH}")
+
+    # SEGURANÇA: o .pine NUNCA deve ir para frontend/public (seria servido sem senha pelo Hosting).
+    # Remove cópia legada, se existir.
+    legacy_public_pine = os.path.join(PROJECT_ROOT, "frontend", "public", "jumba_tradingview.pine")
+    if os.path.exists(legacy_public_pine):
+        os.remove(legacy_public_pine)
+        print(f"Removida cópia pública legada: {legacy_public_pine}")
+
+    # Ler conteúdo integral do .pine para publicação diária na nuvem
+    with open(pine_path, 'r', encoding='utf-8') as pf:
+        pine_raw_content = pf.read()
 
     # Persistir no banco de dados SQLite
     import json
@@ -222,3 +258,59 @@ if __name__ == '__main__':
         print(f"Erro ao salvar níveis GEX no banco: {e}")
     finally:
         conn.close()
+
+    # Publicar diretamente no Firebase RTDB (/summaries/gex e /gex_pine) para atualização imediata no painel web
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, db as fb_db
+
+        env_path = os.path.join(PROJECT_ROOT, '.env')
+        fb_url = os.environ.get("FIREBASE_URL")
+        if not fb_url and os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as ef:
+                for line in ef:
+                    if line.strip().startswith("FIREBASE_URL="):
+                        fb_url = line.strip().split("=", 1)[1].strip()
+        sa_key = os.path.join(PROJECT_ROOT, 'serviceAccountKey.json')
+        if fb_url and os.path.exists(sa_key):
+            if not firebase_admin._apps:
+                cred = credentials.Certificate(sa_key)
+                firebase_admin.initialize_app(cred, {'databaseURL': fb_url})
+            fb_batch = {}
+            for target, levels in data.items():
+                if levels:
+                    safe_target = target.replace('$', '_').replace('.', '_')
+                    payload = {
+                        "target": target,
+                        "date": session_date,
+                        "selected_run": run_name,
+                        "available_runs": [run_name],
+                        "levels": levels,
+                    }
+                    fb_batch[f"summaries/gex/{session_date}/{safe_target}"] = payload
+                    fb_batch[f"summaries/gex/{safe_target}"] = payload
+
+            pine_payload = {
+                "content": pine_raw_content,
+                "date": session_date,
+                "run_name": run_name,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "filename": f"jumba_tradingview_{session_date}.pine",
+                "total_levels": total,
+                "assets_count": len([k for k, v in data.items() if v]),
+            }
+            # Nó admin-only (regras RTDB: leitura negada ao público)
+            fb_batch["gex_pine"] = pine_payload
+            # Cofre: caminho = sha256(salt:senha). Só quem conhece a senha consegue ler.
+            # Substitui o nó inteiro para invalidar chaves antigas quando a senha muda.
+            vault_key = pine_vault_key()
+            if vault_key:
+                fb_batch["pine_vault"] = {vault_key: pine_payload}
+            else:
+                print("Aviso: PINE_PASSWORD/PINE_SALT ausentes no .env; cofre do Pine não publicado.")
+
+            if fb_batch:
+                fb_db.reference('/').update(fb_batch)
+                print(f"Níveis GEX ({len(data)} ativos) e Pine Script ({len(pine_raw_content)} bytes) publicados no Firebase RTDB!")
+    except Exception as e:
+        print(f"Aviso ao publicar GEX no Firebase RTDB: {e}")

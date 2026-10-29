@@ -135,6 +135,7 @@ def backfill_history(limit=60):
         summaries_map = {}
         history_map = {}
         garch_map = {}
+        gex_map = {}
 
         for t in targets_list:
             target = t["target"]
@@ -182,6 +183,47 @@ def backfill_history(limit=60):
             except Exception as e:
                 pass
 
+            # GEX data for date (with fallback to latest <= session_date)
+            try:
+                import json
+                conn = get_connection()
+                eff_gex_date = session_date
+                runs = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT run_name FROM gex_levels WHERE target = ? AND session_date = ? ORDER BY run_name DESC",
+                    (target, eff_gex_date)
+                ).fetchall()]
+                if not runs:
+                    l_row = conn.execute(
+                        "SELECT session_date FROM gex_levels WHERE target = ? AND session_date <= ? ORDER BY session_date DESC LIMIT 1",
+                        (target, session_date)
+                    ).fetchone()
+                    if l_row:
+                        eff_gex_date = l_row["session_date"]
+                        runs = [r[0] for r in conn.execute(
+                            "SELECT DISTINCT run_name FROM gex_levels WHERE target = ? AND session_date = ? ORDER BY run_name DESC",
+                            (target, eff_gex_date)
+                        ).fetchall()]
+                if runs:
+                    g_row = conn.execute(
+                        "SELECT levels_json FROM gex_levels WHERE target = ? AND session_date = ? AND run_name = ?",
+                        (target, eff_gex_date, runs[0])
+                    ).fetchone()
+                    if g_row:
+                        gex_payload = {
+                            "target": target,
+                            "date": session_date,
+                            "effective_gex_date": eff_gex_date,
+                            "selected_run": runs[0],
+                            "available_runs": runs,
+                            "levels": json.loads(g_row["levels_json"])
+                        }
+                        gex_map[safe_target] = clean_for_firebase(gex_payload)
+                        if safe_target in summaries_map and isinstance(summaries_map[safe_target], dict):
+                            summaries_map[safe_target]["gex"] = clean_for_firebase(gex_payload)
+                conn.close()
+            except Exception as e:
+                pass
+
         # 2. Upload under allowed top-level paths: /series/{session_date}/{safe_target}, /summaries/{session_date}/{safe_target}, etc.
         if overview_data:
             ref.child(f'overview/{session_date}').set(overview_data)
@@ -194,6 +236,8 @@ def backfill_history(limit=60):
             ref.child(f'history/{session_date}/{safe_target}').set(t_history)
         for safe_target, t_garch in garch_map.items():
             ref.child(f'garch/{session_date}/{safe_target}').set(t_garch)
+        for safe_target, t_gex in gex_map.items():
+            ref.child(f'summaries/gex/{session_date}/{safe_target}').set(t_gex)
 
         # 3. If latest date, also set top-level /series/{safe_target} for backward compatibility & live polling
         if idx == 0:
@@ -207,6 +251,8 @@ def backfill_history(limit=60):
                 ref.child(f'history/{safe_target}').set(t_history)
             for safe_target, t_garch in garch_map.items():
                 ref.child(f'garch/{safe_target}').set(t_garch)
+            for safe_target, t_gex in gex_map.items():
+                ref.child(f'summaries/gex/{safe_target}').set(t_gex)
 
         print(f"  [OK] Sessão {session_date} enviada ({len(series_map)} ativos).")
 

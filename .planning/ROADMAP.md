@@ -20,6 +20,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | 10 | Homologação e Verificação UAT | Testar final unificado em staging | 2026-08-12 |
 | 11 | Resolução Automática de Contratos Ativos B3 em Contas Demo | Mapear WIN$N/WDO$N/DI1$N para contratos vigentes no boot | 2026-07-27 |
 | 12 | Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode) | Complete (3/3) | 2026-07-30 |
+| 13 | Rastro de Mini Índice (Top 8 Ações IBOV) | Complete (4/4) | 2026-08-12 |
 
 ---
 
@@ -104,6 +105,15 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
   2. Worker `collector.py` gravando snapshots live ao final de cada ciclo de coleta.
   3. Endpoint `/api/irai/series` suportando o parâmetro `mode=live` (padrão) com resposta instantânea e suporte ao modo `mode=recalculated`.
   4. Interface web exibindo indicador visual **"LIVE IMUTÁVEL (Sem Repaint)"** com 100% de estabilidade nos dados passados.
+
+### Phase 13: Rastro de Mini Índice (Top 8 Ações IBOV)
+* **Goal:** Criar um modelo estatístico e rastro em tempo real para o Mini Índice (`WIN$N`) baseado na combinação ponderada das 8 ações de maior peso da carteira do Ibovespa (VALE3, PETR4, ITUB4, BBDC4, ELET3, WEGE3, ABEV3, B3SA3).
+* **Requirements:** WIN-TOP8-01, WIN-TOP8-02, WIN-TOP8-03, WIN-TOP8-04
+* **Success Criteria:**
+  1. Configuração da coleta M1/M5 das 8 ações líderes do IBOV via MetaTrader 5 no `collector.py`.
+  2. Motor de calibração (`calibrate_universal.py` / Ridge + Kalman + Johansen) calibrando os pesos dinâmicos e persistindo em `asset_models` / `model_params`.
+  3. API e backend enviando métricas de Z-score, Pair Spread e NWE para o rastro do Mini Índice com Top 8 Ações.
+  4. Visualização e gráficos no Frontend integrados mantendo as regras estritas de Zero-Repainting, Sincronização e visibilidade do Pair Spread.
 
 ## ✅ Concluídos
 

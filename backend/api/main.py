@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.concurrency import run_in_threadpool
@@ -114,26 +114,32 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# A6 (auditoria): CORS restrito ao frontend local (Vite). O site público lê do Firebase, não desta API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=[
+        "http://localhost:5175", "http://127.0.0.1:5175",
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:4173", "http://127.0.0.1:4173",
+    ],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
 
 @app.post("/api/internal/notify_update")
-async def notify_update():
-    """Chamado pelo collector.py após inserir novas barras ou para recarregar o motor."""
-    global engine
+async def notify_update(request: Request):
+    """Chamado pelo collector.py após inserir novas barras.
+    Apenas loopback (A6): antes qualquer host da LAN — ou página aberta no navegador — podia
+    forçar recargas em loop. Também não faz mais importlib.reload do módulo (trocava o engine
+    global no meio de requisições em andamento); apenas recarrega os parâmetros calibrados."""
+    client_host = request.client.host if request.client else ""
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        return JSONResponse(status_code=403, content={"error": "forbidden"})
     try:
-        import importlib
-        import backend.irai.engine as engine_module
-        importlib.reload(engine_module)
-        engine = engine_module.IRAIEngine()
-        print("IRAIEngine e módulo engine.py recarregados com sucesso.")
+        engine._load_params()
     except Exception as e:
-        print(f"Error reloading engine: {e}")
+        print(f"Error reloading engine params: {e}")
     series_cache.clear()
     overview_cache_data.clear()
     data_updated_event.set()
@@ -150,9 +156,10 @@ async def health():
         "SELECT MAX(timestamp_utc) as ts FROM market_bars WHERE timeframe='M5'"
     ).fetchone()["ts"]
 
+    from backend.timeconv import now_brt_wall, now_broker_wall, broker_wall_to_brt_wall
     now_utc = datetime.now(timezone.utc)
-    now_brt = now_utc - timedelta(hours=3)
-    now_tickmill = now_utc + timedelta(hours=3)
+    now_brt = now_brt_wall()                # relógio de Brasília (naive)
+    now_tickmill = now_broker_wall()        # relógio do broker NY+7 (mesma convenção do banco)
 
     # 1. B3 Status (WIN$N)
     b3_status = "CLOSED"
@@ -165,8 +172,10 @@ async def health():
     if row_b3 and row_b3["ts"]:
         b3_last = row_b3["ts"]
         try:
-            b3_dt = datetime.fromisoformat(b3_last.replace("Z", "+00:00"))
-            b3_dt = b3_dt.replace(tzinfo=None)  # naive
+            # Banco em relógio do broker → converter para BRT antes de comparar com "agora" em BRT
+            b3_dt = datetime.fromisoformat(b3_last.replace("Z", "+00:00")).replace(tzinfo=None)
+            b3_dt = broker_wall_to_brt_wall(b3_dt)
+            b3_last = b3_dt.strftime("%Y-%m-%dT%H:%M:%S")  # exibido no painel em BRT
             now_brt_naive = now_brt.replace(tzinfo=None)
             
             # Horário do pregão B3: Seg-Sex, 09:00 - 18:00 BRT
@@ -290,14 +299,26 @@ async def health_watchdog_status():
 
 @app.get("/api/gex")
 async def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(None)):
-    """Retorna os níveis de GEX para um ativo, data e run específicos."""
+    """Retorna os niveis de GEX para um ativo, data e run especificos."""
     conn = get_connection()
     try:
-        # Get all available runs for this date/target
+        effective_date = date
         runs = [r[0] for r in conn.execute(
             "SELECT DISTINCT run_name FROM gex_levels WHERE target = ? AND session_date = ? ORDER BY run_name DESC",
-            (target, date)
+            (target, effective_date)
         ).fetchall()]
+
+        if not runs:
+            latest_row = conn.execute(
+                "SELECT session_date FROM gex_levels WHERE target = ? AND session_date <= ? ORDER BY session_date DESC LIMIT 1",
+                (target, date)
+            ).fetchone()
+            if latest_row:
+                effective_date = latest_row["session_date"]
+                runs = [r[0] for r in conn.execute(
+                    "SELECT DISTINCT run_name FROM gex_levels WHERE target = ? AND session_date = ? ORDER BY run_name DESC",
+                    (target, effective_date)
+                ).fetchall()]
 
         if not runs:
             return {"target": target, "date": date, "levels": [], "available_runs": [], "selected_run": None}
@@ -306,13 +327,14 @@ async def get_gex(target: str = Query(...), date: str = Query(...), run: str = Q
 
         row = conn.execute(
             "SELECT levels_json FROM gex_levels WHERE target = ? AND session_date = ? AND run_name = ?",
-            (target, date, selected_run)
+            (target, effective_date, selected_run)
         ).fetchone()
 
         if row:
             return {
                 "target": target,
                 "date": date,
+                "effective_gex_date": effective_date,
                 "selected_run": selected_run,
                 "available_runs": runs,
                 "levels": json.loads(row["levels_json"])
@@ -322,6 +344,44 @@ async def get_gex(target: str = Query(...), date: str = Query(...), run: str = Q
     finally:
         conn.close()
     return {"target": target, "date": date, "levels": [], "available_runs": [], "selected_run": None}
+
+
+@app.get("/api/gex/pine")
+def get_gex_pine(key: str = Query(...)):
+    """Retorna o c?digo do indicador TradingView (jumba_tradingview.pine).
+    Exige `key` = sha256('<PINE_SALT>:<PINE_PASSWORD>') ? mesma chave do cofre RTDB."""
+    import hashlib, hmac, os
+    from pathlib import Path
+    from fastapi import HTTPException
+    root_dir = Path(DB_PATH).resolve().parent.parent
+    env = {}
+    env_path = root_dir / ".env"
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.strip().split("=", 1)
+                env[k] = v.strip()
+    password = os.environ.get("PINE_PASSWORD") or env.get("PINE_PASSWORD")
+    salt = os.environ.get("PINE_SALT") or env.get("PINE_SALT")
+    if not password or not salt:
+        raise HTTPException(status_code=503, detail="Cofre do Pine n?o configurado")
+    expected = hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+    if not hmac.compare_digest(expected, key.strip().lower()):
+        raise HTTPException(status_code=403, detail="Senha incorreta")
+
+    path = root_dir.parent / "wdo win pair trading" / "gex" / "docs" / "jumba_tradingview.pine"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo jumba_tradingview.pine n?o encontrado")
+    content = path.read_text(encoding="utf-8")
+    mtime = datetime.fromtimestamp(path.stat().st_mtime)
+    date_str = mtime.strftime("%Y-%m-%d")
+    return {
+        "content": content,
+        "date": date_str,
+        "run_name": mtime.strftime("%H:%M"),
+        "updated_at": mtime.strftime("%Y-%m-%d %H:%M:%S"),
+        "filename": f"jumba_tradingview_{date_str}.pine",
+    }
 
 
 @app.get("/api/garch")
@@ -390,10 +450,61 @@ async def irai_targets():
     }
 
 
+def _enrich_top8_overlay(conn, series_list, target, session_date, timeframe, mode):
+    if target not in ("WIN$N", "WIN$N_TOP8"):
+        return
+    other_target = "WIN$N_TOP8" if target == "WIN$N" else "WIN$N"
+    other_map = {}
+    if mode == "live":
+        other_snaps = get_live_snapshots(conn, other_target, session_date, timeframe=timeframe)
+        if other_snaps:
+            for s in other_snaps:
+                ts = s.get("timestamp_utc") or s.get("timestamp")
+                if ts:
+                    other_map[ts] = {
+                        "p_up": s.get("p_up"),
+                        "price_diverge_z": s.get("price_diverge_z"),
+                        "price_diverge_basket_z": s.get("price_diverge_basket_z"),
+                        "price_diverge_probit_z": s.get("price_diverge_probit_z"),
+                    }
+    if not other_map:
+        try:
+            other_snaps = engine.compute_from_db(session_date, target=other_target, version="v2", timeframe=timeframe, persist_state=False)
+            if other_snaps:
+                for s in other_snaps:
+                    other_map[s.timestamp] = {
+                        "p_up": s.p_up,
+                        "price_diverge_z": s.price_diverge_z,
+                        "price_diverge_basket_z": getattr(s, "price_diverge_basket_z", None),
+                        "price_diverge_probit_z": getattr(s, "price_diverge_probit_z", None),
+                    }
+        except Exception:
+            pass
+
+    for s in series_list:
+        ts = s.get("timestamp_utc") or s.get("timestamp")
+        info = other_map.get(ts, {})
+        if target == "WIN$N":
+            s["p_up_top8"] = info.get("p_up")
+            s["price_diverge_top8_z"] = info.get("price_diverge_z")
+            s["price_diverge_top8_basket_z"] = info.get("price_diverge_basket_z")
+            s["price_diverge_top8_probit_z"] = info.get("price_diverge_probit_z")
+        elif target == "WIN$N_TOP8":
+            s["p_up_top8"] = s.get("p_up")
+            s["price_diverge_top8_z"] = s.get("price_diverge_z")
+            s["price_diverge_top8_basket_z"] = s.get("price_diverge_basket_z")
+            s["price_diverge_top8_probit_z"] = s.get("price_diverge_probit_z")
+            s["p_up_macro"] = info.get("p_up")
+            s["price_diverge_macro_z"] = info.get("price_diverge_z")
+            s["price_diverge_macro_basket_z"] = info.get("price_diverge_basket_z")
+            s["price_diverge_macro_probit_z"] = info.get("price_diverge_probit_z")
+
+
 def _get_series_data_sync(target: str, session_date: str, version: str, timeframe: str = "M5", mode: str = "live") -> dict:
+    from backend.timeconv import is_current_session_date
     series_cache.clear()
     overview_cache_data.clear()
-    is_today = (session_date == date.today().isoformat())
+    is_today = is_current_session_date(session_date)
     cache_key = (target, session_date, version, timeframe, mode)
     if not is_today and cache_key in series_cache:
         print(f"[CACHE HIT] {cache_key}", flush=True)
@@ -420,13 +531,15 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
     if mode == "live":
         live_snaps = get_live_snapshots(conn, target_real, session_date, timeframe=tf_query)
         if live_snaps and len(live_snaps) > 0:
-            conn.close()
             for s in live_snaps:
                 ts_str = s.get("timestamp_utc") or s.get("timestamp")
                 if ts_str and "T" in ts_str:
                     s["time"] = ts_str.split("T")[1][:5]
                 elif ts_str:
                     s["time"] = ts_str
+
+            _enrich_top8_overlay(conn, live_snaps, target_real, session_date, tf_query, mode)
+            conn.close()
 
             result = {
                 "session_date": session_date,
@@ -454,13 +567,14 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
                 series_cache[cache_key] = result
             return result
 
-    conn.close()
-
     snapshots = engine.compute_from_db(session_date, target=target, version=version, timeframe=timeframe, persist_state=is_today)
     if not snapshots:
+        conn.close()
         return {"error": f"Sem dados para sessão {session_date}"}
 
     series_data = [_snap_to_dict(s) for s in snapshots]
+    conn.close()
+
     try:
         from backend.irai.nwe import compute_nwe
         series_data = compute_nwe(series_data, history_closes)
@@ -499,7 +613,8 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
 
 
 def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M5") -> dict:
-    is_today = (session_date == date.today().isoformat())
+    from backend.timeconv import is_current_session_date
+    is_today = is_current_session_date(session_date)
     cache_key = (session_date, version, timeframe)
     if not is_today and cache_key in overview_cache_data:
         cached_targets = overview_cache_data[cache_key].get("targets", [])
@@ -686,7 +801,9 @@ async def irai_series(
 ):
     """Série IRAI completa para uma sessão. Suporta multi-target e modo imutável live."""
     if session_date is None:
-        session_date = date.today().isoformat()
+        from backend.timeconv import current_session_date
+        t_info = next((t for t in engine.registered_targets if t["target"] == target), {})
+        session_date = current_session_date(t_info.get("session_start_h", 0) != 0)
 
     result = await run_in_threadpool(_get_series_data_sync, target, session_date, version, timeframe=timeframe, mode=mode)
     if "error" in result:
@@ -723,6 +840,7 @@ def _snap_to_dict(snap) -> dict:
     """Converte snapshot para dict serializável."""
     return {
         "timestamp": snap.timestamp,
+        "is_pre_market": getattr(snap, "is_pre_market", False),
         "session_date": snap.session_date,
         "bar_idx": snap.bar_idx,
         "t_frac": snap.t_frac,
@@ -744,6 +862,8 @@ def _snap_to_dict(snap) -> dict:
         "flow_confirms": snap.flow_confirms,
         "price_diverges": snap.price_diverges,
         "price_diverge_z": snap.price_diverge_z,
+        "price_diverge_basket_z": getattr(snap, "price_diverge_basket_z", None),
+        "price_diverge_probit_z": getattr(snap, "price_diverge_probit_z", None),
         "pair_z": getattr(snap, "pair_z", None),
         "pair_factor": getattr(snap, "pair_factor", None),
         "pair_beta": getattr(snap, "pair_beta", None),
@@ -814,4 +934,4 @@ async def websocket_irai(ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.api.main:app", host="0.0.0.0", port=8888, reload=True)
+    uvicorn.run("backend.api.main:app", host="127.0.0.1", port=8888)

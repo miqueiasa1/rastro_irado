@@ -36,6 +36,8 @@ ALL_FACTORS = [
     "iSharesTreasury1-3+",  # SHY - Treasury curto (1-3y)
     "iSharesUSEmerging+",   # EMB - EM USD Bond
     "iSharesCurrencyBond+", # LEMB - EM Local Currency Bond
+    # --- Top 8 Ações IBOV ---
+    "VALE3", "PETR4", "ITUB4", "BBDC4", "ELET3", "WEGE3", "ABEV3", "B3SA3",
 ]
 
 # Pares que compõem o DXY — não podem usar DXY como fator (multicolinearidade)
@@ -43,8 +45,7 @@ DXY_COMPONENTS = {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"}
 
 
 # Alias: target lógico → símbolo nos dados
-# WDO$N e DOL$N rastreiam o mesmo preço — WDO é o contrato mini oficial
-ALIASES = {}  # sem aliases: usar WDO$N diretamente
+ALIASES = {"WIN$N_TOP8": "WIN$N"}
 
 
 def load_daily_returns(conn, session_start_h, session_end_h):
@@ -53,15 +54,23 @@ def load_daily_returns(conn, session_start_h, session_end_h):
         "SELECT symbol, timestamp_utc, open, close FROM market_bars WHERE timeframe='M5'",
         conn,
     )
-    df["timestamp"] = pd.to_datetime(df["timestamp_utc"])
+    df["timestamp"] = pd.to_datetime(df["timestamp_utc"]).dt.tz_localize(None)
     df["hour"] = df["timestamp"].dt.hour
     df["date"] = df["timestamp"].dt.date
 
-    # Filtrar por sessão
-    if session_end_h == 24:
-        # 24h — sem filtro de hora
-        pass
-    else:
+    # Filtrar por sessão — MESMA definição usada pelo engine (backend/irai/engine.py):
+    #  - Alvos B3 (session_start_h != 0): pregão 09:00–18:30 de Brasília, convertido do relógio do
+    #    broker (NY+7) com o DST americano de cada data. Vale para alvo E fatores (o engine mede o
+    #    retorno dos fatores a partir da abertura da B3). A data da sessão é a data de Brasília.
+    #  - Alvos globais: dia do broker inteiro (00:00–24:00).
+    if session_start_h != 0:
+        ny_wall = df["timestamp"] - pd.Timedelta(hours=7)
+        brt = (ny_wall.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="shift_forward")
+                      .dt.tz_convert("America/Sao_Paulo"))
+        brt_minutes = brt.dt.hour * 60 + brt.dt.minute
+        df = df[(brt_minutes >= 9 * 60) & (brt_minutes < 18 * 60 + 30)].copy()
+        df["date"] = brt[df.index].dt.date
+    elif session_end_h != 24:
         df = df[(df["hour"] >= session_start_h) & (df["hour"] < session_end_h)]
 
     daily = {}
@@ -175,7 +184,14 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
         exclude.add("iSharesBrazil+")
         print(f"  [regra] {target} exclui iSharesBrazil+ (proxy da mesma bolsa)")
 
-    available_factors = [f for f in ALL_FACTORS if f in daily and f not in exclude]
+    if target == "WIN$N_TOP8":
+        top8_basket = ["VALE3", "PETR4", "ITUB4", "BBDC4", "ELET3", "WEGE3", "ABEV3", "B3SA3"]
+        available_factors = [f for f in top8_basket if f in daily]
+        min_factors = 1 if available_factors else 4
+        max_factors = max(len(available_factors), 1)
+        print(f"  [regra] WIN$N_TOP8: Forçando fatores da cesta Top 8 IBOV ({len(available_factors)}/8 disponíveis nos dados)")
+    else:
+        available_factors = [f for f in ALL_FACTORS if f in daily and f not in exclude]
 
     print(f"  Fatores disponíveis: {len(available_factors)}")
     print(f"  Sessões target: {len(target_ret)}")
@@ -184,6 +200,21 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
     if len(available_factors) < min_factors:
         print(f"  [FAIL] Poucos fatores ({len(available_factors)} < {min_factors})")
         return None
+
+    # Cobertura mínima: fatores com histórico curto (ex.: ações B3 coletadas só desde ago/2026)
+    # derrubariam o dropna() de TODAS as sessões. Exige presença em >= 80% das últimas 252 sessões.
+    if target != "WIN$N_TOP8":
+        # Só dias úteis: ativos 24/7 (BTC) têm sessões de fim de semana em que nenhum fator negocia
+        tgt_idx = target_ret.dropna().index
+        recent_idx = [d for d in tgt_idx if getattr(d, "weekday", lambda: 0)() < 5][-252:]
+        coverage = {f: float(daily[f].reindex(recent_idx).notna().mean()) for f in available_factors}
+        low = sorted(f for f, c in coverage.items() if c < 0.8)
+        if low:
+            print(f"  [cobertura] Excluídos por histórico insuficiente (<80% de {len(recent_idx)} sessões): {', '.join(low)}")
+        available_factors = [f for f in available_factors if coverage[f] >= 0.8]
+        if len(available_factors) < min_factors:
+            print(f"  [FAIL] Poucos fatores com cobertura ({len(available_factors)} < {min_factors})")
+            return None
 
     # Últimos 252 dias úteis
     merged_all = pd.DataFrame({"target": target_ret})
@@ -401,9 +432,19 @@ def save_to_db(conn, target, slug, result):
     # Limpar TODOS os params antigos deste slug antes de inserir os novos.
     # Isso evita params de calibrações anteriores (com fatores diferentes)
     # ficarem no banco e causando modelos híbridos incorretos.
-    deleted = conn.execute(
-        "DELETE FROM model_params WHERE param_name LIKE ?", (f"{prefix}%",)
-    ).rowcount
+    # LIKE com '_' escapado (em LIKE '_' é curinga) e excluindo slugs que começam com este
+    # prefixo (ex.: calibrar 'win' NÃO pode apagar os params de 'win_top8').
+    def _like_prefix(p):
+        return p.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+    other_slugs = [r[0] for r in conn.execute("SELECT slug FROM asset_models WHERE slug != ?", (slug,))
+                   if r[0] and r[0].startswith(prefix)]
+    sql = "DELETE FROM model_params WHERE param_name LIKE ? ESCAPE '\\'"
+    args = [_like_prefix(prefix)]
+    for other in other_slugs:
+        sql += " AND param_name NOT LIKE ? ESCAPE '\\'"
+        args.append(_like_prefix(f"{other}_"))
+    deleted = conn.execute(sql, args).rowcount
     if deleted:
         print(f"  [purge] {deleted} params antigos de '{prefix}' removidos")
 
@@ -430,7 +471,7 @@ def save_to_db(conn, target, slug, result):
     """, (
         json.dumps(result["factors"]),
         json.dumps(result["factor_labels"]),
-        result["acc"],
+        result["accuracy"],
         result["r2"],
         result["n_sessions"],
         effective,

@@ -4,7 +4,7 @@
 
 | Ambiente | URL | Dados |
 |----------|-----|-------|
-| **Local** | http://localhost:5175 | API local (porta 8888) + SQLite |
+| **Local** | http://localhost:5175 | API local (127.0.0.1:8888, só loopback) + SQLite |
 | **Web** | https://rastromacro.web.app | Firebase RTDB (sync periódico) |
 
 ## Deploy Frontend (Firebase Hosting)
@@ -81,19 +81,21 @@ Este batch inicia 4 processos em janelas separadas:
 
 ### GEX Levels
 
-Os dados de Gamma Exposure são atualizados automaticamente quando o `GEX_DAILY_ALL.bat` é executado no projeto WDO×WIN pair trading. O step `[SYNC]` no final do batch chama `scripts/sync_gex_to_irai.py`.
+Os dados de Gamma Exposure são atualizados pelo `scheduled_runner.py` (07:30) ou manualmente pelo `GEX_DAILY_ALL.bat` no projeto WDO×WIN pair trading (15 ativos). O step `[SYNC]` chama `scripts/sync_gex_to_irai.py`, que:
 
-Fluxo:
-```
-GEX_DAILY_ALL.bat
-    ├── [1-11/11] Engines GEX (11 ativos)
-    ├── Git commit do .pine
-    └── [SYNC] sync_gex_to_irai.py → frontend/src/gexLevels.js
-```
+- grava os níveis no SQLite (`gex_levels`) e no Firebase RTDB (`summaries/gex/...`) — o site lê direto do RTDB, **sem redeploy**;
+- publica o Pine Script no cofre `pine_vault/<sha256(PINE_SALT:PINE_PASSWORD)>` (senha no `.env` da raiz; nunca em `frontend/public`);
+- regenera `frontend/src/gexLevels.js` (fallback estático).
 
-Após a atualização do `gexLevels.js`:
-- **Local:** O Vite HMR aplica automaticamente
-- **Web:** Requer rebuild + deploy: `cd frontend && npm run build && npx firebase deploy --only hosting`
+As cadeias de opções brutas (CBOE/Deribit) ficam arquivadas em `wdo win pair trading/gex/data/chain_archive/AAAA-MM-DD/` para recálculo futuro.
+
+## Fuso horário (importante)
+
+`market_bars.timestamp_utc` usa o **relógio do broker** (Nova York + 7h: GMT+3 no verão americano, GMT+2 no inverno). A B3 é convertida de BRT com offset dinâmico (+6h/+5h) — ver `backend/timeconv.py`. O pregão B3 é definido como 09:00–18:30 BRT.
+
+## Manutenção diária
+
+Tarefa agendada **"IRAI Daily Maintenance"** (seg–sex 19:15) roda `scripts/daily_maintenance.py`: backup do SQLite em `D:\irai_backups` (7 cópias), limpeza de logs > 14 dias e retenção de 60 dias no RTDB.
 
 ### Recalibração
 

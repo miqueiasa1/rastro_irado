@@ -72,3 +72,6 @@ result*.json
 
 # Scratch
 scratch/
+
+# Pine pago (nunca versionar/servir publicamente)
+*.pine

@@ -1,6 +1,6 @@
-# Regras do Projeto IRAI (Preservação de Layout, Sincronização e Zoom)
+# Regras do Projeto IRAI (Preservação de Layout, Sincronização, Zoom e Anti-Repainting)
 
-Este arquivo contém as regras e restrições críticas do projeto. Qualquer agente de IA ou desenvolvedor deve ler e seguir estritamente estas diretrizes antes de realizar qualquer alteração no repositório.
+Este arquivo contém as regras e restrições críticas do projeto IRAI. Qualquer agente de IA ou desenvolvedor deve ler e seguir estritamente estas diretrizes.
 
 ## 1. Preservação do Gráfico de Pair Spread (Z-Score dinâmico)
 - **Regra**: O gráfico de Pair Spread (`TVPairwiseZScoreChart`) **deve estar sempre visível** na tela de detalhes para todos os ativos.
@@ -18,3 +18,12 @@ Este arquivo contém as regras e restrições críticas do projeto. Qualquer age
   - Se o usuário estiver olhando para o passado (analisando dados históricos), a posição do zoom e a área visualizada devem permanecer completamente imóveis.
   - Se o usuário estiver posicionado na borda direita do gráfico (tempo real), o gráfico deve continuar rolando suavemente para a direita para acompanhar os novos ticks que entram, mantendo o nível de zoom atual.
 - **Implementação**: Armazenar o range visível no `savedRangeRef` e analisar a proximidade com a borda direita (`prevValidCountRef`) antes de decidir mover o foco horizontal dos gráficos.
+
+## 4. Prevenção de Repainting & Pré-Mercado (Zero-Repainting Rule)
+- **Regra**: Ativos que ainda não abriram negócios na sessão do dia atual (sem barras registradas hoje) **NUNCA devem calcular retornos ou Z-Scores em cima da janela de aquecimento da sessão anterior**.
+- **Comportamento Esperado**:
+  - Enquanto um ativo não possuir barras negociadas na sessão atual (`session_bars`), o preço de abertura de referência (`open_price`) deve ser fixado no último preço conhecido (último fechamento de ontem).
+  - Isso garante matematicamente `Retorno = 0.0%`, `Z-Score = 0.0` e `Contribuição = 0.0` até que a primeira barra oficial do dia seja negociada no mercado real, evitando saltos verticais (repainting) quando a bolsa abre (09:00 na B3, 10:30 em NY).
+- **Gap Stitching no Nadaraya-Watson Envelope (NWE)**:
+  - No cálculo do NWE (`backend/irai/nwe.py`), aplicar gap stitching (`history_prices = [p + gap for p in history_prices]`) para alinhar o histórico ao preço de abertura de hoje.
+  - Isso impede que o salto do gap noturno infle artificialmente o erro médio (MAE), evitando bandas "desfiguradas" ou estufadas como um balão no início da sessão.

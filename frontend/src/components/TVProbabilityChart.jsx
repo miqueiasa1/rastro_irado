@@ -15,9 +15,9 @@ const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis 
   const handleChartCreated = useCallback((chart) => {
     // Line: p_up on the right price scale
     const pUpSeries = chart.addSeries(LineSeries, {
-      color: "#60A5FA",
+      color: "#38BDF8",
       lineWidth: 2,
-      lineStyle: LineStyle.Dashed,
+      lineStyle: LineStyle.Solid,
       priceScaleId: "right",
       crosshairMarkerVisible: true,
       priceLineVisible: false,

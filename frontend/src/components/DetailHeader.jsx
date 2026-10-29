@@ -1,5 +1,6 @@
 import React from 'react';
 import { TargetSelector } from './TargetSelector';
+import { PineDownloadButton } from './PineDownloadModal';
 
 export function DetailHeader({
   onBackToOverview,
@@ -35,7 +36,7 @@ export function DetailHeader({
           }}
           onMouseEnter={e => e.currentTarget.style.borderColor = '#64748B'}
           onMouseLeave={e => e.currentTarget.style.borderColor = '#334155'}
-        >← PAINEL</button>
+        >â† PAINEL</button>
         <h1 style={{
           fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 400,
           margin: 0, color: 'var(--amber)',
@@ -53,7 +54,7 @@ export function DetailHeader({
         {now && (
           <span style={{
             fontFamily: 'var(--font-mono)', fontSize: 12, color: '#64748B',
-          }}>{now.time} · barra {validSeriesLength}</span>
+          }}>{now.time} Â· barra {validSeriesLength}</span>
         )}
 
         {liveMode && isLiveMode && (
@@ -62,7 +63,7 @@ export function DetailHeader({
             fontFamily: 'var(--font-mono)', fontSize: 9, color: '#4ADE80',
             background: 'rgba(74,222,128,0.1)', padding: '2px 8px', borderRadius: 4,
             border: '1px solid rgba(74,222,128,0.3)',
-          }} title="Série imutável gravada em tempo real sem repainting retroativo">
+          }} title="SÃ©rie imutÃ¡vel gravada em tempo real sem repainting retroativo">
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
               background: '#4ADE80',
@@ -120,8 +121,8 @@ export function DetailHeader({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            title="Gráfico de Linha"
-          >📈</button>
+            title="GrÃ¡fico de Linha"
+          >ðŸ“ˆ</button>
           <button
             onClick={() => setChartType('candle')}
             style={{
@@ -137,8 +138,8 @@ export function DetailHeader({
               alignItems: 'center',
               justifyContent: 'center',
             }}
-            title="Gráfico de Velas"
-          >🕯️</button>
+            title="GrÃ¡fico de Velas"
+          >ðŸ•¯ï¸</button>
         </div>
 
         {/* LIVE button + date dropdown */}
@@ -183,6 +184,9 @@ export function DetailHeader({
             {dates.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
+
+        {/* Pine Script Download Button (protegido por senha validada no servidor) */}
+        <PineDownloadButton firebaseUrl={firebaseUrl} />
       </div>
     </header>
   );

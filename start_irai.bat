@@ -22,7 +22,7 @@ timeout /t 2 /nobreak > nul
 
 :: Backend API
 echo [1/4] Iniciando FastAPI (porta 8888)...
-start "IRAI-API" cmd /c "cd /d %ROOT% && :loop && python -m uvicorn backend.api.main:app --host 0.0.0.0 --port 8888 || (echo [API CAIU] Reiniciando em 5s... && timeout /t 5 && goto loop)"
+start "IRAI-API" cmd /c "cd /d %ROOT% && :loop && python -m uvicorn backend.api.main:app --host 127.0.0.1 --port 8888 || (echo [API CAIU] Reiniciando em 5s... && timeout /t 5 && goto loop)"
 timeout /t 3 /nobreak > nul
 
 :: Worker Collector

@@ -47,6 +47,22 @@ def test_engine_multi_factor_basket_spread():
             assert -10.0 <= z <= 10.0
 
 
+def test_engine_forex_basket_spread():
+    """Valida que para ativos Forex, o pair_factor usa a Cesta Cambial Sintética."""
+    engine = IRAIEngine()
+    snaps = engine.compute_from_db("2026-07-20", "EURUSD", "both", "M5", persist_state=False)
+    assert isinstance(snaps, list)
+    if len(snaps) > 10:
+        for s in snaps:
+            assert hasattr(s, "pair_z")
+            assert hasattr(s, "pair_factor")
+            if s.pair_factor is not None:
+                assert "CESTA" in s.pair_factor
+            if s.pair_z is not None:
+                assert not math.isnan(s.pair_z)
+                assert not math.isinf(s.pair_z)
+
+
 def test_kalman_state_monotonicity():
     """Garante que salva/carrega do estado Kalman respeita a ordem monotônica de timestamps."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:

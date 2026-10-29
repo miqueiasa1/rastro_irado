@@ -16,6 +16,7 @@ import { FACTOR_DISPLAY, getFactorMeta } from './utils/constants'
 import { parseTimeToTimestamp } from './utils/time'
 import { processSeriesSignals } from './utils/signalProcessor'
 import { DetailHeader } from './components/DetailHeader'
+import { isForexTarget } from './utils/forex'
 
 const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
 
@@ -238,9 +239,23 @@ export default function App() {
     trackMouse: false
   });
 
+  const [zRastroMode, setZRastroMode] = useState(() => {
+    return localStorage.getItem('irai_z_rastro_mode') || 'basket'; // 'basket' or 'probit'
+  });
+
+  const handleToggleZRastroMode = useCallback((mode) => {
+    setZRastroMode(mode);
+    localStorage.setItem('irai_z_rastro_mode', mode);
+  }, []);
+
   const validSeries = useMemo(() => series.filter(s => s.win_current !== undefined), [series]);
   const now = validSeries.length > 0 ? validSeries[validSeries.length - 1] : null
   const hasFlow = now && 'flow_confirms' in now
+  const kalmanFactorKeysStr = Object.keys(now?.factors_v2 || now?.factors || {}).join('|')
+  const kalmanFactorKeys = useMemo(
+    () => (kalmanFactorKeysStr ? kalmanFactorKeysStr.split('|') : []),
+    [kalmanFactorKeysStr]
+  )
 
   const isOffline = error && (error.includes('Failed to fetch') || error.includes('NetworkError') || error.includes('Load failed'));
 
@@ -331,8 +346,24 @@ export default function App() {
   useEffect(() => {
     let timeHandlers = [];
     let crosshairHandlers = [];
+    let boundFingerprint = '';
 
-    const timer = setTimeout(() => {
+    const unbindAll = () => {
+      timeHandlers.forEach(h => {
+        try { h.chart.timeScale().unsubscribeVisibleLogicalRangeChange(h.handler); } catch { /* ignore */ }
+      });
+      crosshairHandlers.forEach(h => {
+        try { h.chart.unsubscribeCrosshairMove(h.handler); } catch { /* ignore */ }
+      });
+      timeHandlers = [];
+      crosshairHandlers = [];
+    };
+
+    // REGRA 2 (AGENTS.md): os gráficos montam DEPOIS deste efeito (a seção de detalhe só aparece
+    // quando os dados chegam). Antes, o vínculo rodava uma única vez com os refs ainda nulos e a
+    // sincronização ficava desligada até o próximo poll. Agora verificamos periodicamente quais
+    // gráficos estão montados e (re)vinculamos sempre que o conjunto/instâncias mudar.
+    const bindIfChanged = () => {
       const charts = [
         { chart: probChartRef.current?.getChart(), series: probChartRef.current?.getMainSeries(), key: 'prob' },
         { chart: nweChartRef.current?.getChart(), series: nweChartRef.current?.getMainSeries(), key: 'nwe' },
@@ -343,6 +374,12 @@ export default function App() {
       ].filter(c => c.chart);
 
       if (charts.length < 2) return;
+
+      // Impressão digital das instâncias montadas (detecta remontagem de qualquer gráfico)
+      const fp = charts.map(c => c.key + ':' + (c.chart.__iraiId || (c.chart.__iraiId = Math.random().toString(36).slice(2)))).join(',');
+      if (fp === boundFingerprint) return;
+      boundFingerprint = fp;
+      unbindAll();
 
       // Restore saved range to all charts (preserve user zoom across re-binds)
       if (savedRangeRef.current) {
@@ -438,20 +475,15 @@ export default function App() {
         c.chart.subscribeCrosshairMove(handler);
         crosshairHandlers.push({ chart: c.chart, handler });
       });
-    }, 50);
+    };
+
+    const timer = setTimeout(bindIfChanged, 50);
+    const watcher = setInterval(bindIfChanged, 250);
 
     return () => {
       clearTimeout(timer);
-      timeHandlers.forEach(h => {
-        try {
-          h.chart.timeScale().unsubscribeVisibleLogicalRangeChange(h.handler);
-        } catch { /* ignore */ }
-      });
-      crosshairHandlers.forEach(h => {
-        try {
-          h.chart.unsubscribeCrosshairMove(h.handler);
-        } catch { /* ignore */ }
-      });
+      clearInterval(watcher);
+      unbindAll();
     };
   }, [chartType, seriesWithNWE, timeframe, selectedTarget, effectiveDate, chartFingerprint]);
 
@@ -468,7 +500,9 @@ export default function App() {
       prevValidCountRef.current = 0;
     }
 
-    const timer = setTimeout(() => {
+    let attempts = 0;
+    let timer = null;
+    const align = () => {
       const charts = [
         probChartRef.current?.getChart(),
         nweChartRef.current?.getChart(),
@@ -478,7 +512,11 @@ export default function App() {
         priceDivergeZChartRef.current?.getChart()
       ].filter(Boolean);
 
-      if (charts.length < 2) return;
+      // Gráficos ainda não montados: tenta de novo (até ~5s)
+      if (charts.length < 2) {
+        if (attempts++ < 20) timer = setTimeout(align, 250);
+        return;
+      }
 
       const validCount = seriesWithNWE.filter(s => s.win_current !== undefined).length;
       if (validCount > 0) {
@@ -517,7 +555,8 @@ export default function App() {
         });
         isSyncingRef.current = false;
       }
-    }, 300); // 300ms to let all child setData calls settle
+    };
+    timer = setTimeout(align, 300); // 300ms to let all child setData calls settle
 
     return () => clearTimeout(timer);
   }, [seriesWithNWE, timeframe, selectedTarget, effectiveDate]);
@@ -650,6 +689,26 @@ export default function App() {
               </div>
             )}
 
+            {/* REGRA 1 (AGENTS.md): sem barras válidas (ex.: pré-mercado sem série), o painel principal
+                não renderiza, mas o Pair Spread continua visível com eixos vazios. */}
+            {!now && !loading && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
+                  letterSpacing: '0.1em', textTransform: 'uppercase', padding: '2px 0 1px',
+                }}>
+                  z-score spread
+                </div>
+                <TVPairwiseZScoreChart
+                  history={seriesWithNWE}
+                  effectiveDate={effectiveDate}
+                  valueKey="pair_z"
+                  hideXAxis={false}
+                  height="75px"
+                />
+              </div>
+            )}
+
             {now && !loading && (
               <>
                 {/* ── SIGNAL GAUGES ── */}
@@ -672,32 +731,65 @@ export default function App() {
                       nweUp={(nweNow?.nwe_slope || 0) >= 0}
                       nweUpper={nweNow?.nwe_upper_price}
                       nweLower={nweNow?.nwe_lower_price}
+                      nweCenter={nweNow?.nwe_center_price}
+                      nweSlope={nweNow?.nwe_slope}
                       winCurrent={now.win_current}
                       isPreview={now.is_preview}
                     />
                   )}
-                  <SignalGauge
-                    title="Z-SCORE SPREAD"
-                    type="pair_z"
-                    zValue={now.pair_z}
-                    targetLabel={now.pair_factor || "Sem Par Ativo"}
-                    beta={now.pair_beta}
-                  />
-                  {(selectedTarget === 'WIN$N' || selectedTarget === 'WDO$N' || now.pair_fixed_z != null) && (
-                    <SignalGauge
-                      title={selectedTarget === 'WIN$N' ? "Z-SCORE WDO" : (selectedTarget === 'WDO$N' ? "Z-SCORE WIN" : "Z-SCORE PAR FIXO")}
-                      type="pair_fixed_z"
-                      zValue={now.pair_fixed_z}
-                      targetLabel={now.pair_fixed_factor || (selectedTarget === 'WIN$N' ? "WDO" : "WIN")}
-                      beta={now.pair_fixed_beta}
-                    />
+                  {isForexTarget(selectedTarget) ? (
+                    <>
+                      <SignalGauge
+                        title="POSIÇÃO ENVELOPE NWE"
+                        type="nwe_pos"
+                        winCurrent={now.win_current}
+                        nweUpper={nweNow?.nwe_upper_price}
+                        nweLower={nweNow?.nwe_lower_price}
+                        nweCenter={nweNow?.nwe_center_price}
+                        nweSlope={nweNow?.nwe_slope}
+                        nweUp={(nweNow?.nwe_slope || 0) >= 0}
+                        targetLabel={seriesInfo.display_name || selectedTarget}
+                      />
+                      <SignalGauge
+                        title="CONFLUÊNCIA OPERACIONAL"
+                        type="unified"
+                        pUp={now.p_up}
+                        score={now.score}
+                        winCurrent={now.win_current}
+                        nweUpper={nweNow?.nwe_upper_price}
+                        nweLower={nweNow?.nwe_lower_price}
+                        nweCenter={nweNow?.nwe_center_price}
+                        nweSlope={nweNow?.nwe_slope}
+                        nweUp={(nweNow?.nwe_slope || 0) >= 0}
+                        targetLabel={seriesInfo.display_name || selectedTarget}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <SignalGauge
+                        title="Z-SCORE SPREAD"
+                        type="pair_z"
+                        zValue={now.pair_z}
+                        targetLabel={now.pair_factor || "Sem Par Ativo"}
+                        beta={now.pair_beta}
+                      />
+                      {(selectedTarget === 'WIN$N' || selectedTarget === 'WDO$N' || now.pair_fixed_z != null) && (
+                        <SignalGauge
+                          title={selectedTarget === 'WIN$N' ? "Z-SCORE WDO" : (selectedTarget === 'WDO$N' ? "Z-SCORE WIN" : "Z-SCORE PAR FIXO")}
+                          type="pair_fixed_z"
+                          zValue={now.pair_fixed_z}
+                          targetLabel={now.pair_fixed_factor || (selectedTarget === 'WIN$N' ? "WDO" : "WIN")}
+                          beta={now.pair_fixed_beta}
+                        />
+                      )}
+                      <SignalGauge
+                        title="Z-SCORE MACRO"
+                        type="rastro_z"
+                        zValue={now.price_diverge_z}
+                        targetLabel="Divergência Macro"
+                      />
+                    </>
                   )}
-                  <SignalGauge
-                    title="Z-SCORE DO RASTRO"
-                    type="rastro_z"
-                    zValue={now.price_diverge_z}
-                    targetLabel="Divergência de Preço"
-                  />
                 </div>
 
                 {/* ── STACKED CHARTS: same X axis ── */}
@@ -743,13 +835,13 @@ export default function App() {
                       <div style={{ display: 'flex', border: '1px solid #1E293B', borderRadius: 4, overflow: 'hidden' }}>
                         <div
                           style={{
-                            background: 'rgba(96,165,250,0.1)',
+                            background: 'rgba(56,189,248,0.1)',
                             border: 'none', padding: '4px 8px',
                             display: 'flex', alignItems: 'center', gap: 4,
                           }}
                         >
-                          <div style={{ width: 12, height: 2, background: '#60A5FA', borderTop: '1px dashed #60A5FA' }} />
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#60A5FA', fontWeight: 600 }}>Rastro Macro</span>
+                          <div style={{ width: 12, height: 2, background: '#38BDF8' }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#38BDF8', fontWeight: 600 }}>P(↑) Rastro Macro</span>
                         </div>
                       </div>
                     </div>
@@ -895,9 +987,18 @@ export default function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0 1px' }}>
                         <div style={{
                           fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
-                          letterSpacing: '0.1em', textTransform: 'uppercase',
+                          letterSpacing: '0.1em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6,
                         }}>
-                          z-score spread {now.pair_factor ? `(${now.pair_factor})` : ''}
+                          <span>z-score spread {now.pair_factor ? `(${now.pair_factor})` : ''}</span>
+                          {now.pair_factor && now.pair_factor.includes('CESTA') && (
+                            <span style={{
+                              fontSize: 8, padding: '1px 4px', borderRadius: 3,
+                              background: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8',
+                              border: '1px solid rgba(56, 189, 248, 0.3)', letterSpacing: '0.05em'
+                            }}>
+                              Arbitragem Forex
+                            </span>
+                          )}
                         </div>
                       </div>
                       <TVPairwiseZScoreChart
@@ -932,15 +1033,43 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* BOTTOM 2: Price Divergence Z-Score */}
-                    {seriesWithNWE.some(s => s.price_diverge_z != null) && (
+                    {/* BOTTOM 2: Price Divergence Z-Score Macro */}
+                    {seriesWithNWE.some(s => (s.price_diverge_z != null || s.price_diverge_basket_z != null || s.price_diverge_probit_z != null)) && (
                       <div style={{ marginTop: 2 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 0 1px' }}>
                           <div style={{
                             fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--amber-dim)',
                             letterSpacing: '0.1em', textTransform: 'uppercase',
                           }}>
-                            z-score rastro
+                            z-score rastro (macro) — {zRastroMode === 'basket' ? 'Resíduo Cesta' : 'Probit P(↑)'}
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <button
+                              onClick={() => handleToggleZRastroMode('basket')}
+                              style={{
+                                background: zRastroMode === 'basket' ? 'rgba(217, 119, 6, 0.25)' : 'rgba(30, 41, 59, 0.5)',
+                                color: zRastroMode === 'basket' ? '#FBBF24' : '#64748B',
+                                border: `1px solid ${zRastroMode === 'basket' ? '#F59E0B' : '#334155'}`,
+                                borderRadius: 3, padding: '1px 6px', fontSize: 8, fontFamily: 'var(--font-mono)',
+                                cursor: 'pointer', fontWeight: zRastroMode === 'basket' ? 700 : 500,
+                              }}
+                              title="Modo 1: Spread Linear Multifatorial (Pair Trading Basket Spread)"
+                            >
+                              CESTA
+                            </button>
+                            <button
+                              onClick={() => handleToggleZRastroMode('probit')}
+                              style={{
+                                background: zRastroMode === 'probit' ? 'rgba(217, 119, 6, 0.25)' : 'rgba(30, 41, 59, 0.5)',
+                                color: zRastroMode === 'probit' ? '#FBBF24' : '#64748B',
+                                border: `1px solid ${zRastroMode === 'probit' ? '#F59E0B' : '#334155'}`,
+                                borderRadius: 3, padding: '1px 6px', fontSize: 8, fontFamily: 'var(--font-mono)',
+                                cursor: 'pointer', fontWeight: zRastroMode === 'probit' ? 700 : 500,
+                              }}
+                              title="Modo 2: Divergência Probit Padronizada (Z Preço vs Z P_up)"
+                            >
+                              PROBIT P(↑)
+                            </button>
                           </div>
                         </div>
                         <TVPriceDivergeZScoreChart
@@ -950,6 +1079,7 @@ export default function App() {
                           hideXAxis={true}
                           threshold={2.0}
                           height="75px"
+                          valueKey={zRastroMode === 'probit' ? 'price_diverge_probit_z' : 'price_diverge_basket_z'}
                         />
                       </div>
                     )}
@@ -968,7 +1098,7 @@ export default function App() {
                         <TVKalmanWeightsChart
                           ref={kalmanChartRef}
                           history={seriesWithNWE}
-                          factorKeys={Object.keys(now.factors_v2 || now.factors || {})}
+                          factorKeys={kalmanFactorKeys}
                           effectiveDate={effectiveDate}
                           hideXAxis={true}
                         />

@@ -1,6 +1,6 @@
 /**
- * Utiitário puro de processamento de sinais estatísticos para o IRAI Dashboard.
- * Recebe as barras brutas do NWE/Engine e calcula os marcadores de gráfico e cores do Heatmap (D-P-Z-E).
+ * Utilitário puro de processamento de sinais estatísticos para o IRAI Dashboard.
+ * Recebe as barras brutas do NWE/Engine e calcula os marcadores de gráfico, confluência unificada e Heatmap (D-P-Z-E).
  */
 
 export function processSeriesSignals(rawNwe, seriesInfo = {}, pairSignalsMemory = { current: {} }, zscoreSignalsMemory = { current: {} }) {
@@ -14,89 +14,81 @@ export function processSeriesSignals(rawNwe, seriesInfo = {}, pairSignalsMemory 
     const timestampKey = entry.timestamp_utc || entry.time || index;
     const memKey = `${seriesInfo.target || 'target'}_${timestampKey}`;
 
-    const zScore = entry.pair_z !== undefined ? entry.pair_z : (entry.z_score !== undefined ? entry.z_score : 0);
-    const pUpDir = entry.p_up != null ? entry.p_up : 50;
+    const pUp = entry.p_up != null ? entry.p_up : 50;
+    const currentPrice = entry.win_current;
+    const upper = entry.nwe_upper_price;
+    const lower = entry.nwe_lower_price;
+    const center = entry.nwe_center_price;
+    const nweSlope = entry.nwe_slope || 0;
+    const nweUp = nweSlope >= 0;
 
-    let z_compra = 0;
-    let z_venda = 0;
+    // 1) Cálculo da Posição Relativa no Envelope NWE
+    let nwePosPct = 50;
+    if (currentPrice != null && upper != null && lower != null && upper !== lower) {
+      nwePosPct = ((currentPrice - lower) / (upper - lower)) * 100;
+    }
+
+    const isNweExhaustionDown = upper != null && currentPrice != null && currentPrice > upper;
+    const isNweExhaustionUp = lower != null && currentPrice != null && currentPrice < lower;
+
+    // 2) Sinal Unificado: Rastro Macro + Bandas NWE
+    let unifiedSignal = "neutral";
+    let unifiedColor = "#94A3B8";
+
+    const isRastroBuy = pUp >= 60;
+    const isRastroSell = pUp <= 40;
+
+    if (isRastroBuy) {
+      if (isNweExhaustionDown || nwePosPct > 90) {
+        unifiedSignal = "exhaustion_top";
+        unifiedColor = "#F59E0B"; // Alerta topo esticado
+      } else if (nwePosPct <= 35) {
+        unifiedSignal = "strong_buy";
+        unifiedColor = "#10B981"; // Compra forte no fundo/desconto
+      } else {
+        unifiedSignal = "trend_buy";
+        unifiedColor = "#4ADE80"; // Seguir tendência de alta no canal
+      }
+    } else if (isRastroSell) {
+      if (isNweExhaustionUp || nwePosPct < 10) {
+        unifiedSignal = "exhaustion_bottom";
+        unifiedColor = "#F59E0B"; // Alerta fundo esticado
+      } else if (nwePosPct >= 65) {
+        unifiedSignal = "strong_sell";
+        unifiedColor = "#EF4444"; // Venda forte no topo/prêmio
+      } else {
+        unifiedSignal = "trend_sell";
+        unifiedColor = "#F87171"; // Seguir tendência de baixa no canal
+      }
+    }
+
+    // 3) Gatilhos de Entrada no Gráfico (Compra / Venda com Timing NWE)
     let pair_compra = undefined;
     let pair_venda = undefined;
-    let hm_color_pr = '#1E293B';
 
-    if (zScore != null && isFinite(zScore)) {
-      if (zScore <= -2.0) z_compra = entry.win_current;
-      else if (zScore >= 2.0) z_venda = entry.win_current;
+    if (unifiedSignal === "strong_buy" || (unifiedSignal === "trend_buy" && currentPrice != null && center != null && currentPrice <= center)) {
+      pair_compra = currentPrice;
+    } else if (unifiedSignal === "strong_sell" || (unifiedSignal === "trend_sell" && currentPrice != null && center != null && currentPrice >= center)) {
+      pair_venda = currentPrice;
     }
 
-    const isPairBuy = z_compra > 0;
-    const isPairSell = z_venda > 0;
-
-    if (isLiveBar) {
-      if (isPairBuy) pairSignalsMemory.current[memKey] = 'buy';
-      else if (isPairSell) pairSignalsMemory.current[memKey] = 'sell';
-    }
-
-    const activeSignal = isLiveBar ? pairSignalsMemory.current[memKey] : (isPairBuy ? 'buy' : isPairSell ? 'sell' : null);
-    if (activeSignal === 'buy') {
-      pair_compra = entry.win_current;
-      const isCounterTrend = pUpDir < 45;
-      hm_color_pr = isCounterTrend ? '#EAB308' : '#4ADE80';
-    } else if (activeSignal === 'sell') {
-      pair_venda = entry.win_current;
-      const isCounterTrend = pUpDir > 55;
-      hm_color_pr = isCounterTrend ? '#EAB308' : '#F87171';
-    }
-
-    // Z-Score (Quadrado no gráfico) - Apenas quando há divergência real
-    const prevEntry = index > 0 ? rawNwe[index - 1] : null;
-    const prevZ = prevEntry ? (prevEntry.price_diverge_z || 0) : 0;
-    const currZ = entry.price_diverge_z || 0;
-    const pUp = entry.p_up != null ? entry.p_up : 50;
-
-    const isZBuyRaw = currZ <= -threshold && (entry.price_diverges || pUp >= 50);
-    const isZSellRaw = currZ >= threshold && (entry.price_diverges || pUp <= 50);
-
-    const isZBuy = isZBuyRaw && prevZ > -threshold;
-    const isZSell = isZSellRaw && prevZ < threshold;
-
-    if (isLiveBar) {
-      if (isZBuy) zscoreSignalsMemory.current[memKey] = 'buy';
-      else if (isZSell) zscoreSignalsMemory.current[memKey] = 'sell';
-    }
-
-    const activeZSignal = isLiveBar ? zscoreSignalsMemory.current[memKey] : (isZBuy ? 'buy' : isZSell ? 'sell' : null);
-    let z_compra_val = undefined;
-    let z_venda_val = undefined;
-    if (activeZSignal === 'buy') {
-      z_compra_val = entry.win_current;
-    } else if (activeZSignal === 'sell') {
-      z_venda_val = entry.win_current;
-    }
-
+    // 4) Heatmap e Alertas
     const winReturn = entry.win_return || 0;
-    const isNweExhaustionDown = entry.nwe_upper_price !== undefined && entry.nwe_upper_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current > entry.nwe_upper_price;
-    const isNweExhaustionUp = entry.nwe_lower_price !== undefined && entry.nwe_lower_price !== null && entry.win_current !== undefined && entry.win_current !== null && entry.win_current < entry.nwe_lower_price;
-
-    const isBuy = pUp >= 60;
-    const isSell = pUp <= 40;
-
-    const isReturnDivergentBuy = isBuy && winReturn < 0;
-    const isReturnDivergentSell = isSell && winReturn > 0;
+    const isReturnDivergentBuy = isRastroBuy && winReturn < 0;
+    const isReturnDivergentSell = isRastroSell && winReturn > 0;
     let hm_color_d = isReturnDivergentBuy ? '#4ADE80' : isReturnDivergentSell ? '#F87171' : '#1E293B';
 
-    const nweUp = entry.nwe_slope !== undefined ? entry.nwe_slope >= 0 : undefined;
-    const isNweDivergentBuy = isBuy && nweUp === false;
-    const isNweDivergentSell = isSell && nweUp === true;
+    const isNweDivergentBuy = isRastroBuy && nweUp === false;
+    const isNweDivergentSell = isRastroSell && nweUp === true;
     let hm_color_p = isNweDivergentBuy ? '#4ADE80' : isNweDivergentSell ? '#F87171' : '#1E293B';
 
     let hm_color_z = '#1E293B';
-    if (isZBuyRaw) {
-      hm_color_z = '#4ADE80';
-    } else if (isZSellRaw) {
-      hm_color_z = '#F87171';
-    }
+    const currZ = entry.price_diverge_z || 0;
+    if (currZ <= -threshold) hm_color_z = '#4ADE80';
+    else if (currZ >= threshold) hm_color_z = '#F87171';
 
     let hm_color_e = isNweExhaustionUp ? '#4ADE80' : isNweExhaustionDown ? '#F87171' : '#1E293B';
+    let hm_color_pr = unifiedColor;
 
     if (entry.is_ghost) {
       hm_color_d = 'transparent';
@@ -104,22 +96,19 @@ export function processSeriesSignals(rawNwe, seriesInfo = {}, pairSignalsMemory 
       hm_color_z = 'transparent';
       hm_color_e = 'transparent';
       hm_color_pr = 'transparent';
-      z_compra = 0;
-      z_venda = 0;
       pair_compra = undefined;
       pair_venda = undefined;
-      z_compra_val = undefined;
-      z_venda_val = undefined;
     }
 
     return {
       ...entry,
-      z_compra,
-      z_venda,
+      nwePosPct,
+      unifiedSignal,
+      unifiedColor,
       pair_compra,
       pair_venda,
-      z_compra_val,
-      z_venda_val,
+      z_compra: pair_compra ? currentPrice : 0,
+      z_venda: pair_venda ? currentPrice : 0,
       hm_color_d,
       hm_color_p,
       hm_color_z,

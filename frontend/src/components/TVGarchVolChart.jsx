@@ -6,6 +6,9 @@ export default function TVGarchVolChart({ history = [], forecast = [] }) {
   const baseChartRef = useRef(null);
   const [chartInstance, setChartInstance] = useState(null);
   const volSeriesRef = useRef(null);
+  // Regra 3 (AGENTS.md): o range inicial é aplicado UMA vez por série (ativo). Polls seguintes
+  // atualizam os dados sem tocar no zoom/pan do usuário.
+  const fittedKeyRef = useRef(null);
 
   // Parse and set data when history or series is ready
   useEffect(() => {
@@ -42,14 +45,27 @@ export default function TVGarchVolChart({ history = [], forecast = [] }) {
       .sort((a, b) => a.time.localeCompare(b.time));
 
     if (chartData.length > 0) {
+      const timeScale = chartInstance.timeScale();
+      const prevRange = timeScale.getVisibleLogicalRange();
+      const prevLen = volSeriesRef.current.data ? volSeriesRef.current.data().length : 0;
       volSeriesRef.current.setData(chartData);
-      if (chartData.length > 100) {
-        chartInstance.timeScale().setVisibleLogicalRange({
-          from: chartData.length - 100,
-          to: chartData.length - 1
-        });
-      } else {
-        chartInstance.timeScale().fitContent();
+
+      // Identidade da série: 1º ponto (data + valor) distingue ativos diferentes
+      const seriesKey = `${chartData[0].time}|${chartData[0].value}`;
+      if (fittedKeyRef.current !== seriesKey) {
+        fittedKeyRef.current = seriesKey;
+        if (chartData.length > 100) {
+          timeScale.setVisibleLogicalRange({ from: chartData.length - 100, to: chartData.length - 1 });
+        } else {
+          timeScale.fitContent();
+        }
+      } else if (prevRange && prevLen > 0 && chartData.length > prevLen && prevRange.to >= prevLen - 2) {
+        // Usuário na borda direita: acompanha o novo ponto mantendo o nível de zoom
+        const added = chartData.length - prevLen;
+        timeScale.setVisibleLogicalRange({ from: prevRange.from + added, to: prevRange.to + added });
+      } else if (prevRange) {
+        // Olhando o passado: posição imóvel
+        timeScale.setVisibleLogicalRange(prevRange);
       }
     }
   }, [history, chartInstance]);
