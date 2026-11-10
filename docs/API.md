@@ -176,9 +176,54 @@ Parâmetros do modelo calibrado para um target.
   "sigmas": {"DXY": 0.005, "VIX": 0.012, ...},
   "alpha": 1.0,
   "intercept": 0.0,
-  "factors": ["dxy", "vix", "btcusd", ...]
+  "factors": ["dxy", "vix", "btcusd", ...],
+  "model_version": "win-nowcast-20261028T190510Z",
+  "versioned": true,
+  "effective_from": "2026-10-29"
 }
 ```
+
+`model_version` = `"legacy"` e `versioned` = `false` enquanto a migração da fase 16 não estiver aplicada.
+
+---
+
+### GET `/api/model/versions` (fase 16)
+
+Histórico de versões de modelo (sem o artefato com os coeficientes), status e vigência.
+
+| Parâmetro | Tipo | Default | Descrição |
+|-----------|------|---------|-----------|
+| `target` | string | — | Target (ex.: `WIN$N`). Vazio = todos |
+
+**Response:**
+```json
+{
+  "registry": true,
+  "target": "WIN$N",
+  "slug": "win",
+  "versions": [
+    {
+      "version_id": "win-nowcast-20261028T190510Z",
+      "slug": "win", "kind": "nowcast", "status": "active",
+      "fitted_at": "2026-10-28T19:05:10Z",
+      "effective_from": "2026-10-29", "effective_to": null,
+      "train_start": null, "train_end": null,
+      "config": {"adopted_from_legacy": true, "...": "..."},
+      "metrics": {"accuracy": 71.4, "r2": 0.3, "n_sessions": 252, "in_sample": true},
+      "code_git_sha": "…", "notes": "…"
+    }
+  ]
+}
+```
+
+Sem a migração aplicada: `{"registry": false, "versions": []}`. Status: `shadow` (registrada, não usada),
+`active` (vigente), `retired` (vigência encerrada em `effective_to`), `rejected`.
+
+**Regras (Regra 5 do `.agents/AGENTS.md`):** recalibrar cria versão nova `shadow`; promoção explícita via
+`scripts/model_versions.py promote`; `/api/irai/series?mode=recalculated` usa a versão vigente na data.
+Para datas anteriores à primeira versão registrada o recálculo é bloqueado: devolve o snapshot ao vivo
+(`recalc_blocked: true`) ou HTTP 409 com `error_code: "model_version_unavailable"`.
+Com a migração aplicada, cada barra da série passa a ter `model_version` (ausente/nulo em snapshots antigos).
 
 ---
 

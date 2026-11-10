@@ -20,6 +20,7 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.db import DB_PATH
+from backend.irai import model_registry
 
 
 # Todos os possíveis fatores
@@ -421,65 +422,64 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
         "accuracy": best_result["acc"] * 100,
         "logistic_acc": dir_acc,
         "n_sessions": len(merged_all),
+        "train_start": str(merged_all.index.min()),
+        "train_end": str(merged_all.index.max()),
+        "min_factors": min_factors,
+        "max_factors": max_factors,
     }
 
 
 def save_to_db(conn, target, slug, result):
-    """Salva pesos no model_params e atualiza asset_models."""
-    effective = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    prefix = f"{slug}_"
+    """Registra a calibração como uma versão NOVA e imutável (fase 16, REQ-P01/REQ-N06).
 
-    # Limpar TODOS os params antigos deste slug antes de inserir os novos.
-    # Isso evita params de calibrações anteriores (com fatores diferentes)
-    # ficarem no banco e causando modelos híbridos incorretos.
-    # LIKE com '_' escapado (em LIKE '_' é curinga) e excluindo slugs que começam com este
-    # prefixo (ex.: calibrar 'win' NÃO pode apagar os params de 'win_top8').
-    def _like_prefix(p):
-        return p.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    Antes da fase 16 esta função apagava todos os params do slug (DELETE) e regravava — o que fazia
+    o histórico repintar. Agora:
+      - nada é apagado nem atualizado em model_params/model_versions;
+      - a versão nasce 'shadow' (o engine continua usando a 'active' vigente);
+      - promover é uma operação explícita: scripts/model_versions.py promote <version_id> --effective-from AAAA-MM-DD
+        (que também atualiza asset_models: fatores, acurácia, calibrated_at).
+    Sem a migração da fase 16 aplicada, aborta sem gravar nada.
+    """
+    if not model_registry.has_registry(conn):
+        print("  [ABORT] Registro de versões ausente (migração da fase 16 não aplicada). Nada foi gravado.")
+        print("          Rode: python scripts/migrate_fase16_model_versions.py --db <banco> (com aprovação)")
+        return None
 
-    other_slugs = [r[0] for r in conn.execute("SELECT slug FROM asset_models WHERE slug != ?", (slug,))
-                   if r[0] and r[0].startswith(prefix)]
-    sql = "DELETE FROM model_params WHERE param_name LIKE ? ESCAPE '\\'"
-    args = [_like_prefix(prefix)]
-    for other in other_slugs:
-        sql += " AND param_name NOT LIKE ? ESCAPE '\\'"
-        args.append(_like_prefix(f"{other}_"))
-    deleted = conn.execute(sql, args).rowcount
-    if deleted:
-        print(f"  [purge] {deleted} params antigos de '{prefix}' removidos")
-
-    params = []
+    fitted_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    param_map = {}
     for label, w in result["weights"].items():
-        params.append((f"{prefix}w_{label}", w, effective))
+        param_map[f"w_{label}"] = w
     for label, s in result["sigmas"].items():
-        params.append((f"{prefix}sigma_{label}", s, effective))
-    params.append((f"{prefix}alpha", result["alpha"], effective))
-    params.append((f"{prefix}intercept", result["intercept"], effective))
+        param_map[f"sigma_{label}"] = s
+    param_map["alpha"] = result["alpha"]
+    param_map["intercept"] = result["intercept"]
 
-    conn.executemany(
-        "INSERT INTO model_params (param_name, value, effective_from) VALUES (?, ?, ?)",
-        params,
+    config = {
+        "method": "calibrate_universal (OLS brute-force + logistica alpha/intercept)",
+        "target": target,
+        "min_factors": result.get("min_factors"),
+        "max_factors": result.get("max_factors"),
+        "window_sessions": 252,
+        "guard_rails": {"alpha": [1.0, 3.5], "intercept": [-0.25, 0.25]},
+    }
+    metrics = {
+        "accuracy": result["accuracy"],
+        "r2": result["r2"],
+        "logistic_acc": result["logistic_acc"],
+        "n_sessions": result["n_sessions"],
+        "in_sample": True,
+    }
+    version_id = model_registry.register_version(
+        conn, slug=slug, param_map=param_map, factors=result["factors"],
+        factor_labels=result["factor_labels"], status="shadow", fitted_at=fitted_at,
+        train_start=result.get("train_start"), train_end=result.get("train_end"),
+        config=config, metrics=metrics, git_sha=model_registry.code_git_sha(),
+        actor="calibrate_universal",
     )
-
-    # Atualizar asset_models
-    conn.execute("""
-        UPDATE asset_models SET
-            factors = ?, factor_labels = ?,
-            accuracy = ?, r_squared = ?, n_sessions = ?,
-            calibrated_at = ?
-        WHERE target = ?
-    """, (
-        json.dumps(result["factors"]),
-        json.dumps(result["factor_labels"]),
-        result["accuracy"],
-        result["r2"],
-        result["n_sessions"],
-        effective,
-        target,
-    ))
-
     conn.commit()
-    print(f"  [OK] Salvos {len(params)} params (prefix='{prefix}') + asset_models atualizado")
+    print(f"  [OK] Versão {version_id} registrada como SHADOW ({len(param_map)} params). Nada foi apagado.")
+    print(f"       Para ativar: python scripts/model_versions.py promote {version_id} --effective-from AAAA-MM-DD")
+    return version_id
 
 
 def main():
@@ -489,10 +489,18 @@ def main():
     parser.add_argument("--force", action="store_true", help="Recalibrar mesmo já calibrados")
     parser.add_argument("--min-factors", type=int, default=6)
     parser.add_argument("--max-factors", type=int, default=8)
+    parser.add_argument("--db", type=str, default=DB_PATH, help="Banco SQLite (default: data/irai_live.db)")
     args = parser.parse_args()
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(args.db, timeout=30)
     conn.row_factory = sqlite3.Row
+
+    # Fase 16: sem registro de versões não há como gravar sem apagar o histórico → aborta antes de calibrar.
+    if not model_registry.has_registry(conn):
+        print("[ABORT] Registro de versões ausente (migração da fase 16 não aplicada). Nada foi calibrado/gravado.")
+        print("        Rode antes: python scripts/migrate_fase16_model_versions.py --db <banco> (com aprovação)")
+        conn.close()
+        return
 
     if args.all:
         if args.force:

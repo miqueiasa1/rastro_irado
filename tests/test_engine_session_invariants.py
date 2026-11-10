@@ -20,7 +20,9 @@ DB = os.path.join(ROOT, "data", "irai_live.db")
 
 pytestmark = pytest.mark.skipif(not os.path.exists(DB), reason="banco não disponível")
 
-DAY = "2026-10-27"
+# Fase 16: 1ª sessão da versão registrada (29/10/2026; pré-DST, com after-market). Antes dela o recálculo é bloqueado
+# depois da migração (Regra 5 — recalcular datas anteriores usaria parâmetros que não existem mais).
+DAY = "2026-10-29"
 
 
 @pytest.fixture(scope="module")

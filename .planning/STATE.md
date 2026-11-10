@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Otimização do Cálculo NWE & Estabilização Live
 status: executing
-last_updated: "2026-11-10T13:42:00.000Z"
+last_updated: "2026-11-10T17:10:00.000Z"
 last_activity: 2026-11-10
 progress:
   total_phases: 14
@@ -40,7 +40,7 @@ Last activity: 2026-11-10
 - `frontend/src/gexLevels.js` modificado em 10/11/2026 07:32 (horário de Brasília / America/Sao_Paulo); provável sync diário de GEX, ainda não revisado.
 
 ### Próxima milestone: v2.0 Metodologia Preditiva Calibrada (planejada em 2026-11-10)
-- Status: em andamento. Phase 15 **em revisão** (implementada e commitada em 2026-11-10 na branch local `v2/fase-15-harness`, sem push; critério 3 em andamento). Fases 16–22 não iniciadas. A milestone v1.0 segue como registro histórico (fases 1–14).
+- Status: em andamento. Phase 15 **em revisão** (implementada e commitada em 2026-11-10 na branch local `v2/fase-15-harness`, sem push; critério 3 em andamento). Phase 16 **implementada, aguardando aprovação de commit e migração** (branch local `v2/fase-16-versionamento`). Fases 17–22 não iniciadas. A milestone v1.0 segue como registro histórico (fases 1–14).
 - Fases 15–22 adicionadas ao `ROADMAP.md` como "Não iniciada": 15 harness de avaliação, 16 versionamento imutável/anti-repaint, 17 correção β/z e honestidade do painel, 18 features causais + walk-forward, 19 shadow mode ao vivo, 20 GEX e fluxo como features, 21 UI com incerteza, 22 go/no-go.
 - Documentos: `.planning/milestones/v2.0-metodologia/PRD.md`, `SPEC.md` e `PHASES.md`.
 - Motivação (auditoria de 10/11/2026, 65 pregões ao vivo de 03/08 a 10/11): AUC do P(↑) de 0,47–0,50 para 5–60 min, nowcast de 0,71 (WIN) e 0,75 (WDO), Brier skill de −0,27 a −0,40.
@@ -51,4 +51,5 @@ Last activity: 2026-11-10
   - D4: publicar `p_fwd_60` e o card de assertividade no site público (nó `eval/<target>`, regra de leitura no RTDB). Todo deploy do Firebase continua exigindo aprovação explícita do usuário.
 - Em aberto: Q5 (o projeto WDO garante GEX publicado antes de 09:00 e marca o backfill?), pendente de consulta ao projeto WDO; afeta só a Phase 20. Q6 e Q7 têm padrão proposto no PRD.
 - Phase 15: harness `scripts/eval_assertividade.py` + pacote isolado `backend/eval/`; baseline congelada em `data/eval/baseline/assertividade_baseline_20261110.json` (WIN 60 min AUC 0,474, WDO 0,486; nowcast 0,710 / 0,754). Decisões do owner (10/11/2026): (1) tarefa "IRAI Daily Assertividade" seg–sex 18:45 via `scripts/run_eval_assertividade.bat`, log em `logs/eval_assertividade.log`; (2) `forecast_eval_daily` em `data/eval/forecast_eval.db` até a fase 16; (3) endpoint `/api/eval/assertividade` na fase 19; (4) fixture de ~600 KB versionada; (5) baseline aceita com `5904ef5-dirty`. Critério 3 fecha após 5 pregões seguidos de relatório automático.
-- Próximo passo: acompanhar 5 pregões do relatório automático para fechar a Phase 15; depois, Phase 16 (`/gsd-discuss-phase 16`). Em paralelo, consultar o projeto WDO sobre Q5.
+- Phase 16 (10/11/2026): registro imutável `model_versions` + `model_version_events` (`backend/irai/model_registry.py`), calibração sem `DELETE` (versão nova `shadow`), engine resolvendo a versão vigente na data, `model_version` em snapshots e no Kalman, `GET /api/model/versions`, Regra 5 no `.agents/AGENTS.md`. Migração `scripts/migrate_fase16_model_versions.py` validada só numa cópia (`%TEMP%\irai_p16`): idempotente, ΔP legado × migrado = 0 em 14 alvos × 5 pregões; suíte 87/87 com e sem migração. Não ligada ao `init_db()`. Repaint residual não ligado a parâmetros (mediana 0,5 pp WIN / 0,35 pp WDO, ~1,5% troca de lado) fica em aberto (critério 2 [META]).
+- Próximo passo: owner aprovar o commit da Phase 16 e a migração no `irai_live.db` (após o pregão) + reinício de IRAI_Collector, IRAI_API e IRAI_FirebaseSync; seguir acompanhando os 5 pregões da Phase 15. Em paralelo, consultar o projeto WDO sobre Q5.

@@ -27,3 +27,11 @@ Este arquivo contém as regras e restrições críticas do projeto IRAI. Qualque
 - **Gap Stitching no Nadaraya-Watson Envelope (NWE)**:
   - No cálculo do NWE (`backend/irai/nwe.py`), aplicar gap stitching (`history_prices = [p + gap for p in history_prices]`) para alinhar o histórico ao preço de abertura de hoje.
   - Isso impede que o salto do gap noturno infle artificialmente o erro médio (MAE), evitando bandas "desfiguradas" ou estufadas como um balão no início da sessão.
+
+## 5. Parâmetros de Modelo Imutáveis (Versionamento — fase 16)
+- **Regra**: Parâmetros de modelo **nunca são apagados**. Recalibrar = nova versão. Recalcular uma data passada = usar a versão vigente naquela data.
+- **Comportamento Esperado**:
+  - `scripts/calibrate_universal.py` grava uma versão nova em `model_versions` (status `shadow`) e linhas novas em `model_params` com `version_id`; nunca executa `DELETE`/`UPDATE` em parâmetros (triggers no banco bloqueiam).
+  - Promover (`shadow → active`) é explícito e auditável (`scripts/model_versions.py promote <version_id> --effective-from AAAA-MM-DD`), sempre com vigência em sessão futura; a versão anterior vira `retired` com `effective_to`.
+  - O engine resolve os parâmetros pela versão vigente na data da sessão; cada snapshot grava `model_version`, e o estado do Kalman só é reaproveitado dentro da mesma versão.
+  - Datas anteriores à primeira versão registrada não são recalculadas: a API devolve o snapshot gravado ao vivo ou um erro explícito (`model_version_unavailable`).

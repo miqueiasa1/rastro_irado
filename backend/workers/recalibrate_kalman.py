@@ -18,6 +18,7 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.db import get_connection, DB_PATH, load_kalman_state, save_kalman_state
+from backend.irai import model_registry
 
 log = logging.getLogger("recalibrate_kalman")
 logging.basicConfig(
@@ -32,8 +33,14 @@ THRESHOLD_DECAY = 0.5      # Divergência média > 0.5 → decay suave (70% Kalm
 DECAY_FACTOR = 0.7          # Proporção do beta Kalman mantida no decay
 
 
-def load_models(conn) -> list[dict]:
-    """Carrega todos os modelos ativos com seus pesos estáticos."""
+def load_models(conn, session_date: str = None) -> list[dict]:
+    """Carrega todos os modelos ativos com seus pesos estáticos.
+
+    Fase 16: com o registro de versões, pesos/fatores vêm da versão vigente na sessão
+    (mesma regra do engine); slugs com versões mas sem versão vigente na data são pulados.
+    """
+    session_date = session_date or date.today().isoformat()
+    registry = model_registry.has_registry(conn)
     models = []
     try:
         rows = conn.execute(
@@ -49,17 +56,7 @@ def load_models(conn) -> list[dict]:
 
         # Carregar pesos estáticos (V1)
         prefix = f"{slug}_"
-        params = conn.execute("""
-            SELECT mp.param_name, mp.value FROM model_params mp
-            INNER JOIN (
-                SELECT param_name, MAX(effective_from) as max_eff
-                FROM model_params
-                WHERE param_name LIKE ?
-                GROUP BY param_name
-            ) latest ON mp.param_name = latest.param_name
-                     AND mp.effective_from = latest.max_eff
-            WHERE mp.param_name LIKE ?
-        """, (f"{prefix}%", f"{prefix}%")).fetchall()
+        params = conn.execute(model_registry.legacy_params_sql(conn), (f"{prefix}%", f"{prefix}%")).fetchall()
 
         weights = {}
         intercept = 0.0
@@ -70,6 +67,21 @@ def load_models(conn) -> list[dict]:
                 weights[clean] = p["value"]
             elif clean == "intercept":
                 intercept = p["value"]
+
+        model_version = None
+        adopted = False
+        if registry and model_registry.slug_has_versions(conn, slug):
+            v = model_registry.resolve_version(conn, slug, session_date)
+            if v is None:
+                log.info(f"  [{slug:12s}] SKIP — sem versão vigente em {session_date}")
+                continue
+            art = v["artifact"]
+            factors = list(art.get("factors", factors))
+            factor_labels = dict(art.get("factor_labels", factor_labels))
+            w, _s, _a, icpt = model_registry.parse_param_map(art.get("params", {}))
+            weights, intercept = w, icpt
+            model_version = v["version_id"]
+            adopted = model_registry.is_adopted_from_legacy(v)
 
         # Ordenar labels na mesma ordem dos factors
         ordered_labels = [factor_labels.get(f, f) for f in factors]
@@ -82,6 +94,8 @@ def load_models(conn) -> list[dict]:
             "ordered_labels": ordered_labels,
             "weights": weights,
             "intercept": intercept,
+            "model_version": model_version,
+            "adopted_from_legacy": adopted,
         })
 
     return models
@@ -93,7 +107,7 @@ def recalibrate(session_date: str = None, db_path: str = None, timeframe: str = 
     db_path = db_path or DB_PATH
 
     conn = get_connection(db_path)
-    models = load_models(conn)
+    models = load_models(conn, session_date)
 
     if not models:
         log.warning("Nenhum modelo ativo encontrado.")
@@ -109,7 +123,9 @@ def recalibrate(session_date: str = None, db_path: str = None, timeframe: str = 
         slug = model["slug"]
         n_dim = 1 + len(model["factors"])
 
-        saved = load_kalman_state(conn, slug, timeframe, session_date, expected_dim=n_dim)
+        mv = model.get("model_version")
+        saved = load_kalman_state(conn, slug, timeframe, session_date, expected_dim=n_dim,
+                                  model_version=mv, accept_untagged=model.get("adopted_from_legacy", False))
         if not saved:
             log.info(f"  [{slug:12s}] SKIP — sem estado Kalman salvo para {session_date}")
             stats["skip"] += 1
@@ -149,6 +165,7 @@ def recalibrate(session_date: str = None, db_path: str = None, timeframe: str = 
                 saved.get("johansen_p", 1.0),
                 saved.get("is_cointegrated", True),
                 recalib_ts,
+                model_version=mv,
             )
             log.warning(
                 f"  [{slug:12s}] RESET  divergence={divergence:.3f} max={max_div:.3f} "
@@ -167,6 +184,7 @@ def recalibrate(session_date: str = None, db_path: str = None, timeframe: str = 
                 saved.get("johansen_p", 1.0),
                 saved.get("is_cointegrated", True),
                 recalib_ts,
+                model_version=mv,
             )
             log.info(
                 f"  [{slug:12s}] DECAY  divergence={divergence:.3f} max={max_div:.3f} "

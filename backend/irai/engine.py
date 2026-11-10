@@ -22,6 +22,8 @@ from backend.irai.kalman import KalmanFilterWrapper
 from backend.irai.johansen import check_cointegration
 from backend.irai.forex_basket import is_forex_pair, FOREX_28_PAIRS, compute_currency_basket_spread
 from backend.timeconv import b3_session_bounds_broker, b3_bars_per_session
+from backend.irai import model_registry
+from backend.irai.model_registry import ModelVersionUnavailable, LEGACY_VERSION
 
 
 # ── Alias de símbolos ─────────────────────────────────────
@@ -109,6 +111,9 @@ class IRAISnapshot:
     pair_fixed_beta: Optional[float] = None
     pair_fixed_signal: Optional[str] = None
 
+    # Fase 16 (REQ-P03): versão de parâmetros usada no cálculo ('legacy' antes da migração)
+    model_version: Optional[str] = None
+
 
 def sigmoid(x: float) -> float:
     """Logistic sigmoid, numericamente estável."""
@@ -135,13 +140,27 @@ class IRAIEngine:
         self.factor_states: dict[str, FactorState] = {}
         self.alpha: float = 1.0
         self.intercept: float = 0.0
+        # Fase 16: versões resolvidas por (slug, version_id) e flag de registro presente
+        self._version_models: dict[str, dict] = {}
+        self.registry_enabled: bool = False
         self._load_params()
 
     def _load_params(self):
-        """Carrega configs de asset_models + params de model_params."""
+        """Carrega configs de asset_models + params de model_params.
+
+        Fase 16: se o registro de versões existir (migração aplicada), os parâmetros "atuais" de cada
+        slug com versão registrada vêm da versão active vigente; recálculos de datas passadas usam a
+        versão vigente na data (``_get_model_config(target, session_date)``). Sem registro, o caminho
+        legado (MAX(effective_from) por parâmetro) é mantido sem mudanças.
+        """
         conn = get_connection(self.db_path)
 
         self.registered_targets = []
+        self._version_models = {}
+        try:
+            self.registry_enabled = model_registry.has_registry(conn)
+        except Exception:
+            self.registry_enabled = False
 
         # 1) Carregar asset_models
         try:
@@ -179,37 +198,18 @@ class IRAIEngine:
             # Usar MAX(effective_from) POR param_name para pegar a versão mais recente
             # de cada parâmetro individualmente (evita bug onde calibrações de outros
             # assets com mesmo prefixo sobrescrevem os params corretos).
-            params_cursor = conn.execute("""
-                SELECT mp.param_name, mp.value FROM model_params mp
-                INNER JOIN (
-                    SELECT param_name, MAX(effective_from) as max_eff
-                    FROM model_params
-                    WHERE param_name LIKE ?
-                    GROUP BY param_name
-                ) latest ON mp.param_name = latest.param_name
-                         AND mp.effective_from = latest.max_eff
-                WHERE mp.param_name LIKE ?
-            """, (f"{prefix}%", f"{prefix}%"))
+            # Fase 16: após a migração, linhas versionadas (version_id NOT NULL) ficam fora deste caminho.
+            params_cursor = conn.execute(model_registry.legacy_params_sql(conn), (f"{prefix}%", f"{prefix}%"))
 
-            weights, sigmas = {}, {}
-            alpha, intercept = 1.0, 0.0
-
+            param_map = {}
             for p in params_cursor:
                 name = p["param_name"]
-                value = p["value"]
                 # Strip prefix
                 clean = name[len(prefix):] if prefix and name.startswith(prefix) else name
-                if clean.startswith("w_"):
-                    weights[clean] = value
-                elif clean.startswith("sigma_"):
-                    label = clean.replace("sigma_", "").replace("_session", "").replace("_daily", "")
-                    sigmas[label] = value
-                elif clean == "alpha":
-                    alpha = value
-                elif clean == "intercept":
-                    intercept = value
+                param_map[clean] = p["value"]
+            weights, sigmas, alpha, intercept = model_registry.parse_param_map(param_map)
 
-            self.models[slug] = {
+            model = {
                 "weights": weights, "sigmas": sigmas,
                 "alpha": alpha, "intercept": intercept,
                 "factors": factors, "factor_labels": factor_labels,
@@ -218,7 +218,20 @@ class IRAIEngine:
                 "session_end_h": row["session_end_h"] or 24,
                 "data_proxy": row["data_proxy"],
                 "divergence_config": divergence_config,
+                "model_version": LEGACY_VERSION,
+                "versioned": False,
+                "adopted_from_legacy": False,
             }
+
+            # Fase 16: com versão active registrada, os parâmetros atuais vêm do registro.
+            if self.registry_enabled:
+                try:
+                    active = model_registry.current_active(conn, slug)
+                except Exception:
+                    active = None
+                if active is not None:
+                    model = self._model_from_version(model, active)
+            self.models[slug] = model
 
         conn.close()
 
@@ -227,11 +240,64 @@ class IRAIEngine:
         if "win" in self.models:
             FACTOR_LABELS = self.models["win"]["factor_labels"]
 
-    def _get_model_config(self, target: str):
-        """Retorna weights, sigmas, alpha, intercept, cfg para o target."""
+    @staticmethod
+    def _model_from_version(base: dict, version: dict) -> dict:
+        """Monta o modelo do engine a partir do artefato imutável de uma versão.
+
+        Configuração de sessão/proxy/divergência continua vindo de asset_models (não é parâmetro
+        calibrado); pesos, sigmas, α, intercepto e o conjunto/ordem de fatores vêm da versão.
+        """
+        art = version["artifact"]
+        weights, sigmas, alpha, intercept = model_registry.parse_param_map(art.get("params", {}))
+        m = dict(base)
+        m.update({
+            "weights": weights, "sigmas": sigmas, "alpha": alpha, "intercept": intercept,
+            "factors": list(art.get("factors", base.get("factors", []))),
+            "factor_labels": dict(art.get("factor_labels", base.get("factor_labels", {}))),
+            "model_version": version["version_id"],
+            "versioned": True,
+            "adopted_from_legacy": model_registry.is_adopted_from_legacy(version),
+            "effective_from": version.get("effective_from"),
+            "effective_to": version.get("effective_to"),
+        })
+        return m
+
+    def _resolve_model_for_date(self, slug: str, session_date: str) -> Optional[dict]:
+        """Modelo vigente em ``session_date`` pelo registro. None = slug sem versões (legado).
+
+        Levanta ModelVersionUnavailable se o slug tem versões mas nenhuma vigente na data
+        (ex.: data anterior à primeira versão registrada) — nunca recalcula com os params atuais.
+        """
+        if not self.registry_enabled or slug not in self.models:
+            return None
+        conn = get_connection(self.db_path)
+        try:
+            if not model_registry.slug_has_versions(conn, slug):
+                return None
+            v = model_registry.resolve_version(conn, slug, session_date, with_artifact=False)
+            if v is None:
+                raise ModelVersionUnavailable(slug, session_date, model_registry.first_effective_from(conn, slug))
+            cached = self._version_models.get(v["version_id"])
+            if cached is None:
+                full = model_registry.get_version(conn, v["version_id"], with_artifact=True)
+                cached = self._model_from_version(self.models[slug], full)
+                self._version_models[v["version_id"]] = cached
+            return cached
+        finally:
+            conn.close()
+
+    def _get_model_config(self, target: str, session_date: str = None):
+        """Retorna weights, sigmas, alpha, intercept, cfg para o target.
+
+        Com ``session_date`` e registro de versões presente, usa a versão vigente na data (REQ-P02).
+        """
         slug = self.target_slugs.get(target)
         if slug and slug in self.models:
             m = self.models[slug]
+            if session_date is not None:
+                resolved = self._resolve_model_for_date(slug, session_date)
+                if resolved is not None:
+                    m = resolved
             return m["weights"], m["sigmas"], m["alpha"], m["intercept"], {
                 "factors": m["factors"],
                 "labels": m["factor_labels"],
@@ -241,6 +307,9 @@ class IRAIEngine:
                 "data_proxy": m["data_proxy"],
                 "divergence_config": m["divergence_config"],
                 "use_johansen": m["divergence_config"].get("use_johansen", True),
+                "model_version": m.get("model_version", LEGACY_VERSION),
+                "versioned": m.get("versioned", False),
+                "adopted_from_legacy": m.get("adopted_from_legacy", False),
             }
         # Fallback WIN
         if "win" in self.models:
@@ -408,8 +477,11 @@ class IRAIEngine:
         session_date = session_date or date.today().isoformat()
         target = target or TARGET
 
-        # Carregar modelo correto para o target
-        t_weights, t_sigmas, t_alpha, t_intercept, cfg = self._get_model_config(target)
+        # Carregar modelo correto para o target — versão vigente na data da sessão (fase 16, REQ-P02).
+        # Datas anteriores à primeira versão registrada levantam ModelVersionUnavailable (sem repaint).
+        t_weights, t_sigmas, t_alpha, t_intercept, cfg = self._get_model_config(target, session_date)
+        model_version = cfg.get("model_version", LEGACY_VERSION)
+        kalman_version = model_version if cfg.get("versioned") else None
         active_factors = cfg["factors"]
         active_labels = cfg["labels"]
 
@@ -488,7 +560,9 @@ class IRAIEngine:
         
         # Load previous Kalman state if valid
         slug = cfg.get("slug", self.target_slugs.get(target, "win"))
-        saved_state = load_kalman_state(conn, slug, timeframe, session_date, expected_dim=1 + len(active_factors))
+        saved_state = load_kalman_state(conn, slug, timeframe, session_date, expected_dim=1 + len(active_factors),
+                                        model_version=kalman_version,
+                                        accept_untagged=cfg.get("adopted_from_legacy", False))
         
         conn.close()
 
@@ -603,6 +677,7 @@ class IRAIEngine:
                 snap.is_preview = True
                 snap.is_ghost = True
                 snap.flow_confirms = None
+                snap.model_version = model_version
                 snapshots.append(snap)
 
             return snapshots
@@ -1117,6 +1192,7 @@ class IRAIEngine:
                     snap.price_diverges = (abs(ret_z) >= 2.0)
 
             if ts >= session_start_utc:
+                snap.model_version = model_version
                 snapshots.append(snap)
             
         # Salvar o último estado do Kalman no banco
@@ -1126,7 +1202,8 @@ class IRAIEngine:
             last_coint = snapshots[-1].is_cointegrated
             s_mean, s_cov = kf.get_state()
             conn2 = get_connection(self.db_path)
-            save_kalman_state(conn2, slug, timeframe, session_date, s_mean, s_cov, last_p, last_coint, last_ts)
+            save_kalman_state(conn2, slug, timeframe, session_date, s_mean, s_cov, last_p, last_coint, last_ts,
+                              model_version=kalman_version)
             conn2.close()
 
         return snapshots

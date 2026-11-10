@@ -6,6 +6,7 @@ Endpoints:
   GET  /api/irai/series        → série completa de uma sessão (target=WIN$N|WDO$N)
   GET  /api/irai/dates         → datas disponíveis
   GET  /api/model/params       → parâmetros do modelo
+  GET  /api/model/versions     → histórico de versões de modelo e vigência (fase 16)
   GET  /api/health             → status do sistema
   WS   /ws/irai                → push em tempo real (5s)
 """
@@ -27,6 +28,8 @@ from fastapi.concurrency import run_in_threadpool
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.db import get_connection, DB_PATH, init_db, get_live_snapshots, save_live_snapshots
 from backend.irai.engine import IRAIEngine, FACTOR_LABELS, TARGET
+from backend.irai import model_registry
+from backend.irai.model_registry import ModelVersionUnavailable
 
 # ── Engine singleton ──────────────────────────────────────
 engine: IRAIEngine = None
@@ -567,7 +570,21 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
                 series_cache[cache_key] = result
             return result
 
-    snapshots = engine.compute_from_db(session_date, target=target, version=version, timeframe=timeframe, persist_state=is_today)
+    try:
+        snapshots = engine.compute_from_db(session_date, target=target, version=version, timeframe=timeframe, persist_state=is_today)
+    except ModelVersionUnavailable as exc:
+        # Fase 16 (SPEC §9.3): data sem versão vigente registrada → nunca recalcular com params atuais.
+        # Devolve o snapshot gravado ao vivo, se houver; senão um erro explícito.
+        conn.close()
+        if mode != "live":
+            live_result = _get_series_data_sync(target, session_date, version, timeframe=timeframe, mode="live")
+            if "error" not in live_result:
+                live_result = dict(live_result)
+                live_result["recalc_blocked"] = True
+                live_result["recalc_blocked_reason"] = str(exc)
+                return live_result
+        return {"error": str(exc), "error_code": "model_version_unavailable",
+                "first_effective_from": exc.first_effective}
     if not snapshots:
         conn.close()
         return {"error": f"Sem dados para sessão {session_date}"}
@@ -807,7 +824,8 @@ async def irai_series(
 
     result = await run_in_threadpool(_get_series_data_sync, target, session_date, version, timeframe=timeframe, mode=mode)
     if "error" in result:
-        return JSONResponse(status_code=404, content=result)
+        status = 409 if result.get("error_code") == "model_version_unavailable" else 404
+        return JSONResponse(status_code=status, content=result)
     return result
 
 
@@ -833,11 +851,53 @@ async def model_params(target: str = Query("WIN$N")):
         "alpha": m.get("alpha", 1.0),
         "intercept": m.get("intercept", 0.0),
         "factors": list(m.get("factor_labels", {}).values()),
+        "model_version": m.get("model_version", "legacy"),
+        "versioned": m.get("versioned", False),
+        "effective_from": m.get("effective_from"),
     }
+
+
+def _get_model_versions_sync(target: str = None) -> dict:
+    conn = get_connection()
+    try:
+        if not model_registry.has_registry(conn):
+            return {"registry": False, "target": target, "versions": [],
+                    "note": "migração da fase 16 não aplicada: parâmetros no caminho legado"}
+        slug = None
+        if target:
+            slug = engine.target_slugs.get(target)
+            if slug is None:
+                row = conn.execute("SELECT slug FROM asset_models WHERE target=?", (target,)).fetchone()
+                slug = row["slug"] if row else None
+            if slug is None:
+                return {"error": f"target desconhecido: {target}"}
+        versions = model_registry.list_versions(conn, slug=slug)
+        return {"registry": True, "target": target, "slug": slug, "versions": versions}
+    finally:
+        conn.close()
+
+
+@app.get("/api/model/versions")
+async def model_versions(target: str = Query(None, description="Target (ex.: WIN$N). Vazio = todos")):
+    """Histórico de versões de modelo (sem artefato), status e vigência (REQ-A03)."""
+    result = await run_in_threadpool(_get_model_versions_sync, target)
+    if "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result
 
 
 def _snap_to_dict(snap) -> dict:
     """Converte snapshot para dict serializável."""
+    d = _snap_to_dict_base(snap)
+    # Fase 16 (REQ-P03): versão de parâmetros usada. Omitida no caminho legado (antes da migração)
+    # para não alterar o payload publicado (REQ-N04).
+    mv = getattr(snap, "model_version", None)
+    if mv and mv != "legacy":
+        d["model_version"] = mv
+    return d
+
+
+def _snap_to_dict_base(snap) -> dict:
     return {
         "timestamp": snap.timestamp,
         "is_pre_market": getattr(snap, "is_pre_market", False),

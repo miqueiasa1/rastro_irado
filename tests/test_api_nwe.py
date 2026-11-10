@@ -4,8 +4,10 @@ from backend.api.main import app
 
 def test_api_nwe_endpoint():
     with TestClient(app) as client:
-        # Query series for a date that we verified has data
-        response = client.get("/api/irai/series?session_date=2026-07-10&target=WIN$N")
+        # Query series for a date that we verified has data.
+        # Fase 16: data posterior à 1ª versão registrada (29/10/2026) — datas anteriores têm o
+        # recálculo bloqueado (anti-repaint) depois da migração.
+        response = client.get("/api/irai/series?session_date=2026-11-04&target=WIN$N")
         assert response.status_code == 200, f"API failed with status {response.status_code}: {response.text}"
         
         data = response.json()

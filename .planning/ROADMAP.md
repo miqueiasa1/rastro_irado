@@ -140,7 +140,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 | Fase | Título | Status | Requisitos |
 |------|--------|--------|------------|
 | 15 | Harness de Avaliação e Baseline Congelada | Em revisão | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
-| 16 | Versionamento Imutável de Parâmetros e Anti-Repaint | Não iniciada | REQ-P01–P06, REQ-A03, REQ-N04–N06 |
+| 16 | Versionamento Imutável de Parâmetros e Anti-Repaint | Implementada, aguardando aprovação de commit e migração | REQ-P01–P06, REQ-A03, REQ-N04–N06 |
 | 17 | Correção β/z e Honestidade do Painel | Não iniciada | REQ-M01–M04, REQ-U04, REQ-A04 |
 | 18 | Features Causais e Treino Walk-Forward com Calibração | Não iniciada | REQ-F01–F06, REQ-F08, REQ-N01 |
 | 19 | Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase) | Não iniciada | REQ-F07, REQ-F09, REQ-A01, REQ-A05, REQ-S01, REQ-O01–O02, REQ-N03–N04, REQ-N07 |
@@ -155,7 +155,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 ### Phase 16: Versionamento Imutável de Parâmetros e Anti-Repaint
 * **Goal:** Nunca apagar calibrações (`model_versions`, `version_id`) e recalcular datas passadas com a versão vigente na data.
-* **Status:** Não iniciada · **Depende de:** 15
+* **Status:** Implementada, aguardando aprovação de commit e migração (2026-11-10, branch local `v2/fase-16-versionamento`, sem commit/push; migração não aplicada ao `irai_live.db`; ver `phases/16-versionamento-imutavel-de-parametros/16-SUMMARY-01.md`) · **Depende de:** 15
 * **Success Criteria:** calibrar duas vezes não remove linhas; recálculo vs. snapshot com |ΔP| ≤ 0,1 pp em ≥ 99% das barras e 0% de troca de lado [META]; comportamento ao vivo inalterado.
 
 ### Phase 17: Correção β/z e Honestidade do Painel

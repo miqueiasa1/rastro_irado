@@ -293,8 +293,19 @@ def migrate_garch_volatility(db_path=None):
     conn.close()
 
 
-def save_kalman_state(conn, slug: str, timeframe: str, session_date: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str):
-    """Salva o estado atual do filtro de Kalman e teste de Johansen com guard de timestamp."""
+def _has_column(conn, table: str, column: str) -> bool:
+    """True se a coluna existe (usado para gravar campos da fase 16 só após a migração)."""
+    try:
+        return any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})").fetchall())
+    except sqlite3.Error:
+        return False
+
+
+def save_kalman_state(conn, slug: str, timeframe: str, session_date: str, state_mean, state_covariance, p_value: float, is_cointegrated: bool, timestamp_utc: str, model_version: str = None):
+    """Salva o estado atual do filtro de Kalman e teste de Johansen com guard de timestamp.
+
+    Fase 16 (REQ-P05): com a migração aplicada, grava também a versão de modelo do estado.
+    """
     import json
     import numpy as np
     
@@ -314,22 +325,38 @@ def save_kalman_state(conn, slug: str, timeframe: str, session_date: str, state_
     if isinstance(state_covariance, np.ndarray):
         state_covariance = state_covariance.tolist()
         
-    conn.execute("""
-        INSERT OR REPLACE INTO kalman_state 
-        (slug, timeframe, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (slug, timeframe, session_date, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
+    if model_version is not None and _has_column(conn, "kalman_state", "model_version"):
+        conn.execute("""
+            INSERT OR REPLACE INTO kalman_state 
+            (slug, timeframe, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc, model_version)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (slug, timeframe, session_date, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc, model_version))
+    else:
+        conn.execute("""
+            INSERT OR REPLACE INTO kalman_state 
+            (slug, timeframe, session_date, state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (slug, timeframe, session_date, json.dumps(state_mean), json.dumps(state_covariance), p_value, int(is_cointegrated), timestamp_utc))
     conn.commit()
 
 
-def load_kalman_state(conn, slug: str, timeframe: str, session_date: str, expected_dim: int = None):
-    """Carrega o último estado do filtro de Kalman para o ativo e timeframe anterior à data informada."""
+def load_kalman_state(conn, slug: str, timeframe: str, session_date: str, expected_dim: int = None,
+                      model_version: str = None, accept_untagged: bool = False):
+    """Carrega o último estado do filtro de Kalman para o ativo e timeframe anterior à data informada.
+
+    Fase 16 (REQ-P05): com ``model_version`` informado (e a migração aplicada), o estado mais recente
+    só é aceito se for da MESMA versão. Troca de versão = estado reinicializado de forma explícita
+    (retorna None e registra no log). ``accept_untagged`` aceita estados gravados antes da migração
+    (model_version NULL) — usado só pela versão adotada do legado, para não mudar o comportamento ao vivo.
+    """
     import json
     import numpy as np
     import logging
     
-    row = conn.execute("""
+    versioned = model_version is not None and _has_column(conn, "kalman_state", "model_version")
+    row = conn.execute(f"""
         SELECT state_mean, state_covariance, johansen_p_value, is_cointegrated, timestamp_utc
+               {", model_version" if versioned else ""}
         FROM kalman_state
         WHERE slug = ? AND timeframe = ? AND session_date < ?
         ORDER BY session_date DESC LIMIT 1
@@ -337,6 +364,15 @@ def load_kalman_state(conn, slug: str, timeframe: str, session_date: str, expect
     
     if not row:
         return None
+
+    if versioned:
+        saved_version = row["model_version"]
+        if saved_version != model_version and not (saved_version is None and accept_untagged):
+            logging.warning(
+                f"[Kalman Versioning] Estado de {slug}/{timeframe} descartado: versão salva="
+                f"{saved_version or 'legado'} vs vigente={model_version}. Estado reinicializado com os pesos da versão."
+            )
+            return None
         
     try:
         state_mean = np.array(json.loads(row["state_mean"]))
@@ -598,17 +634,21 @@ def save_live_snapshots(conn_or_path, target: str, session_date: str, snapshots:
             d.get("nwe_down_price"),
             1 if d.get("is_ghost") else 0,
             is_live_captured
-        )
+        ) + ((d.get("model_version"),) if with_version else ())
 
-    COLUMNS_SQL = """(
+    # Fase 16 (REQ-P03): model_version só é gravado depois da migração (coluna existente).
+    with_version = _has_column(conn, "irai_live_snapshots", "model_version")
+    extra_cols = ", model_version" if with_version else ""
+    n_cols = 35 + (1 if with_version else 0)
+    COLUMNS_SQL = f"""(
                 target, timeframe, session_date, timestamp_utc, bar_idx,
                 p_up, score, verdict, verdict_color, price_diverge_z, price_diverges,
                 pair_z, pair_factor, pair_beta, pair_signal,
                 pair_fixed_z, pair_fixed_factor, pair_fixed_beta, pair_fixed_signal,
                 win_return, win_current, win_open, win_bar_open, win_high, win_low,
                 cum_delta, cum_delta_norm, nwe_center_price, nwe_upper_price,
-                nwe_lower_price, nwe_slope, nwe_up_price, nwe_down_price, is_ghost, is_live_captured
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+                nwe_lower_price, nwe_slope, nwe_up_price, nwe_down_price, is_ghost, is_live_captured{extra_cols}
+            ) VALUES ({", ".join(["?"] * n_cols)})"""
 
     try:
         # Barras fechadas (0..N-1): IMUTÁVEIS — INSERT OR IGNORE preserva valores originais

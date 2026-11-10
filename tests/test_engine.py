@@ -21,7 +21,7 @@ def test_engine_initialization():
 def test_engine_compute_ustec():
     """Testa a geração de snapshots para o Nasdaq (USTEC) com a fórmula Rolling Window."""
     engine = IRAIEngine()
-    snaps = engine.compute_from_db("2026-07-20", "USTEC", "both", "M5", persist_state=False)
+    snaps = engine.compute_from_db("2026-11-04", "USTEC", "both", "M5", persist_state=False)
     assert isinstance(snaps, list)
     if len(snaps) > 0:
         for s in snaps:
@@ -38,7 +38,7 @@ def test_engine_compute_ustec():
 def test_engine_multi_factor_basket_spread():
     """Valida o calculo do Z-Score da Cesta Completa de Fatores (Multi-Factor Basket Spread)."""
     engine = IRAIEngine()
-    snaps = engine.compute_from_db("2026-07-20", "WIN$N", "both", "M5", persist_state=False)
+    snaps = engine.compute_from_db("2026-11-04", "WIN$N", "both", "M5", persist_state=False)
     assert isinstance(snaps, list)
     if len(snaps) > 10:
         valid_z = [s.price_diverge_z for s in snaps if s.price_diverge_z is not None]
@@ -50,7 +50,7 @@ def test_engine_multi_factor_basket_spread():
 def test_engine_forex_basket_spread():
     """Valida que para ativos Forex, o pair_factor usa a Cesta Cambial Sintética."""
     engine = IRAIEngine()
-    snaps = engine.compute_from_db("2026-07-20", "EURUSD", "both", "M5", persist_state=False)
+    snaps = engine.compute_from_db("2026-11-04", "EURUSD", "both", "M5", persist_state=False)
     assert isinstance(snaps, list)
     if len(snaps) > 10:
         for s in snaps:
