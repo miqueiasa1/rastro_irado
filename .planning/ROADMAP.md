@@ -21,6 +21,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 | 11 | Resolução Automática de Contratos Ativos B3 em Contas Demo | Mapear WIN$N/WDO$N/DI1$N para contratos vigentes no boot | 2026-07-27 |
 | 12 | Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode) | Complete (3/3) | 2026-07-30 |
 | 13 | Rastro de Mini Índice (Top 8 Ações IBOV) | Complete (4/4) | 2026-08-12 |
+| 14 | Auditoria Waves 0-5 (cofre Pine, fuso do broker, sessão B3 09:00 & NWE gap stitching, sync estrito dos gráficos, endurecimento GEX e manutenção diária) | Complete (6/6) | 2026-10-29 |
 
 ---
 
@@ -115,6 +116,78 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
   3. API e backend enviando métricas de Z-score, Pair Spread e NWE para o rastro do Mini Índice com Top 8 Ações.
   4. Visualização e gráficos no Frontend integrados mantendo as regras estritas de Zero-Repainting, Sincronização e visibilidade do Pair Spread.
 
+### Phase 14: Auditoria Waves 0-5
+* **Goal:** Registrar e consolidar as correções da auditoria de 28/10/2026, entregues no commit `f2b6d0d` (29/10/2026, 08:55 horário de Brasília / America/Sao_Paulo): segurança do cofre Pine, normalização do fuso do broker, sessão B3 às 09:00 com gap stitching do NWE, sincronização estrita dos gráficos, endurecimento do GEX e manutenção diária.
+* **Requirements:** a confirmar (o commit não define IDs formais de requisito; o código cita os itens de auditoria A1, A6, A15, A16, A17 e M2)
+* **Success Criteria:**
+  1. **Wave 0 — Segurança do cofre Pine:** arquivos `.pine` deixam de ser versionados ou servidos no Hosting (`.gitignore`, `frontend/firebase.json`); download autenticado via `PineDownloadModal` e `GET /api/gex/pine` com chave `sha256(PINE_SALT:PINE_PASSWORD)`; publicação no Firebase RTDB em `pine_vault/<chave>` (`scripts/sync_gex_to_irai.py`) e regras em `frontend/database.rules.json`. No mesmo conjunto de endurecimento da API (item A6): bind em `127.0.0.1:8888`, CORS restrito ao Vite local e `/api/internal/notify_update` apenas no loopback.
+  2. **Wave 1 — Normalização do fuso do broker:** módulo `backend/timeconv.py` documenta que `market_bars.timestamp_utc` usa o relógio do broker (Nova York + 7h: GMT+3 no verão americano, GMT+2 no inverno) e converte a B3 de BRT com offset dinâmico (+6h/+5h); script `scripts/migrate_b3_broker_time.py` para o histórico B3; testes em `tests/test_timeconv.py`. As ondas 1 e 2 são nomeadas em `scripts/deploy_onda1_2.ps1` como “fuso/sessão B3 + Regra 4”.
+  3. **Wave 2 — Sessão B3 09:00 e NWE gap stitching:** pregão regular definido como 09:00–18:30 BRT; a abertura do alvo B3 é a 1ª barra a partir das 09:00 BRT (não o after-market de ontem); pré-sessão com retorno, Z-score e contribuição iguais a zero (Regra 4 / item A1 em `backend/irai/engine.py`); gap stitching no NWE (`backend/irai/nwe.py`) para o salto noturno não inflar o MAE; testes em `tests/test_engine_session_invariants.py` e `tests/test_nwe_gap.py`; Regra 4 documentada em `.agents/AGENTS.md`.
+  4. **Wave 3 — Sincronização estrita dos gráficos:** o range lógico inicial é aplicado uma vez por série (Regra 3, `TVGarchVolChart` e demais painéis Lightweight Charts); polls seguintes preservam o range visível, avançando apenas se o usuário estiver na borda direita; os gráficos compartilham o mesmo range, sem `fitContent` local dessincronizando os outros painéis.
+  5. **Wave 4 — Endurecimento do GEX:** `scripts/backfill_gex_history.py` reconstrói níveis históricos a partir do git do projeto GEX; `scripts/standardize_win_gex_history.py` audita e padroniza coletas `WIN$N` na tabela `gex_levels` (objetivo declarado no script: corrigir 7 coletas anômalas e aplicar a metodologia ancorada de custódia); `scripts/sync_gex_to_irai.py` grava níveis no SQLite e no RTDB, com `frontend/src/gexLevels.js` como fallback estático — o site público lê o RTDB, sem redeploy. Se as 7 correções foram de fato aplicadas no banco de produção: a confirmar.
+  6. **Wave 5 — Manutenção diária:** `scripts/daily_maintenance.py` (itens A16, A17 e M2) faz backup consistente do SQLite (7 cópias em `D:\irai_backups` ou `data\backups`), retenção de logs com mais de 14 dias e retenção de 60 dias no RTDB; tarefa agendada “IRAI Daily Maintenance” (seg–sex 19:15), documentada em `docs/DEPLOYMENT.md`.
+
+  Também presentes no mesmo commit, com atribuição de wave a confirmar: motor de cesta cambial (`backend/irai/forex_basket.py`, `frontend/src/utils/forex.js`, testes e UI/gauges associados); `scripts/health_watchdog.py` (item A15: restart via NSSM, limite de 4 reinícios/hora e restart do Firebase Sync parado); alterações pontuais em `backend/db.py`, `scripts/calibrate_universal.py` e `scripts/firebase_sync.py`.
+
+---
+
+## 🗓️ Milestone Planejada: v2.0 Metodologia Preditiva Calibrada
+
+Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Documentos: [`milestones/v2.0-metodologia/PRD.md`](./milestones/v2.0-metodologia/PRD.md), [`SPEC.md`](./milestones/v2.0-metodologia/SPEC.md) e [`PHASES.md`](./milestones/v2.0-metodologia/PHASES.md). Requisitos com IDs `REQ-*` no PRD.
+
+**Decisões de 10/11/2026 (PRD §12.1):** D1 horizonte de produto = 60 min para WIN e WDO (fechamento só avaliação) · D2 só WIN$N e WDO$N · D3 no-go → sem rótulos direcionais, P atual como "Leitura do dia (nowcast)" · D4 `p_fwd_60` e card de assertividade também no site público (Firebase); deploy só com aprovação explícita. **Em aberto:** Q5 (GEX do WDO publicado antes de 09:00 e flag de backfill).
+
+| Fase | Título | Status | Requisitos |
+|------|--------|--------|------------|
+| 15 | Harness de Avaliação e Baseline Congelada | Não iniciada | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
+| 16 | Versionamento Imutável de Parâmetros e Anti-Repaint | Não iniciada | REQ-P01–P06, REQ-A03, REQ-N04–N06 |
+| 17 | Correção β/z e Honestidade do Painel | Não iniciada | REQ-M01–M04, REQ-U04, REQ-A04 |
+| 18 | Features Causais e Treino Walk-Forward com Calibração | Não iniciada | REQ-F01–F06, REQ-F08, REQ-N01 |
+| 19 | Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase) | Não iniciada | REQ-F07, REQ-F09, REQ-A01, REQ-A05, REQ-S01, REQ-O01–O02, REQ-N03–N04, REQ-N07 |
+| 20 | GEX e Fluxo como Features Testáveis | Não iniciada | REQ-G01–G04 |
+| 21 | UI de Probabilidade com Incerteza e Limiares Calibrados | Não iniciada | REQ-U01–U03, REQ-U05–U07, REQ-S02–S06 |
+| 22 | Avaliação Go/No-Go e Corte | Não iniciada | Critérios do PRD §8 (por ativo, 60 min) |
+
+### Phase 15: Harness de Avaliação e Baseline Congelada
+* **Goal:** Medir a assertividade de forma reprodutível e contínua a partir de `irai_live_snapshots`, antes de mudar qualquer modelo.
+* **Status:** Não iniciada · **Depende de:** 12, 14
+* **Success Criteria:** reproduz a baseline da auditoria (WIN AUC 60 min 0,474; WDO 0,486; WIN nowcast 0,711) com tolerância de ±0,005; relatório diário automático por 5 pregões; nenhuma escrita fora de `forecast_eval_daily`.
+
+### Phase 16: Versionamento Imutável de Parâmetros e Anti-Repaint
+* **Goal:** Nunca apagar calibrações (`model_versions`, `version_id`) e recalcular datas passadas com a versão vigente na data.
+* **Status:** Não iniciada · **Depende de:** 15
+* **Success Criteria:** calibrar duas vezes não remove linhas; recálculo vs. snapshot com |ΔP| ≤ 0,1 pp em ≥ 99% das barras e 0% de troca de lado [META]; comportamento ao vivo inalterado.
+
+### Phase 17: Correção β/z e Honestidade do Painel
+* **Goal:** Corrigir o score (pesos no espaço z), recalibrar α/intercepto sem clamp visual, remover "acc" in-sample e rotular o P atual como nowcast.
+* **Status:** Não iniciada · **Depende de:** 16
+* **Success Criteria:** o score corrigido reproduz a acurácia do regressor (WDO 73,0% em vez de 64,7%); nenhuma métrica in-sample na UI; overview lista todos os alvos.
+
+### Phase 18: Features Causais e Treino Walk-Forward com Calibração
+* **Goal:** Modelo P(↑ 60 min) para WIN/WDO (fechamento só como horizonte secundário de avaliação): logística L2, purged CV com embargo, walk-forward mensal, Platt/isotônica, faixa bootstrap.
+* **Status:** Não iniciada · **Depende de:** 15, 16
+* **Success Criteria:** testes de causalidade e de split verdes; em 60 min, BSS ≥ 0 por ativo e ECE ≤ 3 pp no walk-forward [META]; versão registrada com config, artefato e métricas.
+
+### Phase 19: Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase)
+* **Goal:** Inferência (só WIN$N e WDO$N) a cada ciclo do collector gravando `p_fwd_60` (e `p_fwd_close` só para avaliação) nos snapshots, sem exibir.
+* **Status:** Não iniciada · **Depende de:** 18
+* **Success Criteria:** `p_fwd_60` em ≥ 98% das barras por 10 pregões [META]; p95 ≤ 1 s por alvo [META]; site público compatível e sem `p_fwd_close*` no RTDB.
+
+### Phase 20: GEX e Fluxo como Features Testáveis
+* **Goal:** Testar GEX (projeto WDO, regra as-of) e delta acumulado pelo mesmo protocolo; aceitar só com ΔBSS > 0 e IC.
+* **Status:** Não iniciada · **Depende de:** 18, 19
+* **Success Criteria:** decisão por feature com ΔBSS e IC em ≥ 40 pregões elegíveis [META]; nenhuma sessão sem garantia as-of no treino.
+
+### Phase 21: UI de Probabilidade com Incerteza e Limiares Calibrados
+* **Goal:** Gauge com P(↑ 60 min), faixa de incerteza, limiares calibrados e card de assertividade, atrás de feature flag, no painel local e no site público (nó `eval/<target>`, regra do RTDB, modo `nowcast_only`).
+* **Status:** Não iniciada · **Depende de:** 15, 19
+* **Success Criteria:** flag desligada = UI atual (mais as mudanças da fase 17); `nowcast_only` sem nenhum rótulo direcional; site público com `p_fwd_60` (selo "em avaliação") e card; regras 1–4 do `.agents/AGENTS.md` verificadas no UAT; deploy do Firebase só após aprovação explícita do usuário.
+
+### Phase 22: Avaliação Go/No-Go e Corte
+* **Goal:** Após ≥ 40 pregões em shadow, aplicar os critérios do PRD §8 por ativo, em 60 min, e promover (ou não) o novo modelo a sinal principal; ativo reprovado vai para `nowcast_only` (D3).
+* **Status:** Não iniciada · **Depende de:** 15, 19, 21 (e 20, se aplicável)
+* **Success Criteria:** decisão registrada por ativo com os números dos 6 critérios; flags aplicadas no local e no site público (deploy aprovado pelo usuário); reversão testada sem perda de dados.
+
 ## ✅ Concluídos
 
 ### Cobertura de Novos Ativos (CADCHF, AUDNZD)
@@ -188,4 +261,4 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 * **Frontend:** Criar o novo componente gráfico de Heatmap e integrá-lo ao dashboard.
 
 ---
-*Last updated: 2026-07-13*
+*Last updated: 2026-11-10*
