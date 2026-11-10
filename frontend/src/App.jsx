@@ -17,6 +17,7 @@ import { parseTimeToTimestamp } from './utils/time'
 import { processSeriesSignals } from './utils/signalProcessor'
 import { DetailHeader } from './components/DetailHeader'
 import { isForexTarget } from './utils/forex'
+import { isHonestUi } from './utils/honesty'
 
 const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
 
@@ -715,8 +716,9 @@ export default function App() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, marginBottom: 16 }}>
                   {now.p_up != null && (
                     <SignalGauge
-                      title="RASTRO MACRO"
+                      title={isHonestUi(seriesInfo.forecast_ui) ? "LEITURA DO DIA (NOWCAST)" : "RASTRO MACRO"}
                       type="pd"
+                      forecastUi={seriesInfo.forecast_ui}
                       pUp={now.p_up}
                       verdict={now.verdict}
                       score={now.score}
@@ -770,6 +772,7 @@ export default function App() {
                         title="Z-SCORE SPREAD"
                         type="pair_z"
                         zValue={now.pair_z}
+                        forecastUi={seriesInfo.forecast_ui}
                         targetLabel={now.pair_factor || "Sem Par Ativo"}
                         beta={now.pair_beta}
                       />
@@ -778,6 +781,7 @@ export default function App() {
                           title={selectedTarget === 'WIN$N' ? "Z-SCORE WDO" : (selectedTarget === 'WDO$N' ? "Z-SCORE WIN" : "Z-SCORE PAR FIXO")}
                           type="pair_fixed_z"
                           zValue={now.pair_fixed_z}
+                          forecastUi={seriesInfo.forecast_ui}
                           targetLabel={now.pair_fixed_factor || (selectedTarget === 'WIN$N' ? "WDO" : "WIN")}
                           beta={now.pair_fixed_beta}
                         />
@@ -786,6 +790,7 @@ export default function App() {
                         title="Z-SCORE MACRO"
                         type="rastro_z"
                         zValue={now.price_diverge_z}
+                        forecastUi={seriesInfo.forecast_ui}
                         targetLabel="Divergência Macro"
                       />
                     </>
@@ -1117,7 +1122,10 @@ export default function App() {
                     const isFavorBuy = contrib > 0.02
                     const isFavorSell = contrib < -0.02
                     const color = isFavorBuy ? '#4ADE80' : isFavorSell ? '#F87171' : '#475569'
-                    const label = isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : '—'
+                    // Fase 17: em modo honesto o fator só "puxa" o dia para cima/baixo (sem COMPRA/VENDA)
+                    const label = isHonestUi(seriesInfo.forecast_ui)
+                      ? (isFavorBuy ? 'PUXA ↑' : isFavorSell ? 'PUXA ↓' : '—')
+                      : (isFavorBuy ? 'COMPRA' : isFavorSell ? 'VENDA' : '—')
                     const ret = data.ret || 0
                     const intensity = Math.min(Math.abs(contrib) / 0.5, 1) * 100
 

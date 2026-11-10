@@ -56,6 +56,8 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   3. Nenhuma ocorrência de "acc" ou de acurácia in-sample na UI local nem no site público (o deploy do site exige aprovação explícita).
   4. Todos os alvos continuam listados no overview.
 * **Depende de:** 16 (para gravar a versão nova sem apagar a antiga).
+* **Refinamento (10/11/2026, auditoria do spread):** o z do par WIN×WDO não é um z de verdade (|z| > 2 em 31–36% das barras) e não teve vantagem líquida de custos; por isso, com `forecast_ui` ligado, os z de spread/par/macro ficam só descritivos (sem COMPRA/VENDA). R do Kalman passa a ser a variância real do resíduo e Q a deriva medida dos β. Tudo atrás de versão shadow + flag `forecast_ui` (padrão `off`).
+* **Status:** implementada em 10/11/2026 no worktree `rastro_irado_wt_f17_18` (branch local `v2/fase-17-18`), aguardando aprovação; ver `phases/17-correcao-beta-z-e-honestidade-do-painel/17-SUMMARY-01.md`.
 
 ### Phase 18: Features Causais e Treino Walk-Forward com Calibração
 * **Slug sugerido:** `18-features-causais-e-treino-walk-forward`
@@ -69,6 +71,8 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   3. AUC de 60 min ao menos igual à do protótipo dentro do IC (WIN 0,540; WDO 0,503, que não teve sinal), ou justificativa documentada da diferença. Relatório explicita, por ativo, se 60 min tem chance de passar no corte.
   4. Versão registrada com config, artefato, métricas e git SHA.
 * **Depende de:** 15 (métricas), 16 (registro).
+* **Refinamento (10/11/2026, pedido do owner):** além do modelo de 60 min, testar o **valor justo da cesta** — uma referência melhor que só o dólar: γ por OLS walk-forward da cesta (DI, dólar, índices, commodities) estima onde o índice deveria estar; o gap padronizado de forma causal é testado como evento de entrada (contrarian, líquido de custos, desenho até 2025 × validação em 2026, correção para testes múltiplos) e como feature do p_fwd_60 (conjuntos A/B/C). O harness diário ganha cobertura do z e P&L por evento.
+* **Status:** implementada em 10/11/2026 no worktree `rastro_irado_wt_f17_18` (branch local `v2/fase-17-18`), aguardando aprovação; ver `phases/18-features-causais-e-treino-walk-forward/18-SUMMARY-01.md`.
 
 ### Phase 19: Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase)
 * **Slug sugerido:** `19-shadow-mode-ao-vivo`

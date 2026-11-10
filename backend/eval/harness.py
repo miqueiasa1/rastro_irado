@@ -15,7 +15,8 @@ import numpy as np
 import pandas as pd
 
 from . import HARNESS_VERSION
-from .data import PanelConfig, build_panel, coverage, connect_ro
+from .data import PanelConfig, build_panel, coverage, connect_ro, load_bars
+from .events import COST_PTS, live_spread_events
 from .metrics import auc, brier_skill, evaluate_probability, hit_rate, mean_ci_by_session
 
 PRIMARY_HORIZON = "60m"      # decisão D1 (PRD §12.1)
@@ -136,6 +137,28 @@ def _markers(df: pd.DataFrame, cfg: EvalConfig) -> list[dict]:
     return out
 
 
+SPREAD_Z_COLS = ("pair_fixed_z", "pair_z", "price_diverge_z")
+
+
+def _spread_events(conn, target: str, pcfg: PanelConfig, live: pd.DataFrame, cfg: EvalConfig) -> list[dict]:
+    """Fase 18: cobertura do z (% |z| > 2) e P&L por evento (pontos, líquido de custo) dos z
+    gravados ao vivo. Os z entram na grade completa de barras M5 do pregão (barra sem snapshot ao
+    vivo = z ausente), para que os horizontes sejam contados em barras reais."""
+    cols = [c for c in SPREAD_Z_COLS if c in live]
+    if not cols or not len(live):
+        return []
+    b = load_bars(conn, target, pcfg)
+    b = b[b.sess.isin(set(live.sess))].copy()
+    b["k"] = ((b.ts_brt.dt.hour * 60 + b.ts_brt.dt.minute) - pcfg.session_open_min) // 5
+    z = live[["ts_brt"] + cols].drop_duplicates("ts_brt")
+    m = b.merge(z, on="ts_brt", how="left").sort_values("ts_brt").reset_index(drop=True)
+    rows = live_spread_events(m, z_cols=tuple(cols), target=target, thr=cfg.marker_z,
+                              n_boot=max(100, min(cfg.n_boot, 1000)), seed=cfg.seed + 7)
+    for r in rows:
+        r["cost_pts"] = COST_PTS.get(target, 0.0)
+    return rows
+
+
 def evaluate_target(conn, target: str, cfg: EvalConfig) -> dict:
     pcfg = cfg.panel_config()
     panel = build_panel(conn, target, pcfg)
@@ -170,6 +193,7 @@ def evaluate_target(conn, target: str, cfg: EvalConfig) -> dict:
         "baselines": baselines,
         "segments": _segments(live, cfg),
         "markers": _markers(live, cfg),
+        "spread_events": _spread_events(conn, target, pcfg, live, cfg),
     }
 
 

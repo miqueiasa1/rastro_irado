@@ -76,10 +76,19 @@ def load_bars(conn, symbol: str, cfg: PanelConfig) -> pd.DataFrame:
     return b
 
 
+def _snapshot_extra_cols(conn) -> str:
+    """Fase 18: `pair_fixed_z` entra no painel quando a coluna existe (bancos antigos/fixtures não têm)."""
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(irai_live_snapshots)")}
+    except Exception:
+        cols = set()
+    return ", pair_fixed_z" if "pair_fixed_z" in cols else ""
+
+
 def load_snapshots(conn, target: str, cfg: PanelConfig) -> pd.DataFrame:
     s = pd.read_sql_query(
         "SELECT target, session_date, timestamp_utc, p_up, is_ghost, created_at, "
-        "price_diverge_z, pair_z FROM irai_live_snapshots "
+        "price_diverge_z, pair_z" + _snapshot_extra_cols(conn) + " FROM irai_live_snapshots "
         "WHERE target = ? AND timeframe = 'M5' AND session_date >= ? AND session_date <= ? "
         "ORDER BY session_date, timestamp_utc",
         conn, params=(target, cfg.start, cfg.end),

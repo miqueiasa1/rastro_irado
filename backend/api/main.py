@@ -443,7 +443,11 @@ async def irai_targets():
                 "icon": t["icon"],
                 "accuracy": t.get("accuracy"),
                 "r_squared": t.get("r_squared"),
-                "calibrated": t.get("accuracy") is not None,
+                # Fase 17: calibrado = tem parâmetros carregados (não depende de acurácia in-sample).
+                "calibrated": bool(t.get("calibrated", t.get("accuracy") is not None)),
+                "model_version": t.get("model_version"),
+                "forecast_mode": t.get("forecast_mode", "off"),
+                "forecast_ui": t.get("forecast_ui", "off"),
                 "session_start_h": t.get("session_start_h", 0),
                 "session_hours": f"{t['session_start_h']:02d}h-{t['session_end_h']:02d}h",
                 "divergence_config": t.get("divergence_config"),
@@ -564,6 +568,7 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
                     "win_return": live_snaps[-1]["win_return"],
                     "timestamp": live_snaps[-1].get("timestamp_utc") or live_snaps[-1].get("timestamp"),
                     "accuracy": target_info.get("accuracy"),
+                    "forecast_ui": target_info.get("forecast_ui", "off"),
                 }
             }
             if not is_today:
@@ -621,6 +626,7 @@ def _get_series_data_sync(target: str, session_date: str, version: str, timefram
             "win_return": snapshots[-1].win_return,
             "timestamp": snapshots[-1].timestamp,
             "accuracy": target_info.get("accuracy"),
+            "forecast_ui": target_info.get("forecast_ui", "off"),
         }
     }
     if not is_today:
@@ -645,7 +651,8 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
 
     results = []
     for t in engine.registered_targets:
-        if not t.get("accuracy"):
+        # Fase 17: filtra por "calibrado" (parâmetros carregados), não pela acurácia in-sample.
+        if not t.get("calibrated", bool(t.get("accuracy"))):
             continue
 
         try:
@@ -701,6 +708,7 @@ def _get_overview_data_sync(session_date: str, version: str, timeframe: str = "M
                 "win_return": round(win_return, 4),
                 "bars": len(series_list),
                 "accuracy": t.get("accuracy"),
+                "forecast_ui": t.get("forecast_ui", "off"),
                 "flow_confirms": flow_confirms,
                 "price_diverges": price_diverges,
                 "price_diverge_z": price_diverge_z,

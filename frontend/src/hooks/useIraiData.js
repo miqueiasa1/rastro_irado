@@ -263,6 +263,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             tz_offset: isB3 ? -3 : 0, 
             tz_label: 'BRT',
             accuracy: sum?.accuracy,
+            forecast_ui: sum?.forecast_ui || tMeta.forecast_ui || 'off',
             divergence_threshold: tMeta.divergence_config?.threshold || 2.0
           });
           const finalGex = (gexDataRes && Array.isArray(gexDataRes.levels) && gexDataRes.levels.length > 0)
@@ -329,6 +330,7 @@ export function useIraiData({ selectedTarget, liveMode, timeframe }) {
             tz_offset: isB3 ? -3 : 0, 
             tz_label: 'BRT', 
             accuracy: data.summary?.accuracy,
+            forecast_ui: data.summary?.forecast_ui || 'off',
             divergence_threshold: data.divergence_threshold || 2.0
           });
           

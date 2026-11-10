@@ -2,7 +2,9 @@
  * Calcula a convicção do sinal aplicando a calibração por Shrinkage.
  */
 export function calculateConviction(pUp, accuracy, isPreview = false, signalColor = '#94A3B8', defaultWeakColor = '#475569') {
-  const acc = Math.min(Math.max(accuracy, 50), 100);
+  // Fase 17: accuracy == null (modo honesto) => sem encolhimento pela acurácia in-sample;
+  // a convicção é só a distância do P(↑) calibrado até 50%.
+  const acc = accuracy == null ? 100 : Math.min(Math.max(accuracy, 50), 100);
   const shrinkFactor = (2 * acc / 100) - 1;
   const pShrunk = 50 + (pUp - 50) * shrinkFactor;
   const conviction = Math.round(Math.abs(pShrunk - 50) * 2);

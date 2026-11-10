@@ -21,6 +21,7 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.db import DB_PATH
 from backend.irai import model_registry
+from backend.irai import nowcast_calib
 
 
 # Todos os possíveis fatores
@@ -49,12 +50,19 @@ DXY_COMPONENTS = {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"}
 ALIASES = {"WIN$N_TOP8": "WIN$N"}
 
 
-def load_daily_returns(conn, session_start_h, session_end_h):
-    """Carrega retornos diários de todos os símbolos disponíveis."""
-    df = pd.read_sql_query(
-        "SELECT symbol, timestamp_utc, open, close FROM market_bars WHERE timeframe='M5'",
-        conn,
-    )
+def load_daily_returns(conn, session_start_h, session_end_h, symbols=None):
+    """Carrega retornos diários de todos os símbolos disponíveis (ou só de `symbols`)."""
+    if symbols:
+        ph = ",".join("?" * len(symbols))
+        df = pd.read_sql_query(
+            f"SELECT symbol, timestamp_utc, open, close FROM market_bars WHERE timeframe='M5' AND symbol IN ({ph})",
+            conn, params=list(symbols),
+        )
+    else:
+        df = pd.read_sql_query(
+            "SELECT symbol, timestamp_utc, open, close FROM market_bars WHERE timeframe='M5'",
+            conn,
+        )
     df["timestamp"] = pd.to_datetime(df["timestamp_utc"]).dt.tz_localize(None)
     df["hour"] = df["timestamp"].dt.hour
     df["date"] = df["timestamp"].dt.date
@@ -381,34 +389,33 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
         sigmas[label] = float(merged_all[label].std())
         print(f"    w_{label:8s} = {beta[i]:+.6f}  s={sigmas[label]:.5f}")
 
-    # Logistic calibration
-    scores = np.zeros(len(merged_all))
-    for i, label in enumerate(labels):
-        z = merged_all[label].values / sigmas[label]
-        scores += weights[label] * z
-
-    from sklearn.linear_model import LogisticRegression
-    lr = LogisticRegression(fit_intercept=True, max_iter=1000, C=1e6)
-    lr.fit(scores.reshape(-1, 1), y_dir)
-    raw_alpha = float(lr.coef_[0, 0])
-    raw_intercept = float(lr.intercept_[0])
-
-    # --- GUARD RAILS FOR V2 (Kalman Filter Paradigm) ---
-    # The V2 engine uses dynamic Kalman weights but relies on these static
-    # logistic parameters for scaling the signal to a 0-100 probability.
-    # We must clamp alpha to maintain "responsiveness" without becoming binary,
-    # and clamp intercept to remain close to neutral (50% base prob).
-    alpha = max(1.0, min(3.5, raw_alpha))
-    intercept = max(-0.25, min(0.25, raw_intercept))
-
-    if raw_alpha != alpha or raw_intercept != intercept:
-        print(f"  [Guard Rails] Ajustado Alpha ({raw_alpha:.4f} -> {alpha:.4f}) e Intercept ({raw_intercept:.4f} -> {intercept:.4f})")
-    # ---------------------------------------------------
+    # Logistic calibration — fase 17 (REQ-M01, SPEC §8, correção A):
+    # β foi estimado com RETORNOS brutos (y = Xβ), então o preditor é Σ βᵢ·rᵢ = Σ (βᵢ·σᵢ)·zᵢ.
+    # O score antigo Σ βᵢ·zᵢ tinha a unidade errada. Score novo = Σ βᵢ·σᵢ·zᵢ ÷ score_scale
+    # (score_scale = desvio de Σ βᵢ·rᵢ na janela), e α/intercepto saem da logística SEM clamp.
+    R = merged_all[labels].values
+    sig_vec = np.array([sigmas[l] for l in labels])
+    beta_vec = np.array([weights[l] for l in labels])
+    scores, score_scale = nowcast_calib.score_fixed(R, beta_vec, sig_vec)
+    alpha, intercept = nowcast_calib.fit_logistic(scores, y_dir)
+    cmp = nowcast_calib.compare_scores(R, y_ret, beta_vec, sig_vec, float(beta[-1]))
+    print(f"  [unit-fix] acc regressor {cmp['acc_regressor']:.1%} | score antigo {cmp['acc_old']:.1%} | "
+          f"score corrigido {cmp['acc_fixed']:.1%} (AUC {cmp['auc_old']:.3f} -> {cmp['auc_fixed']:.3f})")
 
     p_up = expit(alpha * scores + intercept) * 100
     dir_acc = np.mean((p_up > 50).astype(int) == y_dir) * 100
 
-    print(f"  Logistic: a={alpha:.4f}, intercept={intercept:.4f}, ACC={dir_acc:.1f}%")
+    print(f"  Logistic (sem clamp): a={alpha:.4f}, intercept={intercept:.4f}, ACC={dir_acc:.1f}%")
+
+    kalman = {}
+    if session_start_h != 0:
+        try:
+            kalman = estimate_kalman_for(conn, data_sym, best_result["factors"], beta_vec,
+                                         str(merged_all.index.min()), str(merged_all.index.max()))
+            print(f"  [kalman] R={kalman['kalman_obs_cov']:.4g} %² (antes 1e-3) | Q={kalman['kalman_trans_cov']:.3g}/barra (antes 1e-5)")
+        except Exception as e:  # nunca derruba a calibração
+            print(f"  [kalman] estimativa de R/Q falhou ({e}); versão fica com o padrão antigo")
+            kalman = {}
 
     return {
         "factors": best_result["factors"],
@@ -426,7 +433,21 @@ def calibrate_target(conn, target, session_start_h=0, session_end_h=24,
         "train_end": str(merged_all.index.max()),
         "min_factors": min_factors,
         "max_factors": max_factors,
+        "unit_fix": True,
+        "score_scale": score_scale,
+        "kalman": kalman,
+        "unit_fix_compare": cmp,
     }
+
+
+def estimate_kalman_for(conn, target, factors, beta_vec, start, end):
+    """R/Q do Kalman nas barras intradiárias da janela de calibração (fase 17, REQ-M04)."""
+    from backend.irai import features as F
+    p = F.build_panel(conn, target, list(factors), start, end)
+    df = p.df
+    cum_t = (np.exp(df.rT.to_numpy()) - 1) * 100.0
+    cum_f = (np.exp(df[[p.factor_cols[f] for f in factors]].to_numpy()) - 1) * 100.0
+    return nowcast_calib.estimate_kalman_noise(cum_t, cum_f, df.sess.to_numpy(), df.k.to_numpy(), beta_vec)
 
 
 def save_to_db(conn, target, slug, result):
@@ -453,14 +474,24 @@ def save_to_db(conn, target, slug, result):
         param_map[f"sigma_{label}"] = s
     param_map["alpha"] = result["alpha"]
     param_map["intercept"] = result["intercept"]
+    # Fase 17: opções de cálculo da versão (o engine só muda o cálculo se unit_fix=1)
+    if result.get("unit_fix"):
+        param_map["unit_fix"] = 1.0
+        param_map["score_scale"] = float(result["score_scale"])
+    for k in ("kalman_obs_cov", "kalman_trans_cov"):
+        v = (result.get("kalman") or {}).get(k)
+        if v is not None and np.isfinite(v) and v > 0:
+            param_map[k] = float(v)
 
     config = {
-        "method": "calibrate_universal (OLS brute-force + logistica alpha/intercept)",
+        "method": "calibrate_universal (OLS brute-force + logistica alpha/intercept; fase 17: unit-fix, sem clamp)",
         "target": target,
         "min_factors": result.get("min_factors"),
         "max_factors": result.get("max_factors"),
         "window_sessions": 252,
-        "guard_rails": {"alpha": [1.0, 3.5], "intercept": [-0.25, 0.25]},
+        "guard_rails": None,
+        "unit_fix": bool(result.get("unit_fix")),
+        "kalman_noise": result.get("kalman") or None,
     }
     metrics = {
         "accuracy": result["accuracy"],
@@ -468,6 +499,7 @@ def save_to_db(conn, target, slug, result):
         "logistic_acc": result["logistic_acc"],
         "n_sessions": result["n_sessions"],
         "in_sample": True,
+        "unit_fix_compare": result.get("unit_fix_compare"),
     }
     version_id = model_registry.register_version(
         conn, slug=slug, param_map=param_map, factors=result["factors"],

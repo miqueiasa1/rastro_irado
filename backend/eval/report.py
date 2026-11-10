@@ -131,6 +131,18 @@ def render_markdown(result: dict, title: str) -> str:
             def bp(lab):
                 return "—" if mk.get(f"bp_{lab}") is None else f"{_f(mk[f'bp_{lab}'], 2)} ({_f(mk[f'bp_{lab}_lo'], 2)} a {_f(mk[f'bp_{lab}_hi'], 2)})"
             L.append(f"| {mk['marker']} | {mk['n']} | {_f(mk['per_session'], 1)} | {bp('60m')} | {_f(mk.get('hit_60m'), pct=True)}% | {bp('close')} |")
+        ev = r.get("spread_events") or []
+        if ev:
+            L += ["", f"**Descolamentos gravados ao vivo como eventos (fase 18): cobertura de |z| > 2 e P&L por evento "
+                      f"(contrarian, pontos por contrato, líquido de {_f(ev[0].get('cost_pts'), 1)} pts de custo; IC 95% por pregão):**", "",
+                  "| z | Barras com |z| > 2 | Eventos | Por pregão | 15 min líq. | 60 min líq. (IC 95%) | Hit 60 min | t 60 min | Fechamento líq. |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+            for e in ev:
+                n60 = "—" if e.get("net_60m") is None else f"{_f(e['net_60m'], 1)} ({_f(e['net_60m_lo'], 1)} a {_f(e['net_60m_hi'], 1)})"
+                L.append(f"| {e['z']} | {_f(e.get('coverage_abs_gt2'), pct=True)}% | {e['events']} | {_f(e['per_session'], 2)} | "
+                         f"{_f(e.get('net_15m'), 1)} | {n60} | {_f(e.get('hit_60m'), pct=True)}% | {_f(e.get('t_60m'), 2)} | {_f(e.get('net_close'), 1)} |")
+            L.append("")
+            L.append("Um z bem padronizado tem |z| > 2 em cerca de 5% das barras; muito acima disso, o z não é um z de verdade.")
         for key, lab in (("hour", "hora (BRT)"), ("month", "mês"), ("vol_tercile", "tercil de vol. realizada do pregão")):
             L += ["", f"**Segmentação por {lab} (REQ-V05), AUC / BSS:**", "",
                   f"| {lab} | Barras | Pregões | 60 min | Fechamento | Nowcast |", "|---|---|---|---|---|---|"]

@@ -20,12 +20,24 @@ Lista todos os targets disponíveis com status de calibração.
       "accuracy": 0.68,
       "r_squared": 0.31,
       "calibrated": true,
+      "model_version": "win-nowcast-20261028T190510Z",
+      "forecast_mode": "off",
+      "forecast_ui": "off",
       "session_start_h": 13,
       "session_hours": "13h-21h"
     }
   ]
 }
 ```
+
+Fase 17:
+- `calibrated` indica que o alvo tem parâmetros (pesos) carregados; **não depende** de `accuracy`.
+- `accuracy` é a acurácia in-sample da calibração (direção do fechamento na janela de treino). Mantida por compatibilidade;
+  a UI não a exibe quando `forecast_ui` ≠ `off`.
+- `forecast_ui` (`off` | `nowcast_only` | `on`, padrão `off`): modo de exibição do painel. `off` = UI atual;
+  `nowcast_only`/`on` = painel honesto (P(↑) rotulado como "Leitura do dia (nowcast)", z do par/macro só descritivo,
+  sem COMPRA/VENDA derivado de z e sem "acc"). Muda via `UPDATE asset_models SET forecast_ui = ...` (aprovação do owner).
+- `forecast_mode` (`off` | `shadow` | `on`, padrão `off`): reservado para o modelo de 60 min (fase 19).
 
 ---
 
@@ -55,6 +67,7 @@ Snapshot atual de todos os targets calibrados.
       "win_return": 0.0034,
       "bars": 48,
       "accuracy": 0.68,
+      "forecast_ui": "off",
       "flow_confirms": true,
       "price_diverges": false,
       "price_diverge_z": -0.12,
@@ -125,7 +138,8 @@ Série IRAI completa para uma sessão + target.
     "verdict": "ALTA",
     "win_return": 0.0034,
     "timestamp": "2026-06-05T17:00:00Z",
-    "accuracy": 0.68
+    "accuracy": 0.68,
+    "forecast_ui": "off"
   }
 }
 ```

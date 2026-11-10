@@ -233,6 +233,27 @@ def parse_param_map(param_map: dict) -> tuple[dict, dict, float, float]:
     return weights, sigmas, alpha, intercept
 
 
+# Fase 17 (REQ-M01/M04): opções de cálculo gravadas como params numéricos da versão.
+# Versões sem essas chaves (legado e a adotada na fase 16) mantêm o cálculo antigo, bit a bit.
+ENGINE_OPTION_DEFAULTS = {
+    "unit_fix": 0.0,            # 1 = score no espaço certo: Σ βᵢ·σᵢ·zᵢ (= Σ βᵢ·rᵢ) ÷ score_scale
+    "score_scale": 1.0,         # desvio de Σ βᵢ·rᵢ na janela de calibração (score fica em "desvios")
+    "kalman_obs_cov": 1e-3,     # R (%²): padrão antigo; a fase 17 grava a variância real do resíduo
+    "kalman_trans_cov": 1e-5,   # Q por barra (random walk dos β)
+}
+
+
+def engine_options(param_map: dict) -> dict:
+    """Opções de cálculo de uma versão (defaults = comportamento anterior à fase 17)."""
+    out = dict(ENGINE_OPTION_DEFAULTS)
+    for k in out:
+        if k in param_map and param_map[k] is not None:
+            out[k] = float(param_map[k])
+    if out["score_scale"] <= 0:
+        out["score_scale"] = 1.0
+    return out
+
+
 def legacy_params_sql(conn) -> str:
     """SQL do caminho legado (MAX(effective_from) por parâmetro), com 2 placeholders LIKE.
 

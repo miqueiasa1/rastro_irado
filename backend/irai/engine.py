@@ -172,6 +172,14 @@ class IRAIEngine:
         except Exception:
             rows = []
 
+        # Fase 17: flags de exibição/previsão por target (migração da Fase 15; ausentes = 'off').
+        flag_map = {}
+        try:
+            for fr in conn.execute("SELECT target, forecast_mode, forecast_ui FROM asset_models"):
+                flag_map[fr["target"]] = (fr["forecast_mode"] or "off", fr["forecast_ui"] or "off")
+        except Exception:
+            flag_map = {}
+
         for row in rows:
             target = row["target"]
             slug = row["slug"]
@@ -189,6 +197,8 @@ class IRAIEngine:
                 "data_proxy": row["data_proxy"],
                 "accuracy": row["accuracy"], "r_squared": row["r_squared"],
                 "divergence_config": divergence_config,
+                "forecast_mode": flag_map.get(target, ("off", "off"))[0],
+                "forecast_ui": flag_map.get(target, ("off", "off"))[1],
             })
 
             # Determinar prefixo dos params
@@ -221,6 +231,7 @@ class IRAIEngine:
                 "model_version": LEGACY_VERSION,
                 "versioned": False,
                 "adopted_from_legacy": False,
+                "options": model_registry.engine_options({}),
             }
 
             # Fase 16: com versão active registrada, os parâmetros atuais vêm do registro.
@@ -232,6 +243,10 @@ class IRAIEngine:
                 if active is not None:
                     model = self._model_from_version(model, active)
             self.models[slug] = model
+            # Fase 17: "calibrado" = tem parâmetros (pesos) carregados, independente da acurácia.
+            entry = self.registered_targets[-1]
+            entry["calibrated"] = bool(model.get("weights"))
+            entry["model_version"] = model.get("model_version")
 
         conn.close()
 
@@ -259,8 +274,31 @@ class IRAIEngine:
             "adopted_from_legacy": model_registry.is_adopted_from_legacy(version),
             "effective_from": version.get("effective_from"),
             "effective_to": version.get("effective_to"),
+            "options": model_registry.engine_options(art.get("params", {})),
+            "status": version.get("status"),
         })
         return m
+
+    def model_for_version(self, target: str, version_id: str) -> dict:
+        """Modelo de uma versão específica, qualquer status (shadow incluído).
+
+        Uso: avaliação/comparação offline e shadow mode (fase 17/19). Não muda o que é exibido.
+        """
+        slug = self.target_slugs.get(target)
+        if slug is None or slug not in self.models:
+            raise KeyError(target)
+        cached = self._version_models.get(version_id)
+        if cached is None:
+            conn = get_connection(self.db_path)
+            try:
+                full = model_registry.get_version(conn, version_id, with_artifact=True)
+            finally:
+                conn.close()
+            if full is None or full.get("slug") != slug:
+                raise ValueError(f"versão {version_id} não pertence a {target}")
+            cached = self._model_from_version(self.models[slug], full)
+            self._version_models[version_id] = cached
+        return cached
 
     def _resolve_model_for_date(self, slug: str, session_date: str) -> Optional[dict]:
         """Modelo vigente em ``session_date`` pelo registro. None = slug sem versões (legado).
@@ -286,15 +324,18 @@ class IRAIEngine:
         finally:
             conn.close()
 
-    def _get_model_config(self, target: str, session_date: str = None):
+    def _get_model_config(self, target: str, session_date: str = None, version_id: str = None):
         """Retorna weights, sigmas, alpha, intercept, cfg para o target.
 
         Com ``session_date`` e registro de versões presente, usa a versão vigente na data (REQ-P02).
+        ``version_id`` força uma versão específica (avaliação/shadow; nunca usado pela API pública).
         """
         slug = self.target_slugs.get(target)
         if slug and slug in self.models:
             m = self.models[slug]
-            if session_date is not None:
+            if version_id is not None:
+                m = self.model_for_version(target, version_id)
+            elif session_date is not None:
                 resolved = self._resolve_model_for_date(slug, session_date)
                 if resolved is not None:
                     m = resolved
@@ -310,6 +351,7 @@ class IRAIEngine:
                 "model_version": m.get("model_version", LEGACY_VERSION),
                 "versioned": m.get("versioned", False),
                 "adopted_from_legacy": m.get("adopted_from_legacy", False),
+                "options": m.get("options") or model_registry.engine_options({}),
             }
         # Fallback WIN
         if "win" in self.models:
@@ -352,7 +394,8 @@ class IRAIEngine:
                 session_date: str = None, stale_threshold_sec: int = 600,
                 bars_per_session: int = BARS_PER_SESSION, factor_states: dict = None,
                 alpha: float = None, intercept: float = None,
-                is_cointegrated: bool = True, johansen_p_value: float = 1.0) -> IRAISnapshot:
+                is_cointegrated: bool = True, johansen_p_value: float = 1.0,
+                unit_fix: bool = False, score_scale: float = 1.0) -> IRAISnapshot:
         """
         Computa P_up(t) para a barra corrente.
 
@@ -366,6 +409,10 @@ class IRAIEngine:
             factor_states: Dicionário local opcional de factor_states
             alpha: Alpha local opcional
             intercept: Intercept local opcional
+            unit_fix: fase 17 (REQ-M01). False = cálculo antigo (contribuição = β·z, unidade errada:
+                β é razão de RETORNOS e z = retorno/σ). True = contribuição = β·σ·z ÷ score_scale
+                (= β·r ÷ score_scale), o preditor linear da regressão, em desvios do score de treino.
+            score_scale: desvio de Σβ·r na janela de calibração (só com unit_fix).
         """
         t_frac = (bar_idx + 1) / bars_per_session
         if t_frac > 1.0:
@@ -397,8 +444,11 @@ class IRAIEngine:
             else:
                 state.z_score = 0.0
 
-            # Contribuição
-            state.contribution = state.weight * state.z_score
+            # Contribuição (fase 17: com unit_fix, peso no espaço z = β·σ)
+            if unit_fix:
+                state.contribution = state.weight * state.sigma * state.z_score / (score_scale or 1.0)
+            else:
+                state.contribution = state.weight * state.z_score
             score += state.contribution
 
             # Check stale
@@ -465,7 +515,8 @@ class IRAIEngine:
             stale_factors=stale_factors,
         )
 
-    def compute_from_db(self, session_date: str = None, target: str = None, version: str = "v1", timeframe: str = "M5", persist_state: bool = True) -> list[IRAISnapshot]:
+    def compute_from_db(self, session_date: str = None, target: str = None, version: str = "v1", timeframe: str = "M5", persist_state: bool = True,
+                        model_version_id: str = None) -> list[IRAISnapshot]:
         """Computa série IRAI completa para uma sessão a partir do banco.
         
         Args:
@@ -473,13 +524,20 @@ class IRAIEngine:
             target: Símbolo alvo (WIN$N, WDO$N). Default: WIN$N
             version: 'v1' para regressão estática, 'v2' para Kalman dinâmico
             timeframe: Timeframe para os dados ('M1', 'M2', 'M5', 'M15', 'M30', 'H1'). Default: M5
+            model_version_id: força uma versão (shadow/avaliação, fase 17). Com ela o estado do
+                Kalman nunca é gravado (não contamina o estado da versão vigente).
         """
         session_date = session_date or date.today().isoformat()
         target = target or TARGET
 
         # Carregar modelo correto para o target — versão vigente na data da sessão (fase 16, REQ-P02).
         # Datas anteriores à primeira versão registrada levantam ModelVersionUnavailable (sem repaint).
-        t_weights, t_sigmas, t_alpha, t_intercept, cfg = self._get_model_config(target, session_date)
+        t_weights, t_sigmas, t_alpha, t_intercept, cfg = self._get_model_config(target, session_date, model_version_id)
+        if model_version_id is not None:
+            persist_state = False
+        opts = cfg.get("options") or model_registry.engine_options({})
+        unit_fix = bool(opts.get("unit_fix", 0.0) >= 0.5)
+        score_scale = float(opts.get("score_scale", 1.0) or 1.0)
         model_version = cfg.get("model_version", LEGACY_VERSION)
         kalman_version = model_version if cfg.get("versioned") else None
         active_factors = cfg["factors"]
@@ -669,6 +727,8 @@ class IRAIEngine:
                     factor_states=local_factor_states,
                     alpha=local_alpha,
                     intercept=local_intercept,
+                    unit_fix=unit_fix,
+                    score_scale=score_scale,
                 )
                 snap.win_bar_open = target_last_close
                 snap.win_high = target_last_close
@@ -757,8 +817,11 @@ class IRAIEngine:
                 label = active_labels.get(factor, factor)
                 initial_state_mean[i+1] = t_weights.get(f"w_{label}", 0.0)
                 
-            trans_cov = float(t_sigmas.get("kalman_trans_cov", 1e-5))
-            obs_cov = float(t_sigmas.get("kalman_obs_cov", 1e-3))
+            # Fase 17 (REQ-M04): R e Q vêm da versão (estimados no treino); sem isso, padrão antigo.
+            # Unidade: observação = retorno % desde a abertura do alvo; β = razão de retornos (adimensional),
+            # então R está em %² e Q em (unidade de β)² por barra.
+            trans_cov = float(opts.get("kalman_trans_cov", t_sigmas.get("kalman_trans_cov", 1e-5)))
+            obs_cov = float(opts.get("kalman_obs_cov", t_sigmas.get("kalman_obs_cov", 1e-3)))
             
             kf = KalmanFilterWrapper(
                 n_dim_state=n_dim_state,
@@ -960,13 +1023,16 @@ class IRAIEngine:
                 alpha=local_alpha,
                 intercept=local_intercept,
                 is_cointegrated=is_coint,
-                johansen_p_value=p_val
+                johansen_p_value=p_val,
+                unit_fix=unit_fix,
+                score_scale=score_scale,
             )
 
             # Camada 2: Fallback V2→V1 — se Kalman divergiu demais, usar score estático
             if version in ("v2", "both"):
                 v1_score = sum(
                     t_weights.get(f"w_{active_labels.get(f, f)}", 0.0) *
+                    (local_factor_states[active_labels.get(f, f)].sigma / score_scale if unit_fix else 1.0) *
                     local_factor_states[active_labels.get(f, f)].z_score
                     for f in active_factors
                 )

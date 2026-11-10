@@ -5,4 +5,4 @@ Pacote isolado: não é importado pelo live (API, collector, firebase_sync) e s�
 banco em modo somente leitura. Ver `.planning/milestones/v2.0-metodologia/SPEC.md` §13.
 """
 
-HARNESS_VERSION = "15.1"
+HARNESS_VERSION = "18.0"

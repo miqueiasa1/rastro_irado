@@ -141,8 +141,8 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 |------|--------|--------|------------|
 | 15 | Harness de Avaliação e Baseline Congelada | Em revisão | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
 | 16 | Versionamento Imutável de Parâmetros e Anti-Repaint | Em produção desde 10/11/2026 | REQ-P01–P06, REQ-A03, REQ-N04–N06 |
-| 17 | Correção β/z e Honestidade do Painel | Não iniciada | REQ-M01–M04, REQ-U04, REQ-A04 |
-| 18 | Features Causais e Treino Walk-Forward com Calibração | Não iniciada | REQ-F01–F06, REQ-F08, REQ-N01 |
+| 17 | Correção β/z e Honestidade do Painel | Implementada, aguardando aprovação | REQ-M01–M04, REQ-U04, REQ-A04 |
+| 18 | Features Causais e Treino Walk-Forward com Calibração | Implementada, aguardando aprovação | REQ-F01–F06, REQ-F08, REQ-N01 |
 | 19 | Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase) | Não iniciada | REQ-F07, REQ-F09, REQ-A01, REQ-A05, REQ-S01, REQ-O01–O02, REQ-N03–N04, REQ-N07 |
 | 20 | GEX e Fluxo como Features Testáveis | Não iniciada | REQ-G01–G04 |
 | 21 | UI de Probabilidade com Incerteza e Limiares Calibrados | Não iniciada | REQ-U01–U03, REQ-U05–U07, REQ-S02–S06 |
@@ -160,12 +160,12 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 ### Phase 17: Correção β/z e Honestidade do Painel
 * **Goal:** Corrigir o score (pesos no espaço z), recalibrar α/intercepto sem clamp visual, remover "acc" in-sample e rotular o P atual como nowcast.
-* **Status:** Não iniciada · **Depende de:** 16
+* **Status:** Implementada, aguardando aprovação (10/11/2026, worktree `rastro_irado_wt_f17_18`, branch local `v2/fase-17-18`, sem commit; versões corrigidas só em shadow numa cópia, `forecast_ui` segue `off`; ver `phases/17-correcao-beta-z-e-honestidade-do-painel/17-SUMMARY-01.md`) · **Depende de:** 16
 * **Success Criteria:** o score corrigido reproduz a acurácia do regressor (WDO 73,0% em vez de 64,7%); nenhuma métrica in-sample na UI; overview lista todos os alvos.
 
 ### Phase 18: Features Causais e Treino Walk-Forward com Calibração
 * **Goal:** Modelo P(↑ 60 min) para WIN/WDO (fechamento só como horizonte secundário de avaliação): logística L2, purged CV com embargo, walk-forward mensal, Platt/isotônica, faixa bootstrap.
-* **Status:** Não iniciada · **Depende de:** 15, 16
+* **Status:** Implementada, aguardando aprovação (10/11/2026, mesma branch; pesquisa offline do valor justo da cesta e do p_fwd_60: sem vantagem sobre as baselines, modelo de 60 min não passou nos critérios; ver `phases/18-features-causais-e-treino-walk-forward/18-SUMMARY-01.md`) · **Depende de:** 15, 16
 * **Success Criteria:** testes de causalidade e de split verdes; em 60 min, BSS ≥ 0 por ativo e ECE ≤ 3 pp no walk-forward [META]; versão registrada com config, artefato e métricas.
 
 ### Phase 19: Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase)

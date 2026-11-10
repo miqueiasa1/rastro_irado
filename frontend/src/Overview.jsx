@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { calculateConviction } from './utils/signalAnalyzer'
+import { isHonestUi, describeZ, describeNowcast } from './utils/honesty'
 import { PineDownloadButton } from './components/PineDownloadModal'
 
 const OVERVIEW_STYLES = `
@@ -465,11 +466,13 @@ export default function Overview({ onSelectTarget }) {
 
 function AssetCard({ card, onClick }) {
   const pUp = card.p_up != null ? card.p_up : 50
+  // Fase 17: com forecast_ui 'on'/'nowcast_only' o card fica descritivo (sem acc in-sample, sem COMPRA/VENDA do z)
+  const honest = isHonestUi(card.forecast_ui)
   const accuracy = card.accuracy || 80
   const isBuy = pUp >= 60
   const isSell = pUp <= 40
 
-  const directionText = isBuy ? 'ALTA' : isSell ? 'BAIXA' : 'NEUTRO'
+  const directionText = honest ? describeNowcast(pUp).label : (isBuy ? 'ALTA' : isSell ? 'BAIXA' : 'NEUTRO')
   const signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#64748B'
   const bgColor = isBuy ? 'rgba(74,222,128,0.04)' : isSell ? 'rgba(248,113,113,0.04)' : 'rgba(71,85,105,0.03)'
   const borderColor = isBuy ? 'rgba(74,222,128,0.15)' : isSell ? 'rgba(248,113,113,0.15)' : '#1C1C22'
@@ -490,7 +493,7 @@ function AssetCard({ card, onClick }) {
   // ConvicÃ§Ã£o calibrada por Shrinkage (mesmo algoritmo do SignalGauge)
   const { conviction, convLabel, convColor } = calculateConviction(
     pUp,
-    accuracy,
+    honest ? null : accuracy,
     card.is_preview,
     signalColor,
     '#334155'
@@ -639,13 +642,19 @@ function AssetCard({ card, onClick }) {
           else if (rz > 0.5) { rzSignal = 'VENDA L.'; rzColor = '#F87171'; }
         }
 
+        if (honest) {
+          ({ label: pzSignal, color: pzColor } = describeZ(pz, { short: true }));
+          ({ label: pfzSignal, color: pfzColor } = describeZ(pfz, { short: true }));
+          ({ label: rzSignal, color: rzColor } = describeZ(rz, { short: true }));
+        }
+
         return (
           <div style={{
             marginTop: 8, padding: '4px 6px', borderRadius: 4, background: 'rgba(28,28,34,0.3)',
             border: '1px solid #1C1C22', display: 'flex', flexDirection: 'column', gap: 3
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
-              <span style={{ color: '#64748B' }}>PD RASTRO:</span>
+              <span style={{ color: '#64748B' }}>{honest ? 'NOWCAST:' : 'PD RASTRO:'}</span>
               <span style={{ color: signalColor, fontWeight: 600 }}>{pUp.toFixed(1)}% ({directionText})</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-mono)', fontSize: 8 }}>
@@ -677,10 +686,16 @@ function AssetCard({ card, onClick }) {
         marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 7,
         color: '#475569', display: 'flex', justifyContent: 'space-between',
       }}>
-        <span>acc {accuracy ? accuracy.toFixed(0) : '0'}% Â· p-val: {card.johansen_p_value != null ? Number(card.johansen_p_value).toFixed(3) : '1.000'}</span>
-        <span style={{ color: card.is_cointegrated !== false ? '#4ADE80' : '#F87171', fontWeight: 600 }}>
-          {card.is_cointegrated !== false ? 'coint âœ“' : 'coint âœ—'}
-        </span>
+        {honest ? (
+          <span>leitura do dia (nowcast)</span>
+        ) : (
+          <>
+            <span>{`acc ${accuracy ? accuracy.toFixed(0) : '0'}%`} Â· p-val: {card.johansen_p_value != null ? Number(card.johansen_p_value).toFixed(3) : '1.000'}</span>
+            <span style={{ color: card.is_cointegrated !== false ? '#4ADE80' : '#F87171', fontWeight: 600 }}>
+              {card.is_cointegrated !== false ? 'coint âœ“' : 'coint âœ—'}
+            </span>
+          </>
+        )}
         <span>{card.bars || 0} barras</span>
       </div>
 

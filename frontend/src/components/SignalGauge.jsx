@@ -1,4 +1,5 @@
 import { calculateConviction, calculateStability } from "../utils/signalAnalyzer";
+import { isHonestUi, describeZ, describeNowcast } from "../utils/honesty";
 
 export default function SignalGauge({
   title,
@@ -22,8 +23,10 @@ export default function SignalGauge({
   // Gauge Types: "pd" (Rastro Macro), "nwe_pos" (Posição NWE), "unified" (Confluência Operacional), "pair_z", "rastro_z"
   type = "pd",
   zValue = null,
-  beta = null
+  beta = null,
+  forecastUi = 'off'
 }) {
+  const honest = isHonestUi(forecastUi);
   let isBuy = false;
   let isSell = false;
   let signalText = "NEUTRO";
@@ -39,6 +42,11 @@ export default function SignalGauge({
     isSell = pUp <= 40;
     signalText = isBuy ? 'COMPRA' : isSell ? 'VENDA' : 'NEUTRO';
     signalColor = isBuy ? '#4ADE80' : isSell ? '#F87171' : '#94A3B8';
+    if (honest) {
+      const d = describeNowcast(pUp);
+      signalText = d.label;
+      signalColor = d.color;
+    }
     angleRad = Math.PI * (1 - pUp / 100);
     displayVal = `${pUp.toFixed(1)}%`;
   }
@@ -161,6 +169,14 @@ export default function SignalGauge({
         signalText = "NEUTRO";
         signalColor = "#94A3B8";
       }
+      if (honest) {
+        // Fase 17: z descritivo — sem COMPRA/VENDA derivado do z.
+        const d = describeZ(z);
+        signalText = d.label;
+        signalColor = d.color;
+        isBuy = false;
+        isSell = false;
+      }
       let pUpMapped = 50 - (z * 50 / 3);
       pUpMapped = Math.max(0, Math.min(100, pUpMapped));
       angleRad = Math.PI * (1 - pUpMapped / 100);
@@ -169,7 +185,7 @@ export default function SignalGauge({
 
   // ── Convicção calibrada por Shrinkage (only for PD type) ──
   const convictionData = type === "pd" 
-    ? calculateConviction(pUp, accuracy, isPreview, signalColor, '#475569')
+    ? calculateConviction(pUp, honest ? null : accuracy, isPreview, signalColor, '#475569')
     : null;
 
   // ── Estabilidade (only for PD type) ──
@@ -177,8 +193,8 @@ export default function SignalGauge({
     ? calculateStability(recentPUp)
     : null;
 
-  const isReturnDivergentBuy = type === "pd" && isBuy && winReturn < 0;
-  const isReturnDivergentSell = type === "pd" && isSell && winReturn > 0;
+  const isReturnDivergentBuy = !honest && type === "pd" && isBuy && winReturn < 0;
+  const isReturnDivergentSell = !honest && type === "pd" && isSell && winReturn > 0;
   const isNweExhaustionDown = (type === "pd" || type === "unified") && nweUpper !== undefined && nweUpper !== null && winCurrent !== undefined && winCurrent !== null && winCurrent > nweUpper;
   const isNweExhaustionUp = (type === "pd" || type === "unified") && nweLower !== undefined && nweLower !== null && winCurrent !== undefined && winCurrent !== null && winCurrent < nweLower;
 
