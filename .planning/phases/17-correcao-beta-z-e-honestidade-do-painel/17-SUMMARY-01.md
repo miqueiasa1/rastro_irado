@@ -71,3 +71,11 @@
   `scripts/calibrate_universal.py`, `frontend/src/App.jsx`, `frontend/src/Overview.jsx`,
   `frontend/src/components/SignalGauge.jsx`, `frontend/src/hooks/useIraiData.js`, `frontend/src/utils/signalAnalyzer.js`,
   `docs/API.md`
+
+## Ativação em produção (10/11/2026)
+
+- Aprovada pelo owner às 16:23 BRT (ligar de verdade, não em observação). Commit `0bf29a5`; a pasta de produção passou a rodar `v2/fase-17-18`.
+- Backup online: `data/backups/irai_live_pre_fase17_20261110.db` (quick_check ok).
+- Versões promovidas, vigência 11/11/2026: `win-nowcast-20261110T192649Z` e `wdo-nowcast-20261110T192649Z` (antigas aposentadas com `effective_to` 11/11). O pregão de 10/11 segue com a versão anterior; o estado do Kalman reinicia na troca.
+- `forecast_ui='nowcast_only'` em WIN$N e WDO$N: sem acc, z só descritivo (sem COMPRA/VENDA), sem rótulo de cointegração/p-val, P como "Leitura do dia". Demais alvos com `off`.
+- Princípio para as próximas fases: rastro = contexto, GEX = região, price action = gatilho.

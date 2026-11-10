@@ -1,8 +1,9 @@
 # Fases GSD — Milestone v2.0 Metodologia Preditiva Calibrada
 
-**Status:** todas não iniciadas · **Data:** 2026-11-10 · **Revisão:** decisões D1–D4 de 10/11/2026 aplicadas (PRD §12.1)
+**Status:** 16 e 17 em produção, 18 concluída (negativa), 19–22 não iniciadas · **Data:** 2026-11-10 · **Revisão:** decisões D1–D4 de 10/11/2026 aplicadas (PRD §12.1)
 
 **Decisões que valem para todas as fases:** D1 horizonte de produto = 60 min (fechamento só avaliação) · D2 só WIN$N e WDO$N · D3 no-go → sem rótulos direcionais, P atual como "Leitura do dia (nowcast)" · D4 `p_fwd_60` e card de assertividade também no site público; **todo deploy do Firebase exige aprovação explícita do usuário** · Q5 (GEX as-of e backfill) em aberto, pendente do projeto WDO.
+**Princípio orientador (owner, 10/11/2026):** rastro = contexto, GEX = região, price action = gatilho. O rastro é usado ao vivo, não como observação; as próximas fases (19–22) devem ser pensadas nessa divisão — o IRAI descreve o contexto do dia, o GEX marca as regiões de preço e o gatilho de entrada vem do price action, não de um rótulo COMPRA/VENDA do z.
 **Referências:** [`PRD.md`](./PRD.md) (requisitos REQ-*) · [`SPEC.md`](./SPEC.md) (seções §)
 
 Ordem e dependências:
@@ -57,7 +58,7 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   4. Todos os alvos continuam listados no overview.
 * **Depende de:** 16 (para gravar a versão nova sem apagar a antiga).
 * **Refinamento (10/11/2026, auditoria do spread):** o z do par WIN×WDO não é um z de verdade (|z| > 2 em 31–36% das barras) e não teve vantagem líquida de custos; por isso, com `forecast_ui` ligado, os z de spread/par/macro ficam só descritivos (sem COMPRA/VENDA). R do Kalman passa a ser a variância real do resíduo e Q a deriva medida dos β. Tudo atrás de versão shadow + flag `forecast_ui` (padrão `off`).
-* **Status:** implementada em 10/11/2026 no worktree `rastro_irado_wt_f17_18` (branch local `v2/fase-17-18`), aguardando aprovação; ver `phases/17-correcao-beta-z-e-honestidade-do-painel/17-SUMMARY-01.md`.
+* **Status:** Em produção desde 10/11/2026 (commit `0bf29a5` na branch local `v2/fase-17-18`, sem push; pasta de produção em `v2/fase-17-18`; backup `data/backups/irai_live_pre_fase17_20261110.db`; versões corrigidas `win-nowcast-20261110T192649Z` e `wdo-nowcast-20261110T192649Z` ativas com vigência a partir de 11/11/2026 (o pregão de 10/11 já tinha sido exibido com a versão anterior — vigência no mesmo dia repintaria; o estado do Kalman reinicia na troca de versão); `forecast_ui='nowcast_only'` em WIN$N e WDO$N desde 10/11/2026 16:23 BRT (painel sem acc, sem COMPRA/VENDA no z, sem rótulo de cointegração, P como "Leitura do dia"); demais alvos inalterados; ver `phases/17-correcao-beta-z-e-honestidade-do-painel/17-SUMMARY-01.md`).
 
 ### Phase 18: Features Causais e Treino Walk-Forward com Calibração
 * **Slug sugerido:** `18-features-causais-e-treino-walk-forward`
@@ -72,7 +73,7 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   4. Versão registrada com config, artefato, métricas e git SHA.
 * **Depende de:** 15 (métricas), 16 (registro).
 * **Refinamento (10/11/2026, pedido do owner):** além do modelo de 60 min, testar o **valor justo da cesta** — uma referência melhor que só o dólar: γ por OLS walk-forward da cesta (DI, dólar, índices, commodities) estima onde o índice deveria estar; o gap padronizado de forma causal é testado como evento de entrada (contrarian, líquido de custos, desenho até 2025 × validação em 2026, correção para testes múltiplos) e como feature do p_fwd_60 (conjuntos A/B/C). O harness diário ganha cobertura do z e P&L por evento.
-* **Status:** implementada em 10/11/2026 no worktree `rastro_irado_wt_f17_18` (branch local `v2/fase-17-18`), aguardando aprovação; ver `phases/18-features-causais-e-treino-walk-forward/18-SUMMARY-01.md`.
+* **Status:** Concluída com resultado negativo (10/11/2026, commit `0bf29a5`; valor justo da cesta e p_fwd_60 walk-forward sem vantagem sobre as baselines; p_fwd_60 rejeitado e não exibido; sinais fracos de reversão do WDO e do WIN em 2026 não viram COMPRA/VENDA; ver `phases/18-features-causais-e-treino-walk-forward/18-SUMMARY-01.md`).
 
 ### Phase 19: Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase)
 * **Slug sugerido:** `19-shadow-mode-ao-vivo`
