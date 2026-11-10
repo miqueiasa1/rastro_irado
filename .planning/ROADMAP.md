@@ -139,7 +139,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 | Fase | Título | Status | Requisitos |
 |------|--------|--------|------------|
-| 15 | Harness de Avaliação e Baseline Congelada | Não iniciada | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
+| 15 | Harness de Avaliação e Baseline Congelada | Em revisão | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
 | 16 | Versionamento Imutável de Parâmetros e Anti-Repaint | Não iniciada | REQ-P01–P06, REQ-A03, REQ-N04–N06 |
 | 17 | Correção β/z e Honestidade do Painel | Não iniciada | REQ-M01–M04, REQ-U04, REQ-A04 |
 | 18 | Features Causais e Treino Walk-Forward com Calibração | Não iniciada | REQ-F01–F06, REQ-F08, REQ-N01 |
@@ -150,7 +150,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 ### Phase 15: Harness de Avaliação e Baseline Congelada
 * **Goal:** Medir a assertividade de forma reprodutível e contínua a partir de `irai_live_snapshots`, antes de mudar qualquer modelo.
-* **Status:** Não iniciada · **Depende de:** 12, 14
+* **Status:** Em revisão (implementada em 2026-11-10 e commitada na branch local `v2/fase-15-harness`, sem push; critério 3 em andamento — tarefa "IRAI Daily Assertividade" seg–sex 18:45; ver `phases/15-harness-de-avaliacao-e-baseline/15-SUMMARY-01.md`) · **Depende de:** 12, 14
 * **Success Criteria:** reproduz a baseline da auditoria (WIN AUC 60 min 0,474; WDO 0,486; WIN nowcast 0,711) com tolerância de ±0,005; relatório diário automático por 5 pregões; nenhuma escrita fora de `forecast_eval_daily`.
 
 ### Phase 16: Versionamento Imutável de Parâmetros e Anti-Repaint

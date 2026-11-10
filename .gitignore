@@ -75,3 +75,9 @@ scratch/
 
 # Pine pago (nunca versionar/servir publicamente)
 *.pine
+
+# Avaliacao (fase 15): store e saidas diarias regeneraveis; a baseline congelada e versionada
+data/eval/*.db
+data/eval/*.db-*
+data/eval/latest/
+data/reports/assertividade_2*.md

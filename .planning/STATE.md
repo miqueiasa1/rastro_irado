@@ -40,7 +40,7 @@ Last activity: 2026-11-10
 - `frontend/src/gexLevels.js` modificado em 10/11/2026 07:32 (horário de Brasília / America/Sao_Paulo); provável sync diário de GEX, ainda não revisado.
 
 ### Próxima milestone: v2.0 Metodologia Preditiva Calibrada (planejada em 2026-11-10)
-- Status: planejada; nenhuma fase iniciada. A milestone v1.0 segue como registro histórico (fases 1–14).
+- Status: em andamento. Phase 15 **em revisão** (implementada e commitada em 2026-11-10 na branch local `v2/fase-15-harness`, sem push; critério 3 em andamento). Fases 16–22 não iniciadas. A milestone v1.0 segue como registro histórico (fases 1–14).
 - Fases 15–22 adicionadas ao `ROADMAP.md` como "Não iniciada": 15 harness de avaliação, 16 versionamento imutável/anti-repaint, 17 correção β/z e honestidade do painel, 18 features causais + walk-forward, 19 shadow mode ao vivo, 20 GEX e fluxo como features, 21 UI com incerteza, 22 go/no-go.
 - Documentos: `.planning/milestones/v2.0-metodologia/PRD.md`, `SPEC.md` e `PHASES.md`.
 - Motivação (auditoria de 10/11/2026, 65 pregões ao vivo de 03/08 a 10/11): AUC do P(↑) de 0,47–0,50 para 5–60 min, nowcast de 0,71 (WIN) e 0,75 (WDO), Brier skill de −0,27 a −0,40.
@@ -50,4 +50,5 @@ Last activity: 2026-11-10
   - D3: se o go/no-go falhar, remover os rótulos direcionais e mostrar o P atual só como "Leitura do dia (nowcast)" (`forecast_ui='nowcast_only'`).
   - D4: publicar `p_fwd_60` e o card de assertividade no site público (nó `eval/<target>`, regra de leitura no RTDB). Todo deploy do Firebase continua exigindo aprovação explícita do usuário.
 - Em aberto: Q5 (o projeto WDO garante GEX publicado antes de 09:00 e marca o backfill?), pendente de consulta ao projeto WDO; afeta só a Phase 20. Q6 e Q7 têm padrão proposto no PRD.
-- Próximo passo: iniciar a Phase 15 (`/gsd-discuss-phase 15`); em paralelo, consultar o projeto WDO sobre Q5.
+- Phase 15: harness `scripts/eval_assertividade.py` + pacote isolado `backend/eval/`; baseline congelada em `data/eval/baseline/assertividade_baseline_20261110.json` (WIN 60 min AUC 0,474, WDO 0,486; nowcast 0,710 / 0,754). Decisões do owner (10/11/2026): (1) tarefa "IRAI Daily Assertividade" seg–sex 18:45 via `scripts/run_eval_assertividade.bat`, log em `logs/eval_assertividade.log`; (2) `forecast_eval_daily` em `data/eval/forecast_eval.db` até a fase 16; (3) endpoint `/api/eval/assertividade` na fase 19; (4) fixture de ~600 KB versionada; (5) baseline aceita com `5904ef5-dirty`. Critério 3 fecha após 5 pregões seguidos de relatório automático.
+- Próximo passo: acompanhar 5 pregões do relatório automático para fechar a Phase 15; depois, Phase 16 (`/gsd-discuss-phase 16`). Em paralelo, consultar o projeto WDO sobre Q5.
