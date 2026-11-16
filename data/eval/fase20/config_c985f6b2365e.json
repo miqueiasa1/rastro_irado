@@ -1,0 +1,130 @@
+{
+ "config_hash": "c985f6b2365e",
+ "frozen_at_utc": "2026-11-11T00:37:00.879429+00:00",
+ "config": {
+  "phase": "20-gex-regioes-price-action",
+  "panel_start": "2025-09-01",
+  "start": "2026-01-02",
+  "end": "2026-11-10",
+  "design_end": "2026-06-30",
+  "targets": [
+   "WIN$N",
+   "WDO$N"
+  ],
+  "gex_csv": {
+   "WIN$N": "jumba_gex_win_history.csv",
+   "WDO$N": "jumba_gex_wdo_history.csv"
+  },
+  "gex_fallback": "gex_levels: primeiro run com run_name < 09:00; senão exclui",
+  "exclude_sessions": [
+   "2026-05-23"
+  ],
+  "exclude_open_gap_abs": 0.02,
+  "levels_primary": {
+   "wall_min_width": 2,
+   "gamma": [
+    "min_gamma",
+    "max_gamma",
+    "gamma_flip"
+   ]
+  },
+  "k": 0.5,
+  "k_sens": [
+   0.25,
+   1.0
+  ],
+  "floor_cost_mult": 2.0,
+  "costs_pts": {
+   "WIN$N": 10.0,
+   "WDO$N": 1.0
+  },
+  "cost_sens_mult": 2.0,
+  "ticks": {
+   "WIN$N": 5.0,
+   "WDO$N": 0.5
+  },
+  "atr": {
+   "n": 14,
+   "min_bars": 5,
+   "fallback_sessions": 20
+  },
+  "triggers": {
+   "outside_bars": 3,
+   "episode_window": 6,
+   "t1_wick": 0.5,
+   "t1_close_pos": 0.6,
+   "t1_min_range_atr": 0.5,
+   "t2_lookback": 2,
+   "t2_reclaim_h": 0.25,
+   "t2_max_close_below_atr": 1.0,
+   "t3_retest_window": 6,
+   "t3_reject_h": 0.25
+  },
+  "sim": {
+   "stop_buffer_atr": 0.1,
+   "risk_atr": [
+    0.5,
+    2.5
+   ],
+   "target_R": 1.5,
+   "target_level_h": 0.5,
+   "hold_bars": 12,
+   "entry_k": [
+    6,
+    96
+   ]
+  },
+  "context": {
+   "C1": {
+    "WIN$N": "cesta_w60 z (perfil)",
+    "WDO$N": "cesta_w60_movel40 z",
+    "rule": "compra z(t-1)<=0; venda z(t-1)>=0"
+   },
+   "C2": {
+    "rule": "compra fv(t-1)-fv(t-13)>0; venda <0 (fv da cesta_w60; antes da abertura fv=0)"
+   },
+   "unavailable": "z/fv NaN ou algum fator stale em t-1 → sem alerta nos braços C"
+  },
+  "arms": [
+   "A_T0_C0",
+   "B_T1_C0",
+   "B_T2_C0",
+   "B_T3_C0",
+   "C_T1_C1",
+   "C_T2_C1",
+   "C_T3_C1",
+   "Cp_T1_C2",
+   "Cp_T2_C2",
+   "Cp_T3_C2"
+  ],
+  "p1": {
+   "lookback": 12,
+   "exclude_gex_zones": true,
+   "triggers": [
+    "T0",
+    "T1",
+    "T2",
+    "T3"
+   ]
+  },
+  "p2": {
+   "draws": 200,
+   "shift_frac": [
+    0.25,
+    0.75
+   ],
+   "random_sign": true,
+   "seed": 20
+  },
+  "n_boot": 2000,
+  "seed": 0,
+  "fdr_q": 0.05,
+  "min_trades_per_half": 30,
+  "verdict": {
+   "GO": "criterios 1-5 do 20-PLAN-01 §6",
+   "INCONCLUSIVO": "media>0 no total e nas duas metades e media acima de P1 e da mediana de P2, sem passar em todos os criterios",
+   "NO-GO": "demais casos",
+   "asset": "melhor status entre os 10 bracos"
+  }
+ }
+}

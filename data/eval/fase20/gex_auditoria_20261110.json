@@ -1,0 +1,93 @@
+{
+ "WIN$N": {
+  "csv_path": "C:\\Users\\ryzen\\Downloads\\Antigravity\\wdo win pair trading\\mt5\\Files\\jumba_gex_win_history.csv",
+  "csv_sha": "e61957d4b3f3f4f4",
+  "csv_sessions": 221,
+  "csv_first": "2026-01-02",
+  "csv_last": "2026-11-10",
+  "csv_weekend_dates": [
+   "2026-05-23",
+   "2026-08-29",
+   "2026-11-01"
+  ],
+  "csv_sessions_by_month": {
+   "2026-01": 21,
+   "2026-02": 18,
+   "2026-03": 22,
+   "2026-04": 20,
+   "2026-05": 21,
+   "2026-06": 22,
+   "2026-07": 23,
+   "2026-08": 22,
+   "2026-09": 22,
+   "2026-10": 22,
+   "2026-11": 8
+  },
+  "levels_per_session_median": 34.0,
+  "primary_per_session_median": 6.0,
+  "primary_per_session_min": 5,
+  "csv_sessions_missing_a_gamma_level": [
+   "2026-05-22"
+  ],
+  "db_preopen_sessions": 118,
+  "db_fallback_used": [],
+  "bar_sessions": 213,
+  "bar_sessions_without_gex": [],
+  "gex_sessions_without_bars": [
+   "2026-05-25",
+   "2026-06-04",
+   "2026-09-07",
+   "2026-10-12",
+   "2026-11-02"
+  ],
+  "csv_vs_db_common": 118,
+  "csv_vs_db_same_primary_set": 95,
+  "csv_vs_db_flip_absdiff_median": 0.0020000000076834112,
+  "csv_vs_db_flip_absdiff_max": 0.005000000004656613
+ },
+ "WDO$N": {
+  "csv_path": "C:\\Users\\ryzen\\Downloads\\Antigravity\\wdo win pair trading\\mt5\\Files\\jumba_gex_wdo_history.csv",
+  "csv_sha": "6baebff0437a7e06",
+  "csv_sessions": 217,
+  "csv_first": "2026-01-02",
+  "csv_last": "2026-11-10",
+  "csv_weekend_dates": [
+   "2026-11-01"
+  ],
+  "csv_sessions_by_month": {
+   "2026-01": 21,
+   "2026-02": 18,
+   "2026-03": 22,
+   "2026-04": 20,
+   "2026-05": 20,
+   "2026-06": 22,
+   "2026-07": 23,
+   "2026-08": 21,
+   "2026-09": 21,
+   "2026-10": 21,
+   "2026-11": 8
+  },
+  "levels_per_session_median": 34.0,
+  "primary_per_session_median": 6.0,
+  "primary_per_session_min": 5,
+  "csv_sessions_missing_a_gamma_level": [],
+  "db_preopen_sessions": 116,
+  "db_fallback_used": [
+   "2026-09-07",
+   "2026-10-12"
+  ],
+  "bar_sessions": 213,
+  "bar_sessions_without_gex": [],
+  "gex_sessions_without_bars": [
+   "2026-05-25",
+   "2026-06-04",
+   "2026-09-07",
+   "2026-10-12",
+   "2026-11-02"
+  ],
+  "csv_vs_db_common": 114,
+  "csv_vs_db_same_primary_set": 104,
+  "csv_vs_db_flip_absdiff_median": 0.0,
+  "csv_vs_db_flip_absdiff_max": 29.890000000000327
+ }
+}
