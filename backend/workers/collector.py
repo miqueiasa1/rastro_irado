@@ -32,7 +32,6 @@ TERMINALS = [
     {
         "name": "BR (XP)",
         "paths": [
-            r"C:\Program Files\MetaTrader 5 Terminal\terminal64.exe",
             r"C:\Program Files\MetaTrader 5\terminal64.exe",
         ],
         "source": "br",
@@ -85,6 +84,64 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("collector")
+
+
+def _is_mt5_running_in_user_session(target_path: str) -> bool:
+    """Retorna True apenas se terminal64.exe em target_path estiver rodando em SessionId >= 1."""
+    if not target_path:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        norm_target = os.path.normcase(os.path.normpath(target_path))
+        kernel32 = ctypes.windll.kernel32
+        TH32CS_SNAPPROCESS = 0x00000002
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        hsnap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if hsnap == wintypes.HANDLE(-1).value:
+            return False
+        try:
+            pe = PROCESSENTRY32W()
+            pe.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+            if not kernel32.Process32FirstW(hsnap, ctypes.byref(pe)):
+                return False
+            while True:
+                if pe.szExeFile.lower() == "terminal64.exe":
+                    sid = wintypes.DWORD()
+                    if kernel32.ProcessIdToSessionId(pe.th32ProcessID, ctypes.byref(sid)) and sid.value >= 1:
+                        hproc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pe.th32ProcessID)
+                        if hproc:
+                            try:
+                                buf = ctypes.create_unicode_buffer(1024)
+                                size = wintypes.DWORD(1024)
+                                if kernel32.QueryFullProcessImageNameW(hproc, 0, buf, ctypes.byref(size)):
+                                    if os.path.normcase(os.path.normpath(buf.value)) == norm_target:
+                                        return True
+                            finally:
+                                kernel32.CloseHandle(hproc)
+                if not kernel32.Process32NextW(hsnap, ctypes.byref(pe)):
+                    break
+        finally:
+            kernel32.CloseHandle(hsnap)
+        return False
+    except Exception:
+        return False
 
 
 def compute_bar_delta(open_p, high, low, close, real_volume):
@@ -270,6 +327,12 @@ def run_collection_cycle(conn: sqlite3.Connection, skip_br: bool = False, cycle_
         active_path = None
 
         for path in paths_to_try:
+            if not _is_mt5_running_in_user_session(path):
+                last_error = f"Terminal não está aberto na sessão do usuário ({path})"
+                if OFFLINE_TERMINALS.get(terminal['name'], 0) == 0:
+                    log.info(f"{terminal['name']}: {last_error}. Pulando auto-launch na Sessão 0.")
+                continue
+
             try:
                 mt5.shutdown()
             except Exception:
