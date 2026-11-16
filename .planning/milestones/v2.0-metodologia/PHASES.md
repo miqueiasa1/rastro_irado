@@ -1,6 +1,6 @@
 # Fases GSD — Milestone v2.0 Metodologia Preditiva Calibrada
 
-**Status:** 16 e 17 em produção, 18 concluída (negativa), 20 pesquisada (WIN inconclusivo, WDO no-go), 19 e 21 replanejadas (19A/21A, 21A publicada no site), 20b inconclusiva, 22 aberta · **Data:** 2026-11-16 (criada em 2026-11-10) · **Revisão:** decisões D1–D4 de 10/11/2026 aplicadas (PRD §12.1)
+**Status:** 16 e 17 em produção, 18 concluída (negativa), 20 pesquisada (WIN inconclusivo, WDO no-go), 19 e 21 replanejadas (19A/21A, 21A publicada no site), 20b encerrada (inconclusiva; linha GEX + PA + fluxo fechada), 22 aberta · **Data:** 2026-11-16 (criada em 2026-11-10) · **Revisão:** decisões D1–D4 de 10/11/2026 aplicadas (PRD §12.1)
 
 **Decisões que valem para todas as fases:** D1 horizonte de produto = 60 min (fechamento só avaliação) · D2 só WIN$N e WDO$N · D3 no-go → sem rótulos direcionais, P atual como "Leitura do dia (nowcast)" · D4 `p_fwd_60` e card de assertividade também no site público; **todo deploy do Firebase exige aprovação explícita do usuário** · Q5 (GEX as-of e backfill): resolvida para a pesquisa da fase 20 (CSV oficial do projeto WDO; fallback = primeiro run < 09:00); para uso ao vivo segue pendente do projeto WDO.
 **Princípio orientador (owner, 10/11/2026):** rastro = contexto, GEX = região, price action = gatilho. O rastro é usado ao vivo, não como observação; as próximas fases (19–22) devem ser pensadas nessa divisão — o IRAI descreve o contexto do dia, o GEX marca as regiões de preço e o gatilho de entrada vem do price action, não de um rótulo COMPRA/VENDA do z.
@@ -106,6 +106,7 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
 * **Status:** Pesquisa W1–W4 concluída em 10/11/2026 (config `c985f6b2365e`): **WIN$N INCONCLUSIVO** (melhor braço T3 + valor justo: +29,4 pts/op., n 147, IC −49,2 a +113,7; não bate os controles), **WDO$N NO-GO** (melhor braço +0,19 pt/op., n 108, IC −1,80 a +2,15). Nada ligado ao vivo; GEX segue só como linha no gráfico. Ver `phases/20-gex-regioes-price-action/20-SUMMARY-01.md`. Commit `c5333c1`, mergeado em `v2/fase-17-18` em 16/11
 
 ### Phase 20b (nova, opcional): Fluxo (delta acumulado) como contexto
+* **Linha encerrada pelo owner em 16/11/2026 10:03** (GEX + price action + fluxo): 20b fechada como INCONCLUSIVA, sem acompanhamento offline.
 * **Goal:** Avaliar `cum_delta_norm` como filtro adicional dos alertas da fase 20, pelo mesmo protocolo.
 * **Observação:** delta M5 do WDO só existe desde abr–mai/2026.
 * **Status (16/11/2026):** teste único pré-registrado (WIN, F_T3_C1, config `8dac9d8f8ab1`) → **INCONCLUSIVO**: +83,6 pts/op., n 53, IC −45,8 a +236,3; incremento sobre o base IC −43,1 a +175,8; P2 percentil 90,5. Ver `phases/20b-fluxo-como-contexto/20b-SUMMARY-01.md` · **Depende de:** 20.

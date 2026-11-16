@@ -30,7 +30,7 @@ progress:
 | 18 | Features causais + walk-forward | Concluída com resultado **negativo** (p_fwd_60 rejeitado) |
 | 19 | Shadow mode ao vivo | Replanejada: sem modelo forecast aprovado. **19A feita em 16/11** (`/api/eval/assertividade`, guarda REQ-A05, sync sem `p_fwd_close*`); inferência shadow suspensa |
 | 20 | Regiões de GEX + gatilho de price action | Pesquisa W1–W4 concluída em 10/11: WIN INCONCLUSIVO, WDO NO-GO; nada ligado ao vivo |
-| 20b | Fluxo (delta acumulado) como contexto | Teste único pré-registrado (WIN, F_T3_C1, config `8dac9d8f8ab1`) rodado em 16/11: **INCONCLUSIVO** (+83,6 pts/op., n 53, IC −45,8 a +236,3); nada ao vivo |
+| 20b | Fluxo (delta acumulado) como contexto | Teste único pré-registrado (WIN, F_T3_C1, config `8dac9d8f8ab1`) rodado em 16/11: **INCONCLUSIVO** (+83,6 pts/op., n 53, IC −45,8 a +236,3). **Encerrada** pelo owner em 16/11 10:03, junto com a linha GEX + PA + fluxo; sem acompanhamento |
 | 21 | UI com incerteza e card de assertividade | Replanejada. **21A feita em 16/11** (ReliabilityCard, sem compra/venda no gráfico de P, marcadores exp. desligados) e **publicada no site** rastromacro.web.app em 16/11 09:45 (regra `eval/$target` + nó `eval/<target>` no RTDB), com aprovação do owner |
 | 22 | Go/No-Go e corte | **Aberta** (owner recusou fechar em 16/11). Sem candidato em shadow; `nowcast_only` (D3) segue vigente enquanto isso |
 
@@ -74,6 +74,7 @@ progress:
 - `/api/gex` sem `run`: em pregões passados usa o último run antes de 09:00 (as-of); hoje segue o mais recente (commit `148e2ab`).
 - Deploy do Firebase aprovado e feito: regras do RTDB com `eval/$target` e hosting a partir de `v2/fase-19-21a`; backup em `data/backups/firebase_deploy_20261116/`.
 - 20b: um único teste pré-registrado, só WIN, só pesquisa → INCONCLUSIVO (ver `phases/20b-fluxo-como-contexto/20b-SUMMARY-01.md`).
+- 10:03: linha de pesquisa GEX + price action + fluxo **encerrada**; 20b fechada como INCONCLUSIVA e não será acompanhada. O GEX segue só como linha no gráfico.
 - Fase 22 permanece aberta.
 
 ## Em aberto
@@ -82,4 +83,4 @@ progress:
 
 ## Próximo passo
 - Fechar o critério 3 da fase 15 com o relatório de 16/11 18:45 e reavaliar o nowcast corrigido com mais pregões.
-- Owner: acompanhar F_T3_C1 (20b) offline por ≥ 40 pregões novos ou encerrar a linha GEX + PA + fluxo. Fase 22 aberta até existir candidato ou nova decisão.
+- Fase 22 aberta até existir candidato ou nova decisão do owner (a linha GEX + PA + fluxo foi encerrada e não gera candidato).

@@ -147,7 +147,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 | 18 | Features Causais e Treino Walk-Forward com Calibração | Concluída (resultado negativo) | REQ-F01–F06, REQ-F08, REQ-N01 |
 | 19 | Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase) | Replanejada (19A: avaliação/contrato; sem inferência) | REQ-F07, REQ-F09, REQ-A01, REQ-A05, REQ-S01, REQ-O01–O02, REQ-N03–N04, REQ-N07 |
 | 20 | Regiões de GEX + Gatilho de Price Action | Pesquisa concluída: WIN INCONCLUSIVO, WDO NO-GO | REQ-G01, G02, G04 |
-| 20b | Fluxo (delta acumulado) como contexto | Teste único rodado em 16/11: INCONCLUSIVO | REQ-G03 |
+| 20b | Fluxo (delta acumulado) como contexto | Encerrada (16/11): INCONCLUSIVO, linha GEX + PA + fluxo fechada | REQ-G03 |
 | 21 | UI de Probabilidade com Incerteza e Limiares Calibrados | Replanejada; 21A no painel local e no site público (16/11) | REQ-U01–U03, REQ-U05–U07, REQ-S02–S06 |
 | 22 | Avaliação Go/No-Go e Corte | Aberta (owner manteve em 16/11) | Critérios do PRD §8 (por ativo, 60 min) |
 
@@ -186,6 +186,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 * **Success Criteria:** só sessões com GEX as-of; gatilhos sem lookahead; decisão por ativo em ≥ 40 pregões; shadow de 40 pregões antes de tirar o selo.
 
 ### Phase 20b (opcional): Fluxo (delta acumulado) como contexto
+* **Linha encerrada pelo owner em 16/11/2026 10:03** (GEX + price action + fluxo): 20b fechada como INCONCLUSIVA, sem acompanhamento offline.
 * **Goal:** Avaliar `cum_delta_norm` como filtro adicional dos alertas da fase 20, pelo mesmo protocolo pré-registrado.
 * **Status:** Teste único pré-registrado (WIN, F_T3_C1 = T3 + C1 + fluxo do pregão a favor; config `8dac9d8f8ab1`, pré-registro `a86906b`) rodado em 16/11/2026: **INCONCLUSIVO** — +83,6 pts/op. (n 53, IC −45,8 a +236,3) contra +29,4 do braço base; incremento IC −43,1 a +175,8; P2 no percentil 90,5. Nada ao vivo (ver `phases/20b-fluxo-como-contexto/20b-SUMMARY-01.md`) · **Depende de:** 20
 
@@ -196,7 +197,7 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 ### Phase 22: Avaliação Go/No-Go e Corte
 * **Goal:** Após ≥ 40 pregões em shadow, aplicar os critérios do PRD §8 por ativo, em 60 min, e promover (ou não) o novo modelo a sinal principal; ativo reprovado vai para `nowcast_only` (D3).
-* **Status:** Aberta — o owner decidiu em 16/11/2026 não fechar como no-go agora. Sem candidato em shadow (fase 18 rejeitada, fase 20 sem GO, 20b inconclusiva); `nowcast_only` (D3) segue em WIN/WDO enquanto isso · **Depende de:** 15, 19, 21 (e 20, se aplicável)
+* **Status:** Aberta — o owner decidiu em 16/11/2026 não fechar como no-go agora. Sem candidato em shadow (fase 18 rejeitada, fase 20 sem GO, 20b inconclusiva e linha GEX + PA + fluxo encerrada); `nowcast_only` (D3) segue em WIN/WDO enquanto isso · **Depende de:** 15, 19, 21 (e 20, se aplicável)
 * **Success Criteria:** decisão registrada por ativo com os números dos 6 critérios; flags aplicadas no local e no site público (deploy aprovado pelo usuário); reversão testada sem perda de dados.
 
 ## ✅ Concluídos

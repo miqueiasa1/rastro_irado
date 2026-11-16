@@ -30,3 +30,6 @@ INCONCLUSIVO porque a média é positiva no total e nas duas metades e fica acim
 
 ## Decisão sugerida (owner)
 Nada vai ao vivo. Opções: (a) acompanhar F_T3_C1 offline nos próximos ≥ 40 pregões (sem refazer a busca) e reavaliar com os mesmos critérios; (b) encerrar a linha GEX + PA + fluxo.
+
+## Decisão do owner (16/11/2026 10:03)
+Linha GEX + price action + fluxo **encerrada**. A fase 20b fica fechada como INCONCLUSIVA e o braço F_T3_C1 não será acompanhado offline. O GEX continua só como linha no gráfico. A fase 22 permanece aberta.
