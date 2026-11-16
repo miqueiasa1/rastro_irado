@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Metodologia Preditiva Calibrada
 status: executing
-last_updated: "2026-11-16T12:30:00.000Z"
+last_updated: "2026-11-16T13:00:00.000Z"
 last_activity: 2026-11-16
 progress:
   total_phases: 9
@@ -30,9 +30,9 @@ progress:
 | 18 | Features causais + walk-forward | Concluída com resultado **negativo** (p_fwd_60 rejeitado) |
 | 19 | Shadow mode ao vivo | Replanejada: sem modelo forecast aprovado. **19A feita em 16/11** (`/api/eval/assertividade`, guarda REQ-A05, sync sem `p_fwd_close*`); inferência shadow suspensa |
 | 20 | Regiões de GEX + gatilho de price action | Pesquisa W1–W4 concluída em 10/11: WIN INCONCLUSIVO, WDO NO-GO; nada ligado ao vivo |
-| 20b | Fluxo (delta acumulado) como contexto | Não iniciada — exige pré-registro aprovado pelo owner |
-| 21 | UI com incerteza e card de assertividade | Replanejada. **21A feita em 16/11 no painel local** (ReliabilityCard, sem compra/venda no gráfico de P, marcadores exp. desligados); site público só com deploy aprovado |
-| 22 | Go/No-Go e corte | Não iniciada — sem candidato em shadow, tende a fechar como no-go direcional (D3), decisão do owner |
+| 20b | Fluxo (delta acumulado) como contexto | Teste único pré-registrado (WIN, F_T3_C1, config `8dac9d8f8ab1`) rodado em 16/11: **INCONCLUSIVO** (+83,6 pts/op., n 53, IC −45,8 a +236,3); nada ao vivo |
+| 21 | UI com incerteza e card de assertividade | Replanejada. **21A feita em 16/11** (ReliabilityCard, sem compra/venda no gráfico de P, marcadores exp. desligados) e **publicada no site** rastromacro.web.app em 16/11 09:45 (regra `eval/$target` + nó `eval/<target>` no RTDB), com aprovação do owner |
+| 22 | Go/No-Go e corte | **Aberta** (owner recusou fechar em 16/11). Sem candidato em shadow; `nowcast_only` (D3) segue vigente enquanto isso |
 
 ## Contexto acumulado
 
@@ -70,10 +70,16 @@ progress:
 - D1: horizonte de produto = 60 min (fechamento só avaliação). D2: só WIN$N e WDO$N no v2.0. D3: se o go/no-go falhar, sem rótulos direcionais e P como "Leitura do dia (nowcast)". D4: `p_fwd_60` e card de assertividade também no site público — todo deploy do Firebase exige aprovação explícita.
 - Princípio orientador: rastro = contexto, GEX = região, price action = gatilho.
 
+## Decisões do owner em 16/11/2026
+- `/api/gex` sem `run`: em pregões passados usa o último run antes de 09:00 (as-of); hoje segue o mais recente (commit `148e2ab`).
+- Deploy do Firebase aprovado e feito: regras do RTDB com `eval/$target` e hosting a partir de `v2/fase-19-21a`; backup em `data/backups/firebase_deploy_20261116/`.
+- 20b: um único teste pré-registrado, só WIN, só pesquisa → INCONCLUSIVO (ver `phases/20b-fluxo-como-contexto/20b-SUMMARY-01.md`).
+- Fase 22 permanece aberta.
+
 ## Em aberto
 - Q5 (GEX publicado antes de 09:00 e marca de backfill): resolvida para a pesquisa (CSV oficial + fallback primeiro run < 09:00); para uso ao vivo continua pendente do projeto WDO.
 - Resíduos conhecidos: Quarta de Cinzas (pregão só à tarde) pode gerar restart desnecessário do collector de manhã; queda do collector de madrugada só é religada às 09:10; FirebaseSync usa data UTC à noite; DXY no fallback teórico (razão fixa 3,55); `frontend/src/gexLevels.js` é regenerado todo dia e fica fora dos commits.
 
 ## Próximo passo
 - Fechar o critério 3 da fase 15 com o relatório de 16/11 18:45 e reavaliar o nowcast corrigido com mais pregões.
-- Decisões do owner: deploy do card/regra `eval` no site público, 20b (fluxo) ou encerrar GEX+PA, fechar a 22 como no-go direcional, `/api/gex` com run as-of em datas passadas. Ver `phases/19-21a-transparencia-fora-da-amostra/19-21A-SUMMARY-01.md`.
+- Owner: acompanhar F_T3_C1 (20b) offline por ≥ 40 pregões novos ou encerrar a linha GEX + PA + fluxo. Fase 22 aberta até existir candidato ou nova decisão.
