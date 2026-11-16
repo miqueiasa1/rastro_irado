@@ -363,6 +363,29 @@ def health_watchdog_status():
         "components": snapshot.get("components", []),
     }
 
+GEX_OPEN_HHMM = "09:00"
+
+
+def default_gex_run(runs, effective_date, today):
+    """Run padrao de /api/gex sem `run` (16/11/2026, decisao do owner).
+
+    - Pregao de hoje (ou futuro): o run mais recente (e o que ja se conhece agora).
+    - Pregao passado: o ultimo run HH:MM antes de 09:00 BRT, isto e, o que se conhecia na abertura
+      (as-of). Antes disso o padrao era o run mais recente, muitas vezes pos-pregao (lookahead visual).
+      Sem run antes de 09:00, cai no primeiro run do dia e marca asof=False.
+    Retorna (run, rule, asof).
+    """
+    import re as _re
+    if not runs:
+        return None, None, False
+    if effective_date >= today:
+        return sorted(runs)[-1], "latest_today", True
+    pre = sorted(r for r in runs if _re.match(r"^\d{2}:\d{2}$", str(r)) and str(r) < GEX_OPEN_HHMM)
+    if pre:
+        return pre[-1], "asof_preopen", True
+    return sorted(runs)[0], "earliest_no_preopen", False
+
+
 @app.get("/api/gex")
 def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(None)):
     """Retorna os niveis de GEX para um ativo, data e run especificos."""
@@ -389,7 +412,12 @@ def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(N
         if not runs:
             return {"target": target, "date": date, "levels": [], "available_runs": [], "selected_run": None}
 
-        selected_run = run if (run and run in runs) else runs[0]
+        if run and run in runs:
+            selected_run, run_rule, run_asof = run, "requested", None
+        else:
+            from backend.timeconv import now_brt_wall
+            today = now_brt_wall().strftime("%Y-%m-%d")
+            selected_run, run_rule, run_asof = default_gex_run(runs, effective_date, today)
 
         row = conn.execute(
             "SELECT levels_json FROM gex_levels WHERE target = ? AND session_date = ? AND run_name = ?",
@@ -402,6 +430,8 @@ def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(N
                 "date": date,
                 "effective_gex_date": effective_date,
                 "selected_run": selected_run,
+                "run_rule": run_rule,
+                "run_asof": run_asof,
                 "available_runs": runs,
                 "levels": json.loads(row["levels_json"])
             }
