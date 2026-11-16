@@ -1,6 +1,6 @@
 ---
 name: gsd-validate-phase
-description: Retroactively audit and fill Nyquist validation gaps for a completed phase
+description: "Retroactively audit and fill Nyquist validation gaps for a completed phase"
 ---
 
 <objective>
@@ -21,6 +21,6 @@ Phase: $ARGUMENTS — optional, defaults to last completed phase.
 </context>
 
 <process>
-Execute @.agent/get-shit-done/workflows/validate-phase.md.
+Execute end-to-end.
 Preserve all workflow gates.
 </process>

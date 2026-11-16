@@ -66,8 +66,13 @@ Look for incomplete work that needs attention:
 # Check for structured handoff (preferred — machine-readable)
 cat .planning/HANDOFF.json 2>/dev/null || true
 
-# Check for continue-here files (mid-plan resumption)
-ls .planning/phases/*/.continue-here*.md 2>/dev/null || true
+# Check for continue-here files (phase + non-phase + legacy fallback)
+ls .planning/phases/*/.continue-here*.md \
+   .planning/spikes/*/.continue-here*.md \
+   .planning/sketches/*/.continue-here*.md \
+   .planning/deliberations/.continue-here*.md \
+   .planning/.continue-here*.md \
+   .continue-here*.md 2>/dev/null || true
 
 # Check for plans without summaries (incomplete execution)
 for plan in .planning/phases/*/*-PLAN.md; do
@@ -93,7 +98,7 @@ fi
 - Flag: "Found structured handoff — resuming from task {task}/{total_tasks}"
 - **After successful resumption, delete HANDOFF.json** (it's a one-shot artifact)
 
-**If .continue-here file exists (fallback):**
+**If .continue-here file exists (phase/non-phase/legacy fallback):**
 
 - This is a mid-plan resumption point
 - Read the file for specific resumption context
@@ -140,7 +145,7 @@ Present complete project status to user:
     Resume with: Task tool (resume parameter with agent ID)
 
 [If pending todos exist:]
-📋 [N] pending todos — /gsd-check-todos to review
+📋 [N] pending todos — /gsd-capture --list to review
 
 [If blockers exist:]
 ⚠️  Carried concerns:
@@ -225,9 +230,11 @@ Wait for user selection.
 </step>
 
 <step name="route_to_workflow">
-Based on user selection, route to appropriate workflow:
+Based on user selection, route to appropriate workflow.
 
-- **Execute plan** → Show command for user to run after clearing:
+Resume-specific exception: do **not** emit `/clear then:` here. Resume is already a session-entry flow, so the next command should be shown directly.
+
+- **Execute plan** → Show direct next command:
   ```
   ---
 
@@ -235,13 +242,11 @@ Based on user selection, route to appropriate workflow:
 
   **{phase}-{plan}: [Plan Name]** — [objective from PLAN.md]
 
-  `/clear` then:
-
   `/gsd-execute-phase {phase} ${GSD_WS}`
 
   ---
   ```
-- **Plan phase** → Show command for user to run after clearing:
+- **Plan phase** → Show direct next command:
   ```
   ---
 
@@ -249,15 +254,13 @@ Based on user selection, route to appropriate workflow:
 
   **Phase [N]: [Name]** — [Goal from ROADMAP.md]
 
-  `/clear` then:
-
   `/gsd-plan-phase [phase-number] ${GSD_WS}`
 
   ---
 
   **Also available:**
   - `/gsd-discuss-phase [N] ${GSD_WS}` — gather context first
-  - `/gsd-research-phase [N] ${GSD_WS}` — investigate unknowns
+  - `/gsd-plan-phase --research-phase [N] ${GSD_WS}` — investigate unknowns
 
   ---
   ```

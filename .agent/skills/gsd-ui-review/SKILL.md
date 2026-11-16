@@ -1,6 +1,6 @@
 ---
 name: gsd-ui-review
-description: Retroactive 6-pillar visual audit of implemented frontend code
+description: "Retroactive 6-pillar visual audit of implemented frontend code"
 ---
 
 <objective>
@@ -19,6 +19,6 @@ Phase: $ARGUMENTS — optional, defaults to last completed phase.
 </context>
 
 <process>
-Execute @.agent/get-shit-done/workflows/ui-review.md end-to-end.
+Execute end-to-end.
 Preserve all workflow gates.
 </process>

@@ -59,12 +59,38 @@ The document should describe what you want to build.
 ```bash
 INIT=$(gsd-sdk query init.new-project)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
-AGENT_SKILLS_RESEARCHER=$(gsd-sdk query agent-skills gsd-project-researcher 2>/dev/null)
-AGENT_SKILLS_SYNTHESIZER=$(gsd-sdk query agent-skills gsd-synthesizer 2>/dev/null)
-AGENT_SKILLS_ROADMAPPER=$(gsd-sdk query agent-skills gsd-roadmapper 2>/dev/null)
+AGENT_SKILLS_RESEARCHER=$(gsd-sdk query agent-skills gsd-project-researcher)
+AGENT_SKILLS_SYNTHESIZER=$(gsd-sdk query agent-skills gsd-research-synthesizer)
+AGENT_SKILLS_ROADMAPPER=$(gsd-sdk query agent-skills gsd-roadmapper)
 ```
 
-Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`, `project_path`.
+Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`, `git_worktree_root`, `in_nested_subdir`, `project_path`, `agents_installed`, `missing_agents`, `agent_runtime`, `agents_dir`, `required_agents`, `required_agents_installed`, `missing_required_agents`, `agent_skill_payloads_available`, `agent_skill_payload_agents`.
+
+**If `agents_installed` is false:** Display a warning before proceeding:
+```text
+⚠ GSD agents not installed. The following agents are missing from your agents directory:
+  {missing_agents joined with newline}
+
+Runtime checked: {agent_runtime}
+Agents directory checked: {agents_dir}
+Required new-project agents missing:
+  {missing_required_agents joined with newline, or "none"}
+
+Agent skill payloads available: {agent_skill_payloads_available}
+Agent skill payload agents:
+  {agent_skill_payload_agents joined with newline, or "none"}
+
+Skill payloads only provide prompt context. Named subagent spawns still require agent
+definitions to be installed for this runtime.
+
+Subagent spawns (gsd-project-researcher, gsd-research-synthesizer, gsd-roadmapper) will fail
+with "agent type not found" if `required_agents_installed` is false. Run the installer with --global to make agents available:
+
+  npx get-shit-done-cc@latest --global
+
+Proceeding without research subagents — roadmap will be generated inline.
+```
+Skip Steps 6–7 (parallel research and synthesis) and proceed directly to roadmap creation in Step 8.
 
 **Detect runtime and set instruction file name:**
 
@@ -91,11 +117,11 @@ All subsequent references to the project instruction file use `$INSTRUCTION_FILE
 
 **If `project_exists` is true:** Error — project already initialized. Use `/gsd-progress`.
 
-**If `has_git` is false:** Initialize git:
+**Git init (#3491 — never nest `.git` inside an existing worktree):**
 
-```bash
-git init
-```
+- If `has_git` true and `in_nested_subdir` true: skip `git init`; warn `⚠ Initializing inside existing worktree (${git_worktree_root}); planning files will track to outer repo.`
+- If `has_git` true and `in_nested_subdir` false: skip `git init` (already at worktree root).
+- If `has_git` false: `git init`.
 
 ## 2. Brownfield Offer
 
@@ -209,11 +235,35 @@ AskUserQuestion([
 ])
 ```
 
+**Round 3 — PR body onboarding:**
+
+Ask which optional PRD-style sections `/gsd-ship` should append to generated PR bodies. These map to `ship.pr_body_sections`; selected sections are written with `"enabled": true`, unselected seeded sections are written with `"enabled": false` so the project can enable them later without editing `ship.md`.
+
+Prefer lean/agile PRD sections that make the delivered increment clear: user stories, acceptance criteria, Definition of Done or release criteria, risks, dependencies, and stakeholder review.
+
+```
+AskUserQuestion([
+  {
+    header: "PR Body",
+    question: "Which optional PRD-style sections should /gsd-ship include in PR bodies?",
+    multiSelect: true,
+    options: [
+      { label: "User Stories & Acceptance Criteria", description: "Append user-facing stories and acceptance checks from REQUIREMENTS.md" },
+      { label: "Risks & Dependencies", description: "Append rollout risks, dependencies, and rollback notes from PLAN.md" },
+      { label: "Success Metrics & Release Criteria", description: "Append measurable Definition of Done and release checks for stakeholder review" },
+      { label: "Stakeholder Review & Approval", description: "Append approval checklist for projects that need sign-off traceability" }
+    ]
+  }
+])
+```
+
+Build `ship.pr_body_sections` from those choices. For selected options, set `enabled: true`; for seeded but unselected options, set `enabled: false`. If the user selects none, use `"ship":{"pr_body_sections":[]}`.
+
 Create `.planning/config.json` with all settings (CLI fills in remaining defaults automatically):
 
 ```bash
 mkdir -p .planning
-gsd-sdk query config-new-project '{"mode":"yolo","granularity":"[selected]","parallelization":true|false,"commit_docs":true|false,"model_profile":"quality|balanced|budget|inherit","workflow":{"research":true|false,"plan_check":true|false,"verifier":true|false,"nyquist_validation":true|false,"auto_advance":true}}'
+gsd-sdk query config-new-project '{"mode":"yolo","granularity":"[selected]","parallelization":true|false,"commit_docs":true|false,"model_profile":"quality|balanced|budget|inherit","workflow":{"research":true|false,"plan_check":true|false,"verifier":true|false,"nyquist_validation":true|false,"auto_advance":true},"ship":{"pr_body_sections":[{"heading":"User Stories & Acceptance Criteria","enabled":true|false,"source":"REQUIREMENTS.md ## User Stories || REQUIREMENTS.md ## Acceptance Criteria","fallback":"- Acceptance criteria are covered by the linked requirements and verification evidence."},{"heading":"Risks & Dependencies","enabled":true|false,"source":"PLAN.md ## Risks || PLAN.md ## Dependencies","fallback":"- No known high-risk rollout dependencies."},{"heading":"Success Metrics & Release Criteria","enabled":true|false,"source":"REQUIREMENTS.md ## Definition of Done || VERIFICATION.md ## Release Criteria","fallback":"- Release when automated verification and required manual checks pass."},{"heading":"Stakeholder Review & Approval","enabled":true|false,"template":"- Product owner approval pending for {phase_name}."}]}}'
 ```
 
 **If commit_docs = No:** Add `.planning/` to `.gitignore`.
@@ -222,7 +272,7 @@ gsd-sdk query config-new-project '{"mode":"yolo","granularity":"[selected]","par
 
 ```bash
 mkdir -p .planning
-gsd-sdk query commit "chore: add project config" .planning/config.json
+gsd-sdk query commit "chore: add project config" --files .planning/config.json
 ```
 
 **Persist auto-advance chain flag to config (survives context compaction):**
@@ -239,10 +289,10 @@ Check for existing spike and sketch work that should inform project setup:
 
 ```bash
 # Check for spike findings skill (project-local)
-SPIKE_SKILL=$(ls ./.agent/skills/spike-findings-*/SKILL.md 2>/dev/null | head -1)
+SPIKE_SKILL=$(ls ./.agent/skills/spike-findings-*/SKILL.md 2>/dev/null | head -1 || true)
 
 # Check for sketch findings skill (project-local)
-SKETCH_SKILL=$(ls ./.agent/skills/sketch-findings-*/SKILL.md 2>/dev/null | head -1)
+SKETCH_SKILL=$(ls ./.agent/skills/sketch-findings-*/SKILL.md 2>/dev/null | head -1 || true)
 
 # Check for raw spikes/sketches in .planning/
 HAS_SPIKES=$(ls .planning/spikes/MANIFEST.md 2>/dev/null)
@@ -255,8 +305,8 @@ If any of these exist, surface them before questioning:
 ⚡ Prior exploration detected:
 {if SPIKE_SKILL}  ✓ Spike findings skill: {path} — validated patterns from experiments
 {if SKETCH_SKILL}  ✓ Sketch findings skill: {path} — validated design decisions
-{if HAS_SPIKES && !SPIKE_SKILL}  ◆ Raw spikes in .planning/spikes/ — consider `/gsd-spike-wrap-up` to package findings
-{if HAS_SKETCHES && !SKETCH_SKILL}  ◆ Raw sketches in .planning/sketches/ — consider `/gsd-sketch-wrap-up` to package findings
+{if HAS_SPIKES && !SPIKE_SKILL}  ◆ Raw spikes in .planning/spikes/ — consider `/gsd-spike --wrap-up` to package findings
+{if HAS_SKETCHES && !SKETCH_SKILL}  ◆ Raw sketches in .planning/sketches/ — consider `/gsd-sketch --wrap-up` to package findings
 
 These findings will be incorporated into project context and available to planning agents.
 ```
@@ -433,7 +483,7 @@ Do not compress. Capture everything gathered.
 
 ```bash
 mkdir -p .planning
-gsd-sdk query commit "docs: initialize project" .planning/PROJECT.md
+gsd-sdk query commit "docs: initialize project" --files .planning/PROJECT.md
 ```
 
 ## 5. Workflow Preferences
@@ -631,11 +681,20 @@ questions: [
 ]
 ```
 
+**PR body onboarding:** Ask which optional PRD-style sections `/gsd-ship` should append to generated PR bodies. Use the same `ship.pr_body_sections` mapping as Step 2a: selected sections get `enabled: true`, seeded-but-unselected sections get `enabled: false`, and selecting none writes an empty list. Prefer lean/agile PRD sections that make user value, acceptance criteria, Definition of Done, and stakeholder traceability explicit.
+
+Recommended options:
+
+- `User Stories & Acceptance Criteria`
+- `Risks & Dependencies`
+- `Success Metrics & Release Criteria`
+- `Stakeholder Review & Approval`
+
 Create `.planning/config.json` with all settings (CLI fills in remaining defaults automatically):
 
 ```bash
 mkdir -p .planning
-gsd-sdk query config-new-project '{"mode":"[yolo|interactive]","granularity":"[selected]","parallelization":true|false,"commit_docs":true|false,"model_profile":"quality|balanced|budget|inherit","workflow":{"research":true|false,"plan_check":true|false,"verifier":true|false,"nyquist_validation":[false if granularity=coarse, true otherwise]}}'
+gsd-sdk query config-new-project '{"mode":"[yolo|interactive]","granularity":"[selected]","parallelization":true|false,"commit_docs":true|false,"model_profile":"quality|balanced|budget|inherit","workflow":{"research":true|false,"plan_check":true|false,"verifier":true|false,"nyquist_validation":[false if granularity=coarse, true otherwise]},"ship":{"pr_body_sections":[{"heading":"User Stories & Acceptance Criteria","enabled":true|false,"source":"REQUIREMENTS.md ## User Stories || REQUIREMENTS.md ## Acceptance Criteria","fallback":"- Acceptance criteria are covered by the linked requirements and verification evidence."},{"heading":"Risks & Dependencies","enabled":true|false,"source":"PLAN.md ## Risks || PLAN.md ## Dependencies","fallback":"- No known high-risk rollout dependencies."},{"heading":"Success Metrics & Release Criteria","enabled":true|false,"source":"REQUIREMENTS.md ## Definition of Done || VERIFICATION.md ## Release Criteria","fallback":"- Release when automated verification and required manual checks pass."},{"heading":"Stakeholder Review & Approval","enabled":true|false,"template":"- Product owner approval pending for {phase_name}."}]}}'
 ```
 
 **Note:** Run `/gsd-settings` anytime to update model profile, workflow agents, branching strategy, and other preferences.
@@ -652,7 +711,7 @@ gsd-sdk query config-new-project '{"mode":"[yolo|interactive]","granularity":"[s
 **Commit config.json:**
 
 ```bash
-gsd-sdk query commit "chore: add project config" .planning/config.json
+gsd-sdk query commit "chore: add project config" --files .planning/config.json
 ```
 
 ## 5.1. Sub-Repo Detection
@@ -740,8 +799,8 @@ Display spawning indicator:
 
 Spawn 4 parallel gsd-project-researcher agents with path references:
 
-```
-Task(prompt="<research_type>
+```text
+Agent(prompt="<research_type>
 Project Research — Stack dimension for [domain].
 </research_type>
 
@@ -781,7 +840,7 @@ Use template: .agent/get-shit-done/templates/research-project/STACK.md
 </output>
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Stack research")
 
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Features dimension for [domain].
 </research_type>
 
@@ -821,7 +880,7 @@ Use template: .agent/get-shit-done/templates/research-project/FEATURES.md
 </output>
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Features research")
 
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Architecture dimension for [domain].
 </research_type>
 
@@ -861,7 +920,7 @@ Use template: .agent/get-shit-done/templates/research-project/ARCHITECTURE.md
 </output>
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Architecture research")
 
-Task(prompt="<research_type>
+Agent(prompt="<research_type>
 Project Research — Pitfalls dimension for [domain].
 </research_type>
 
@@ -902,10 +961,12 @@ Use template: .agent/get-shit-done/templates/research-project/PITFALLS.md
 ", subagent_type="gsd-project-researcher", model="{researcher_model}", description="Pitfalls research")
 ```
 
+> **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling all 4 researcher Agent() calls above, do NOT read research files or synthesize content independently while the subagents are active. Wait for all 4 researchers to complete before spawning the synthesizer. This prevents duplicate work and wasted context.
+
 After all 4 agents complete, spawn synthesizer to create SUMMARY.md:
 
-```
-Task(prompt="
+```text
+Agent(prompt="
 <task>
 Synthesize research outputs into SUMMARY.md.
 </task>
@@ -926,6 +987,8 @@ Commit after writing.
 </output>
 ", subagent_type="gsd-research-synthesizer", model="{synthesizer_model}", description="Synthesize research")
 ```
+
+> **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling Agent() above, stop working on this task immediately. Do not read more files, edit code, or run tests related to this task while the subagent is active. Wait for the subagent to return its result. This prevents duplicate work, conflicting edits, and wasted context. Only resume when the subagent result is available.
 
 Display research complete banner and key findings:
 
@@ -1096,8 +1159,23 @@ If "adjust": Return to scoping.
 **Commit requirements:**
 
 ```bash
-gsd-sdk query commit "docs: define v1 requirements" .planning/REQUIREMENTS.md
+gsd-sdk query commit "docs: define v1 requirements" --files .planning/REQUIREMENTS.md
 ```
+
+## 7.5. Project Structure Mode
+
+**If auto mode:** Set `PROJECT_MODE=mvp` and skip this prompt.
+
+**Mode prompt: Vertical MVP vs Horizontal Layers.**
+
+Ask the user how they want to structure the project. Use `AskUserQuestion` with two options:
+
+- **Vertical MVP** — get a working app fast, add features slice by slice. Each phase delivers an end-to-end user capability. *(Recommended for new products and rapid-iteration MVPs.)*
+- **Horizontal Layers** — build complete technical layers (DB → API → UI → wiring) and assemble at the end. *(Better for infrastructure-heavy projects with multiple developers.)*
+
+Set `PROJECT_MODE=mvp` if the user picks Vertical MVP, otherwise `PROJECT_MODE=standard`.
+
+When `TEXT_MODE=true` (per the workflow's existing TEXT_MODE handling for non-the agent runtimes), present the same two options as a plain-text numbered list and ask the user to type their choice number.
 
 ## 8. Create Roadmap
 
@@ -1111,10 +1189,27 @@ Display stage banner:
 ◆ Spawning roadmapper...
 ```
 
+**ROADMAP.md template — mode-aware emit.** When generating the initial ROADMAP.md:
+
+- If `PROJECT_MODE=mvp`: under each `### Phase N:` header, emit `**Mode:** mvp` on the line immediately following `**Goal:**`. This sets every initial phase to MVP mode (per Phase-4-Persistence decision: per-phase mode, not project-wide config).
+- If `PROJECT_MODE=standard`: emit the standard ROADMAP.md template with no `**Mode:**` lines (Horizontal Layers standard template — no behavioral change for users who pick Horizontal Layers).
+
+Example MVP-mode emit for Phase 1:
+
+```markdown
+### Phase 1: [Name]
+**Goal:** [Goal]
+**Mode:** mvp
+**Success Criteria**:
+1. [Criterion]
+```
+
+Pass `PROJECT_MODE` to the roadmapper so it applies the correct template.
+
 Spawn gsd-roadmapper agent with path references:
 
-```
-Task(prompt="
+```text
+Agent(prompt="
 <planning_context>
 
 <files_to_read>
@@ -1141,6 +1236,8 @@ Write files first, then return. This ensures artifacts persist even if context i
 </instructions>
 ", subagent_type="gsd-roadmapper", model="{roadmapper_model}", description="Create roadmap")
 ```
+
+> **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling Agent() above, stop working on this task immediately. Do not read more files, edit code, or run tests related to this task while the subagent is active. Wait for the subagent to return its result. This prevents duplicate work, conflicting edits, and wasted context. Only resume when the subagent result is available.
 
 **Handle roadmapper return:**
 
@@ -1210,8 +1307,8 @@ Use AskUserQuestion:
 - Get user's adjustment notes
 - Re-spawn roadmapper with revision context:
 
-  ```
-  Task(prompt="
+  ```text
+  Agent(prompt="
   <revision>
   User feedback on roadmap:
   [user's notes]
@@ -1227,6 +1324,8 @@ Use AskUserQuestion:
   </revision>
   ", subagent_type="gsd-roadmapper", model="{roadmapper_model}", description="Revise roadmap")
   ```
+
+  > **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling Agent() above, stop working on this task immediately. Do not read more files, edit code, or run tests related to this task while the subagent is active. Wait for the subagent to return its result. This prevents duplicate work, conflicting edits, and wasted context. Only resume when the subagent result is available.
 
 - Present revised roadmap
 - Loop until user approves
@@ -1244,7 +1343,7 @@ This ensures new projects get the default GSD workflow-enforcement guidance and 
 **Commit roadmap (after approval or auto mode):**
 
 ```bash
-gsd-sdk query commit "docs: create roadmap ([N] phases)" .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md "$INSTRUCTION_FILE"
+gsd-sdk query commit "docs: create roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md "$INSTRUCTION_FILE"
 ```
 
 ## 9. Done

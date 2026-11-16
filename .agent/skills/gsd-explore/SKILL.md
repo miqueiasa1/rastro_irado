@@ -1,6 +1,6 @@
 ---
 name: gsd-explore
-description: Socratic ideation and idea routing — think through ideas before committing to plans
+description: "Socratic ideation and idea routing — think through ideas before committing to plans"
 ---
 
 <objective>
@@ -16,5 +16,5 @@ Accepts an optional topic argument: `/gsd-explore authentication strategy`
 </execution_context>
 
 <process>
-Execute the explore workflow from @.agent/get-shit-done/workflows/explore.md end-to-end.
+Execute end-to-end.
 </process>

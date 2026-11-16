@@ -1,6 +1,6 @@
 ---
 name: gsd-forensics
-description: Post-mortem investigation for failed GSD workflows — analyzes git history, artifacts, and state to diagnose what went wrong
+description: "Post-mortem investigation for failed GSD workflows — diagnoses what went wrong."
 ---
 
 
@@ -29,7 +29,7 @@ Output: Forensic report saved to `.planning/forensics/`, presented inline, with 
 </context>
 
 <process>
-Read and execute the forensics workflow from @.agent/get-shit-done/workflows/forensics.md end-to-end.
+Execute end-to-end.
 </process>
 
 <success_criteria>

@@ -1,6 +1,6 @@
 ---
 name: gsd-add-tests
-description: Generate tests for a completed phase based on UAT criteria and implementation
+description: "Generate tests for a completed phase based on UAT criteria and implementation"
 ---
 
 <objective>
@@ -23,6 +23,6 @@ Phase: $ARGUMENTS
 </context>
 
 <process>
-Execute the add-tests workflow from @.agent/get-shit-done/workflows/add-tests.md end-to-end.
+Execute end-to-end.
 Preserve all workflow gates (classification approval, test plan approval, RED-GREEN verification, gap reporting).
 </process>

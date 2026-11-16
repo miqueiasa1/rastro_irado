@@ -249,7 +249,7 @@ None — discuss phase skipped.
 Commit the minimal context:
 
 ```bash
-gsd-sdk query commit "docs(${PADDED_PHASE}): auto-generated context (discuss skipped)" "${phase_dir}/${padded_phase}-CONTEXT.md"
+gsd-sdk query commit "docs(${PADDED_PHASE}): auto-generated context (discuss skipped)" --files "${phase_dir}/${padded_phase}-CONTEXT.md"
 ```
 
 Proceed to 3b.
@@ -372,7 +372,7 @@ Skill(skill="gsd-code-review", args="${PHASE_NUM}")
 
 Parse status from REVIEW.md frontmatter. If "clean" or "skipped": proceed to 3d. If findings found: auto-invoke:
 ```
-Skill(skill="gsd-code-review-fix", args="${PHASE_NUM} --auto")
+Skill(skill="gsd-code-review", args="${PHASE_NUM} --fix --auto")
 ```
 
 **Error handling:** If either Skill fails, catch the error, display as non-blocking, and proceed to 3d.

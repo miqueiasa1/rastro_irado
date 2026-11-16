@@ -1,6 +1,6 @@
 ---
 name: gsd-pattern-mapper
-description: Analyzes codebase for existing patterns and produces PATTERNS.md mapping new files to closest analogs. Read-only codebase analysis spawned by /gsd-plan-phase orchestrator before planning.
+description: "Analyzes codebase for existing patterns and produces PATTERNS.md mapping new files to closest analogs. Read-only codebase analysis spawned by /gsd-plan-phase orchestrator before planning."
 tools: read_file, run_shell_command, glob, search_file_content, write_file
 color: magenta
 ---

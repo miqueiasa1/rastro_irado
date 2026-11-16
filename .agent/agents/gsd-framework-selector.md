@@ -1,7 +1,7 @@
 ---
 name: gsd-framework-selector
-description: Presents an interactive decision matrix to surface the right AI/LLM framework for the user's specific use case. Produces a scored recommendation with rationale. Spawned by /gsd-ai-integration-phase and /gsd-select-framework orchestrators.
-tools: read_file, run_shell_command, search_file_content, glob, google_web_search, ask_user
+description: "Presents an interactive decision matrix to surface the right AI/LLM framework for the user's specific use case. Produces a scored recommendation with rationale. Spawned by /gsd-ai-integration-phase and /gsd-select-framework orchestrators."
+tools: read_file, run_shell_command, search_file_content, glob, google_web_search
 color: #38BDF8
 ---
 

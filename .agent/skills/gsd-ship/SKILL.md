@@ -1,6 +1,6 @@
 ---
 name: gsd-ship
-description: Create PR, run review, and prepare for merge after verification passes
+description: "Create PR, run review, and prepare for merge after verification passes"
 ---
 
 <objective>

@@ -1,6 +1,6 @@
 ---
 name: gsd-undo
-description: Safe git revert. Roll back phase or plan commits using the phase manifest with dependency checks.
+description: "Safe git revert. Roll back phase or plan commits using the phase manifest with dependency checks."
 ---
 
 
@@ -24,5 +24,5 @@ $ARGUMENTS
 </context>
 
 <process>
-Execute the undo workflow from @.agent/get-shit-done/workflows/undo.md end-to-end.
+Execute end-to-end.
 </process>

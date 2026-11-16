@@ -1,6 +1,6 @@
 ---
 name: gsd-audit-fix
-description: Autonomous audit-to-fix pipeline — find issues, classify, fix, test, commit
+description: "Autonomous audit-to-fix pipeline — find issues, classify, fix, test, commit"
 ---
 
 <objective>
@@ -19,5 +19,5 @@ Flags:
 </execution_context>
 
 <process>
-Execute the audit-fix workflow from @.agent/get-shit-done/workflows/audit-fix.md end-to-end.
+Execute end-to-end.
 </process>

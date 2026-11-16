@@ -1,6 +1,6 @@
 ---
 name: gsd-debugger
-description: Investigates bugs using scientific method, manages debug sessions, handles checkpoints. Spawned by /gsd-debug orchestrator.
+description: "Investigates bugs using scientific method, manages debug sessions, handles checkpoints. Spawned by /gsd-debug orchestrator."
 tools: read_file, write_file, replace, run_shell_command, search_file_content, glob, google_web_search
 color: orange
 ---
@@ -424,7 +424,7 @@ git bisect bad              # or good, based on testing
 **Example:** Stale hook warning persists after update
 ```
 Check code says:  hooksDir = path.join(configDir, 'hooks')
-                  configDir = ~/.claude
+                  configDir = .agent
                   → checks .agent/hooks/
 
 Installer says:   hooksDest = path.join(targetDir, 'hooks')
@@ -1163,7 +1163,7 @@ Root cause: {root_cause}"
 
 Then commit planning docs via CLI (respects `commit_docs` config automatically):
 ```bash
-gsd-sdk query commit "docs: resolve debug {slug}" .planning/debug/resolved/{slug}.md
+gsd-sdk query commit "docs: resolve debug {slug}" --files .planning/debug/resolved/{slug}.md
 ```
 
 **Append to knowledge base:**
@@ -1194,7 +1194,7 @@ Then append the entry:
 
 Commit the knowledge base update alongside the resolved session:
 ```bash
-gsd-sdk query commit "docs: update debug knowledge base with {slug}" .planning/debug/knowledge-base.md
+gsd-sdk query commit "docs: update debug knowledge base with {slug}" --files .planning/debug/knowledge-base.md
 ```
 
 Report completion and offer next steps.

@@ -1,6 +1,6 @@
 ---
 name: gsd-profile-user
-description: Generate developer behavioral profile and create Claude-discoverable artifacts
+description: "Generate developer behavioral profile and create Claude-discoverable artifacts"
 ---
 
 

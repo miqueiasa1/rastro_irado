@@ -9,7 +9,7 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 Key references:
 - @.agent/get-shit-done/references/ui-brand.md (display patterns)
-- @.agent/get-shit-done/agents/gsd-user-profiler.md (profiler agent definition)
+- @.agent/agents/gsd-user-profiler.md (profiler agent definition)
 - @.agent/get-shit-done/references/user-profiling.md (profiling reference doc)
 </required_reading>
 
@@ -271,7 +271,7 @@ Write updated analysis JSON back to `$ANALYSIS_PATH`.
 Display: "◆ Writing profile..."
 
 ```bash
-gsd-sdk query write-profile --input "$ANALYSIS_PATH" --json 2>/dev/null
+gsd-sdk query write-profile --input "$ANALYSIS_PATH" --json
 ```
 
 Display: "✓ Profile written to .agent/get-shit-done/USER-PROFILE.md"
@@ -350,15 +350,15 @@ Generate selected artifacts sequentially (file I/O is fast, no benefit from para
 **For /gsd-dev-preferences (if selected):**
 
 ```bash
-gsd-sdk query generate-dev-preferences --analysis "$ANALYSIS_PATH" --json 2>/dev/null
+gsd-sdk query generate-dev-preferences --analysis "$ANALYSIS_PATH" --json
 ```
 
-Display: "✓ Generated /gsd-dev-preferences at .agent/commands/gsd/dev-preferences.md"
+Display: "✓ Generated /gsd-dev-preferences at .agent/skills/gsd-dev-preferences/SKILL.md"
 
 **For GEMINI.md profile section (if selected):**
 
 ```bash
-gsd-sdk query generate-claude-profile --analysis "$ANALYSIS_PATH" --json 2>/dev/null
+gsd-sdk query generate-claude-profile --analysis "$ANALYSIS_PATH" --json
 ```
 
 Display: "✓ Added profile section to GEMINI.md"
@@ -366,7 +366,7 @@ Display: "✓ Added profile section to GEMINI.md"
 **For Global GEMINI.md (if selected):**
 
 ```bash
-gsd-sdk query generate-claude-profile --analysis "$ANALYSIS_PATH" --global --json 2>/dev/null
+gsd-sdk query generate-claude-profile --analysis "$ANALYSIS_PATH" --global --json
 ```
 
 Display: "✓ Added profile section to .agent/GEMINI.md"
@@ -412,7 +412,7 @@ Your profile:    .agent/get-shit-done/USER-PROFILE.md
 Then list paths for each generated artifact:
 ```
 Artifacts:
-  ✓ /gsd-dev-preferences   .agent/commands/gsd/dev-preferences.md
+  ✓ /gsd-dev-preferences   .agent/skills/gsd-dev-preferences/SKILL.md
   ✓ GEMINI.md section       ./GEMINI.md
   ✓ Global GEMINI.md        .agent/GEMINI.md
 ```

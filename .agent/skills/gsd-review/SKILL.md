@@ -1,6 +1,6 @@
 ---
 name: gsd-review
-description: Request cross-AI peer review of phase plans from external AI CLIs
+description: "Request cross-AI peer review of phase plans from external AI CLIs"
 ---
 
 
@@ -30,5 +30,5 @@ Phase number: extracted from $ARGUMENTS (required)
 </context>
 
 <process>
-Execute the review workflow from @.agent/get-shit-done/workflows/review.md end-to-end.
+Execute end-to-end.
 </process>

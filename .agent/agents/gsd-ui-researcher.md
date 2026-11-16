@@ -1,6 +1,6 @@
 ---
 name: gsd-ui-researcher
-description: Produces UI-SPEC.md design contract for frontend phases. Reads upstream artifacts, detects design system state, asks only unanswered questions. Spawned by /gsd-ui-phase orchestrator.
+description: "Produces UI-SPEC.md design contract for frontend phases. Reads upstream artifacts, detects design system state, asks only unanswered questions. Spawned by /gsd-ui-phase orchestrator."
 tools: read_file, write_file, run_shell_command, search_file_content, glob, google_web_search, web_fetch
 color: #E879F9
 ---
@@ -287,7 +287,7 @@ Fill all sections. Write to `$PHASE_DIR/$PADDED_PHASE-UI-SPEC.md`.
 ## Step 6: Commit (optional)
 
 ```bash
-gsd-sdk query commit "docs($PHASE): UI design contract" "$PHASE_DIR/$PADDED_PHASE-UI-SPEC.md"
+gsd-sdk query commit "docs($PHASE): UI design contract" --files "$PHASE_DIR/$PADDED_PHASE-UI-SPEC.md"
 ```
 
 ## Step 7: Return Structured Result

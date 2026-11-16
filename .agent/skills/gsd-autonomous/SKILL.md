@@ -1,6 +1,6 @@
 ---
 name: gsd-autonomous
-description: Run all remaining phases autonomously — discuss→plan→execute per phase
+description: "Run all remaining phases autonomously — discuss→plan→execute per phase"
 ---
 
 <objective>
@@ -32,6 +32,6 @@ Project context, phase list, and state are resolved inside the workflow using in
 </context>
 
 <process>
-Execute the autonomous workflow from @.agent/get-shit-done/workflows/autonomous.md end-to-end.
+Execute end-to-end.
 Preserve all workflow gates (phase discovery, per-phase execution, blocker handling, progress display).
 </process>
