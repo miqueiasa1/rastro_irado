@@ -1,0 +1,94 @@
+{
+ "config_hash": "9c5c2f3cd3cc",
+ "frozen_at_utc": "2026-11-11T01:00:04.212992+00:00",
+ "config": {
+  "phase": "20-gex-regioes-price-action/divergencia-rastro-preco",
+  "idea": "owner 06/11/2026 (WDO): rastro P sobe enquanto o preço corrige -> entrar na direção do rastro",
+  "series": "irai_live_snapshots.p_up (P(↑) do nowcast, 0-100; a linha do topo do painel)",
+  "series_rule": "usa p_up[t] só se is_ghost=0 e open_t <= created_at <= close_t (UTC real); senão NaN",
+  "price": "market_bars M5 close (mesmo ativo)",
+  "start": "2026-08-01",
+  "end": "2026-11-10",
+  "design_end": "2026-09-30",
+  "targets": [
+   "WIN$N",
+   "WDO$N"
+  ],
+  "session_min_bars": 60,
+  "session_min_live_p": 60,
+  "exclude_open_gap_abs": 0.02,
+  "W_min": [
+   30,
+   60,
+   90
+  ],
+  "bar_min": 5,
+  "k_grid": [
+   0.5,
+   1.0
+  ],
+  "sigma": {
+   "what": "desvio-padrão das inclinações (todas as barras) das sessões elegíveis anteriores",
+   "sessions": 20,
+   "min_sessions": 5
+  },
+  "episode": "início = primeira barra em que vale a divergência (não valia em t-1); direção = rastro",
+  "confirm_window_bars": 6,
+  "confirm": "primeira barra j em [t0, t0+6] com close_j > high_{j-1} (compra) / close_j < low_{j-1} (venda); entrada open_{j+1}",
+  "exits": {
+   "TIME60": "fechamento da barra j+12 (60 min) ou última do pregão",
+   "STOPTGT": "simulador da fase 20: stop = min(low_j, low_{j-1}) - 0.1 ATR (venda espelhado), risco em [0.5, 2.5] ATR senão descarta, alvo 1.5R, tempo 60 min, stop primeiro em barra ambígua"
+  },
+  "entry_k": [
+   6,
+   96
+  ],
+  "one_position": true,
+  "costs_pts": {
+   "WIN$N": 10.0,
+   "WDO$N": 1.0
+  },
+  "cost_sens_mult": 2.0,
+  "ticks": {
+   "WIN$N": 5.0,
+   "WDO$N": 0.5
+  },
+  "atr": {
+   "n": 14,
+   "min_bars": 5,
+   "fallback_sessions": 20
+  },
+  "sim": {
+   "stop_buffer_atr": 0.1,
+   "risk_atr": [
+    0.5,
+    2.5
+   ],
+   "target_R": 1.5,
+   "target_level_h": 0.5,
+   "hold_bars": 12,
+   "entry_k": [
+    6,
+    96
+   ]
+  },
+  "family": "2 ativos x 3 W x 2 k x 2 saídas = 24 testes (BH)",
+  "controls": {
+   "C_random": "entradas aleatórias casadas: para cada operação, sessão elegível sorteada, mesma barra k de entrada e mesmo lado, mesma saída; 200 sorteios",
+   "C_pullback": "mesmo recuo do preço (inclinação < -k·σ -> compra) + mesmo gatilho, sem rastro",
+   "C_shuffle": "rastro embaralhado em blocos de sessão (P de outra sessão, alinhado por k), σ do original; 200 sorteios"
+  },
+  "draws": 200,
+  "seed": 2011,
+  "n_boot": 2000,
+  "boot_seed": 0,
+  "fdr_q": 0.05,
+  "min_trades_per_half": 30,
+  "verdict": {
+   "GO": "1 IC95 sessão > 0; 2 média > 0 em design e validação com n>=30 cada; 3 q_BH < 0.05; 4 diff vs C_pullback IC > 0 e média >= p95 de C_random e de C_shuffle; 5 média com 2x custo > 0 e o outro k (mesmo W e saída) > 0",
+   "INCONCLUSIVO": "média > 0 no total e nas duas metades e acima da média de C_pullback e das medianas de C_random e C_shuffle, sem passar em todos",
+   "NO-GO": "demais",
+   "asset": "melhor status entre os 12 testes do ativo"
+  }
+ }
+}
