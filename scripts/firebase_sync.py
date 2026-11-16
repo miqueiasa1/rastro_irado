@@ -60,6 +60,9 @@ def clean_for_firebase(val):
     else:
         return val
 
+from backend.public_payload import build_lean_series  # noqa: E402  (fase 19A, REQ-S01)
+
+
 def fetch_json(url):
     try:
         req = urllib.request.Request(url)
@@ -111,7 +114,10 @@ def sync():
                         "icon": t["icon"],
                         "accuracy": t.get("accuracy"),
                         "r_squared": t.get("r_squared"),
-                        "calibrated": t.get("accuracy") is not None,
+                        "calibrated": bool(t.get("calibrated", t.get("accuracy") is not None)),
+                        "model_version": t.get("model_version"),
+                        "forecast_mode": t.get("forecast_mode", "off"),
+                        "forecast_ui": t.get("forecast_ui", "off"),
                         "session_start_h": t.get("session_start_h", 0),
                         "session_hours": f"{t['session_start_h']:02d}h-{t['session_end_h']:02d}h",
                         "divergence_config": t.get("divergence_config"),
@@ -148,15 +154,7 @@ def sync():
             print(f"  [Skip] Serie indisponivel para {target} em {current_date}; tenta de novo no proximo ciclo (GARCH/GEX seguem).")
             series_data = None
         if series_data:
-            raw_series = series_data.get("series", [])
-            lean_series = []
-            for i, bar in enumerate(raw_series):
-                if i == len(raw_series) - 1:
-                    lean_series.append(bar)
-                else:
-                    lean_bar = {k: v for k, v in bar.items() if k not in ("factors", "stale_factors")}
-                    lean_series.append(lean_bar)
-            series_map[safe_target] = lean_series
+            series_map[safe_target] = build_lean_series(series_data.get("series", []))
             summaries_map[safe_target] = series_data.get("summary", {})
             history_map[safe_target] = series_data.get("history_closes", [])
         

@@ -160,8 +160,7 @@ def test_targets_expose_calibrated_and_forecast_flags(db, monkeypatch):
     conn.close()
     monkeypatch.setattr(bdb, "DB_PATH", db)
     monkeypatch.setattr(api, "engine", IRAIEngine(db))
-    import asyncio
-    res = asyncio.run(api.irai_targets())
+    res = api.irai_targets()  # def desde 13/11 (threadpool)
     t = next(x for x in res["targets"] if x["target"] == fx.TARGET)
     assert t["calibrated"] is True                 # tem parâmetros, mesmo sem acurácia
     assert t["forecast_ui"] == "off" and t["forecast_mode"] == "off"
@@ -170,7 +169,12 @@ def test_targets_expose_calibrated_and_forecast_flags(db, monkeypatch):
     conn.execute("UPDATE asset_models SET forecast_ui = 'nowcast_only' WHERE target = ?", (fx.TARGET,))
     conn.commit()
     conn.close()
-    res = asyncio.run(api.irai_targets())
+    # Fase 19A (REQ-A05): fora de WIN$N/WDO$N a flag e ignorada (sempre 'off').
+    res = api.irai_targets()
+    assert next(x for x in res["targets"] if x["target"] == fx.TARGET)["forecast_ui"] == "off"
+    import backend.irai.engine as engine_mod
+    monkeypatch.setattr(engine_mod, "FORECAST_TARGETS", engine_mod.FORECAST_TARGETS + (fx.TARGET,))
+    res = api.irai_targets()  # def desde 13/11 (threadpool)
     assert next(x for x in res["targets"] if x["target"] == fx.TARGET)["forecast_ui"] == "nowcast_only"
     s = api._get_series_data_sync(fx.TARGET, D_MID, "v2", timeframe="M5", mode="recalculated")
     assert s["summary"]["forecast_ui"] == "nowcast_only"

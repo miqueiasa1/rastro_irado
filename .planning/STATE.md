@@ -16,7 +16,7 @@ progress:
 ## Posição atual (16/11/2026)
 
 - **Milestone ativa:** v2.0 Metodologia Preditiva Calibrada — documentos em `.planning/milestones/v2.0-metodologia/` (`PRD.md`, `SPEC.md`, `PHASES.md`).
-- **Branch de produção:** a pasta `rastro_irado` roda a branch que estiver em checkout (local, sem push). Branches v2 locais: `v2/fase-15-harness`, `v2/fase-16-versionamento`, `v2/fase-17-18` (fases 15–18, hardening de 13/11 e merge da fase 20), `v2/fase-20-gex-pa` (worktree `rastro_irado_wt_f17_18`).
+- **Branch de produção:** a pasta `rastro_irado` roda a branch que estiver em checkout (local, sem push). Branches v2 locais: `v2/fase-15-harness`, `v2/fase-16-versionamento`, `v2/fase-17-18` (fases 15–18, hardening de 13/11 e merge da fase 20), `v2/fase-20-gex-pa` (worktree `rastro_irado_wt_f17_18`), `v2/fase-19-21a` (19A/21A, em checkout na produção desde 16/11).
 - **Serviços (NSSM):** IRAI_API (FastAPI :8888), IRAI_Collector, IRAI_FirebaseSync, IRAI_Frontend (Vite :5175). Banco `data/irai_live.db` (SQLite WAL).
 - **Regras do owner:** nunca dar push, publicar no Firebase ou apagar dados/backups sem aprovação explícita; commits só locais; backup em `data/backups/<nome>_<data>` antes de mexer no banco ou em arquivos importantes.
 
@@ -28,10 +28,10 @@ progress:
 | 16 | Versionamento imutável e anti-repaint | Em produção desde 10/11/2026 |
 | 17 | Correção β/z e honestidade do painel | Em produção desde 10/11 (versões corrigidas vigentes desde 11/11) |
 | 18 | Features causais + walk-forward | Concluída com resultado **negativo** (p_fwd_60 rejeitado) |
-| 19 | Shadow mode ao vivo | Replanejada: sem modelo forecast aprovado, só a parte de avaliação/contrato (API de assertividade, guarda REQ-A05, sync sem `p_fwd_close*`) |
+| 19 | Shadow mode ao vivo | Replanejada: sem modelo forecast aprovado. **19A feita em 16/11** (`/api/eval/assertividade`, guarda REQ-A05, sync sem `p_fwd_close*`); inferência shadow suspensa |
 | 20 | Regiões de GEX + gatilho de price action | Pesquisa W1–W4 concluída em 10/11: WIN INCONCLUSIVO, WDO NO-GO; nada ligado ao vivo |
 | 20b | Fluxo (delta acumulado) como contexto | Não iniciada — exige pré-registro aprovado pelo owner |
-| 21 | UI com incerteza e card de assertividade | Replanejada: card de assertividade e fechamento do modo `nowcast_only` no painel local; site público só com deploy aprovado |
+| 21 | UI com incerteza e card de assertividade | Replanejada. **21A feita em 16/11 no painel local** (ReliabilityCard, sem compra/venda no gráfico de P, marcadores exp. desligados); site público só com deploy aprovado |
 | 22 | Go/No-Go e corte | Não iniciada — sem candidato em shadow, tende a fechar como no-go direcional (D3), decisão do owner |
 
 ## Contexto acumulado
@@ -40,6 +40,7 @@ progress:
 - `scripts/eval_assertividade.py` + pacote `backend/eval/`; baseline congelada em `data/eval/baseline/assertividade_baseline_20261110.json` (WIN 60 min AUC 0,474; WDO 0,486; nowcast 0,710 / 0,754).
 - Tarefa "IRAI Daily Assertividade" seg–sex 18:45 (`scripts/run_eval_assertividade.bat`): janela dos últimos 20 pregões + período desde 03/08; relatórios em `data/reports/assertividade_<data>[_ultimos20].md`, JSON em `data/eval/latest/`, métricas em `data/eval/forecast_eval.db` (`forecast_eval_daily`), log em `logs/eval_assertividade.log`.
 - Relatórios automáticos: 10/11, 11/11, 12/11 e 13/11 (4 pregões seguidos, rc 0). O 5º é 16/11 18:45.
+- Revisão em 16/11 (versões corrigidas da fase 17, só 3 pregões: 11–13/11): nowcast AUC 0,916 (WIN) / 0,851 (WDO), BSS 0,246 / 0,236, acerto 78,3% / 73,4%, ECE 22,3 / 17,1 pp; baseline congelada 0,710 / 0,754 (BSS 0,076 / 0,167, ECE 11,9). Discriminação acima da baseline e coerente com a estimativa offline da fase 17 (0,828 / 0,869), mas IC largo (BSS do WIN −3,1 a 0,44) e calibração pior. 60 min segue sem habilidade (AUC 0,32 / 0,52, BSS −0,27 / −0,24). Veredito: harness aprovado (falta o 5º relatório); nowcast corrigido mantido; reavaliar com 20 pregões (~09/12); `nowcast_only` continua.
 
 ### Fase 16 — versionamento (em produção desde 10/11/2026)
 - `model_versions` + `model_version_events` (`backend/irai/model_registry.py`), calibração sem `DELETE`, engine resolvendo a versão vigente na data, `model_version` nos snapshots e no Kalman, `GET /api/model/versions`, Regra 5 no `.agents/AGENTS.md`.
@@ -75,4 +76,4 @@ progress:
 
 ## Próximo passo
 - Fechar o critério 3 da fase 15 com o relatório de 16/11 18:45 e reavaliar o nowcast corrigido com mais pregões.
-- Fases 19A/21A (transparência fora da amostra no painel local) e decisões do owner sobre 20b e 22.
+- Decisões do owner: deploy do card/regra `eval` no site público, 20b (fluxo) ou encerrar GEX+PA, fechar a 22 como no-go direcional, `/api/gex` com run as-of em datas passadas. Ver `phases/19-21a-transparencia-fora-da-amostra/19-21A-SUMMARY-01.md`.

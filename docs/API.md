@@ -241,6 +241,19 @@ Com a migração aplicada, cada barra da série passa a ter `model_version` (aus
 
 ---
 
+### GET `/api/eval/assertividade` (fase 19A)
+
+Assertividade fora da amostra do P(↑) gravado ao vivo, lida dos JSON do harness diário (`data/eval/latest/`, tarefa "IRAI Daily Assertividade" seg–sex 18:45). Só leitura, sem recálculo na requisição.
+
+| Parâmetro | Tipo | Padrão | Descrição |
+|---|---|---|---|
+| `target` | string | `WIN$N` | Só `WIN$N` ou `WDO$N` (D2); outros alvos retornam 404 |
+| `window` | string | `20` | `20` (últimos 20 pregões) ou `full` (desde 03/08/2026) |
+
+Resposta: `available`, `target`, `window`, `sessions`, `first_session`, `last_session`, `live_bars`, `model_version`, `forecast_ui`, `harness_version`, `config_hash`, `code_git_sha`, `generated_at`, `degraded_60m`, `degraded_nowcast` e `horizons.{nowcast,60m,close}` com `n`, `auc` (+`auc_lo`/`auc_hi`), `bss` (+IC), `ece`, `hit`, `base_rate`, `degraded` (BSS < −0,02) e `reliability` (10 bins: `bin_lo`, `bin_hi`, `n`, `p_mean`, `freq_up`); `baselines.{60m,close}.{base_rate,momentum,contrarian}` com `auc`/`hit`. Sem relatório ainda: 404 com `available: false` e `reason`.
+
+**Guarda REQ-A05 (fase 19A):** `forecast_mode` e `forecast_ui` em `/api/irai/targets`, `/api/irai/series` e `/api/irai/overview` só valem para `WIN$N` e `WDO$N`; nos demais alvos são sempre `off`, qualquer que seja o valor no banco.
+
 ### GET `/api/health`
 
 Status do sistema.

@@ -2,10 +2,22 @@ import { useEffect, useRef, forwardRef, useImperativeHandle, useCallback } from 
 import { LineSeries, LineStyle } from "lightweight-charts";
 import BaseLightweightChart from "./BaseLightweightChart";
 import { parseTimeToTimestamp } from "../utils/time";
+import { isHonestUi } from "../utils/honesty";
 
-const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true }, ref) => {
+// Fase 21A (REQ-U07): com forecast_ui 'on'/'nowcast_only' as linhas 60/40 são só referência
+// (o P é leitura do dia, não sinal de compra/venda).
+const refLineOptions = (forecastUi) => {
+  const honest = isHonestUi(forecastUi);
+  return {
+    up: { color: honest ? "#334155" : "#4ADE80", title: honest ? "60" : "compra" },
+    down: { color: honest ? "#334155" : "#F87171", title: honest ? "40" : "venda" },
+  };
+};
+
+const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis = true, forecastUi = "off" }, ref) => {
   const baseChartRef = useRef(null);
   const seriesRefs = useRef({});
+  const forecastUiRef = useRef(forecastUi);
 
   useImperativeHandle(ref, () => ({
     getChart: () => baseChartRef.current?.getChart(),
@@ -24,21 +36,22 @@ const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis 
     });
 
     // Reference lines for p_up
-    pUpSeries.createPriceLine({
+    const ref0 = refLineOptions(forecastUiRef.current);
+    const upLine = pUpSeries.createPriceLine({
       price: 60,
-      color: "#4ADE80",
+      color: ref0.up.color,
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: true,
-      title: "compra",
+      title: ref0.up.title,
     });
-    pUpSeries.createPriceLine({
+    const downLine = pUpSeries.createPriceLine({
       price: 40,
-      color: "#F87171",
+      color: ref0.down.color,
       lineWidth: 1,
       lineStyle: LineStyle.Dashed,
       axisLabelVisible: true,
-      title: "venda",
+      title: ref0.down.title,
     });
     pUpSeries.createPriceLine({
       price: 50,
@@ -48,8 +61,17 @@ const TVProbabilityChart = forwardRef(({ history = [], effectiveDate, hideXAxis 
       axisLabelVisible: false,
     });
 
-    seriesRefs.current = { pUpSeries };
+    seriesRefs.current = { pUpSeries, upLine, downLine };
   }, []);
+
+  useEffect(() => {
+    forecastUiRef.current = forecastUi;
+    const { upLine, downLine } = seriesRefs.current;
+    if (!upLine || !downLine) return;
+    const o = refLineOptions(forecastUi);
+    upLine.applyOptions(o.up);
+    downLine.applyOptions(o.down);
+  }, [forecastUi]);
 
   useEffect(() => {
     const chart = baseChartRef.current?.getChart();

@@ -124,6 +124,21 @@ def sigmoid(x: float) -> float:
         return ex / (1.0 + ex)
 
 
+# Fase 19A (REQ-A05 / D2): previsao e modos de exibicao do v2.0 so valem para WIN$N e WDO$N.
+FORECAST_TARGETS = ("WIN$N", "WDO$N")
+_FORECAST_MODES = ("off", "shadow", "active")
+_FORECAST_UI_MODES = ("off", "on", "nowcast_only")
+
+
+def sanitize_forecast_flags(target, forecast_mode, forecast_ui):
+    """Devolve (forecast_mode, forecast_ui) validos; fora de WIN$N/WDO$N sempre ('off', 'off')."""
+    if target not in FORECAST_TARGETS:
+        return ("off", "off")
+    fm = forecast_mode if forecast_mode in _FORECAST_MODES else "off"
+    fu = forecast_ui if forecast_ui in _FORECAST_UI_MODES else "off"
+    return (fm, fu)
+
+
 class IRAIEngine:
     """Motor de cálculo do IRAI — suporta N targets via DB."""
 
@@ -176,7 +191,8 @@ class IRAIEngine:
         flag_map = {}
         try:
             for fr in conn.execute("SELECT target, forecast_mode, forecast_ui FROM asset_models"):
-                flag_map[fr["target"]] = (fr["forecast_mode"] or "off", fr["forecast_ui"] or "off")
+                flag_map[fr["target"]] = sanitize_forecast_flags(
+                    fr["target"], fr["forecast_mode"], fr["forecast_ui"])
         except Exception:
             flag_map = {}
 

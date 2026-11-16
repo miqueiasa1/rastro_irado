@@ -18,6 +18,8 @@ import { processSeriesSignals } from './utils/signalProcessor'
 import { DetailHeader } from './components/DetailHeader'
 import { isForexTarget } from './utils/forex'
 import { isHonestUi } from './utils/honesty'
+import ReliabilityCard from './components/ReliabilityCard'
+import { useEvalAssertividade } from './hooks/useEvalAssertividade'
 
 const FIREBASE_URL = import.meta.env.DEV ? null : import.meta.env.VITE_FIREBASE_URL
 
@@ -178,6 +180,9 @@ export default function App() {
   const [showPairPro, setShowPairPro] = useState(true)
   const [showDivContra, setShowDivContra] = useState(false)
   const [showDivPro, setShowDivPro] = useState(true)
+  // Fase 21A (REQ-U05): marcadores do z sem edge medido ficam desligados por padrão quando o painel
+  // está em modo honesto; o usuário liga pelo botão "MARC. EXP." (escolha guardada por alvo).
+  const [expMarkersByTarget, setExpMarkersByTarget] = useState({})
 
   // Refs for TradingView lightweight-charts
   const probChartRef = useRef(null)
@@ -206,6 +211,10 @@ export default function App() {
     seriesInfo,
     fetchGexForRun,
   } = useIraiData({ selectedTarget, liveMode, timeframe });
+  const evalData = useEvalAssertividade(selectedTarget);
+  const honestUi = isHonestUi(seriesInfo?.forecast_ui);
+  const showExpMarkers = expMarkersByTarget[selectedTarget] ?? !honestUi;
+  const toggleExpMarkers = () => setExpMarkersByTarget(prev => ({ ...prev, [selectedTarget]: !showExpMarkers }));
 
   const garchVolPct = useMemo(() => {
     if (!garchData || !Array.isArray(garchData.forecast) || garchData.forecast.length === 0) return null;
@@ -846,7 +855,7 @@ export default function App() {
                           }}
                         >
                           <div style={{ width: 12, height: 2, background: '#38BDF8' }} />
-                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#38BDF8', fontWeight: 600 }}>P(↑) Rastro Macro</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#38BDF8', fontWeight: 600 }}>{honestUi ? 'P(↑) Leitura do dia (nowcast)' : 'P(↑) Rastro Macro'}</span>
                         </div>
                       </div>
                     </div>
@@ -857,7 +866,9 @@ export default function App() {
                     effectiveDate={effectiveDate}
                     selectedTarget={selectedTarget}
                     hideXAxis={true}
+                    forecastUi={seriesInfo.forecast_ui}
                   />
+                  <ReliabilityCard evalData={evalData} forecastUi={seriesInfo.forecast_ui} />
 
                   {/* MOVIMENTO DO ÍNDICE — NWE (Nadaraya-Watson Envelope) */}
                   <div
@@ -893,7 +904,18 @@ export default function App() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {/* GEX toggle buttons */}
+                        <button
+                          onClick={toggleExpMarkers}
+                          title="Marcadores do z (ponto/estrela) sem vantagem medida no harness; experimental"
+                          style={{
+                            fontFamily: 'var(--font-mono)', fontSize: 7, fontWeight: 700,
+                            padding: '2px 6px', borderRadius: 3, cursor: 'pointer',
+                            border: `1px solid ${showExpMarkers ? '#F59E0B' : '#1E293B'}`,
+                            background: showExpMarkers ? 'rgba(245,158,11,0.1)' : 'transparent',
+                            color: showExpMarkers ? '#F59E0B' : '#334155',
+                            transition: 'all 0.15s', lineHeight: 1,
+                          }}
+                        >MARC. EXP.</button>
                         {/* GEX toggle buttons */}
                         {((gexWalls && gexWalls.length > 0) || GEX_LEVELS[selectedTarget]) && (
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -979,6 +1001,7 @@ export default function App() {
                       chartType={chartType}
                       showGarchBands={showGarchBands}
                       garchVolPct={garchVolPct}
+                      showZSignalMarkers={showExpMarkers}
                     />
                   </div>
 

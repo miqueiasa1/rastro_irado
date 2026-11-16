@@ -490,6 +490,22 @@ def get_garch(symbol: str = Query("IBOV"), date: str = Query(None)):
     return {"symbol": symbol, "session_date": date, "history": [], "forecast": [], "updated_at": None}
 
 
+@app.get("/api/eval/assertividade")
+def eval_assertividade(target: str = Query("WIN$N"), window: str = Query("20", description="20 (ultimos 20 pregoes) ou full")):
+    """Fase 19A (REQ-A02): assertividade fora da amostra do P(alta) gravado ao vivo (nowcast x 60 min x
+    fechamento), lida dos JSON que o harness diario grava em data/eval/latest/ (so leitura, sem recalculo)."""
+    from backend.eval.service import load_assertividade
+    out = load_assertividade(target, window)
+    for t in engine.registered_targets:
+        if t["target"] == target:
+            out["model_version"] = t.get("model_version")
+            out["forecast_ui"] = t.get("forecast_ui", "off")
+            break
+    if not out.get("available"):
+        return JSONResponse(status_code=404, content=out)
+    return out
+
+
 @app.get("/api/irai/targets")
 def irai_targets():
     """Lista todos os targets disponíveis com status."""
