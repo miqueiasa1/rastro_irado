@@ -4,7 +4,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 
 ---
 
-## 🎯 Milestone Ativa: v1.0 Otimização do Cálculo NWE
+## ✅ Milestone Concluída: v1.0 Otimização do Cálculo NWE
 
 | Fase | Título | Objetivo | Requisitos |
 |------|--------|----------|------------|
@@ -131,7 +131,7 @@ Este documento centraliza as próximas propostas de evolução e ideias futuras 
 
 ---
 
-## 🗓️ Milestone Planejada: v2.0 Metodologia Preditiva Calibrada
+## 🎯 Milestone Ativa: v2.0 Metodologia Preditiva Calibrada
 
 Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Documentos: [`milestones/v2.0-metodologia/PRD.md`](./milestones/v2.0-metodologia/PRD.md), [`SPEC.md`](./milestones/v2.0-metodologia/SPEC.md) e [`PHASES.md`](./milestones/v2.0-metodologia/PHASES.md). Requisitos com IDs `REQ-*` no PRD.
 
@@ -141,18 +141,21 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 | Fase | Título | Status | Requisitos |
 |------|--------|--------|------------|
-| 15 | Harness de Avaliação e Baseline Congelada | Em revisão | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
+| 15 | Harness de Avaliação e Baseline Congelada | Em revisão (critério 3 fecha em 16/11) | REQ-V01–V07, REQ-A02, REQ-O03, REQ-N02 |
 | 16 | Versionamento Imutável de Parâmetros e Anti-Repaint | Em produção desde 10/11/2026 | REQ-P01–P06, REQ-A03, REQ-N04–N06 |
 | 17 | Correção β/z e Honestidade do Painel | Em produção desde 10/11/2026 (versões vigentes a partir de 11/11) | REQ-M01–M04, REQ-U04, REQ-A04 |
 | 18 | Features Causais e Treino Walk-Forward com Calibração | Concluída (resultado negativo) | REQ-F01–F06, REQ-F08, REQ-N01 |
-| 19 | Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase) | Não iniciada | REQ-F07, REQ-F09, REQ-A01, REQ-A05, REQ-S01, REQ-O01–O02, REQ-N03–N04, REQ-N07 |
-| 20 | GEX e Fluxo como Features Testáveis | Não iniciada | REQ-G01–G04 |
-| 21 | UI de Probabilidade com Incerteza e Limiares Calibrados | Não iniciada | REQ-U01–U03, REQ-U05–U07, REQ-S02–S06 |
+| 19 | Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase) | Replanejada (19A: avaliação/contrato; sem inferência) | REQ-F07, REQ-F09, REQ-A01, REQ-A05, REQ-S01, REQ-O01–O02, REQ-N03–N04, REQ-N07 |
+| 20 | Regiões de GEX + Gatilho de Price Action | Pesquisa concluída: WIN INCONCLUSIVO, WDO NO-GO | REQ-G01, G02, G04 |
+| 20b | Fluxo (delta acumulado) como contexto | Não iniciada (opcional; pré-registro do owner) | REQ-G03 |
+| 21 | UI de Probabilidade com Incerteza e Limiares Calibrados | Replanejada (21A: card de assertividade, painel local) | REQ-U01–U03, REQ-U05–U07, REQ-S02–S06 |
 | 22 | Avaliação Go/No-Go e Corte | Não iniciada | Critérios do PRD §8 (por ativo, 60 min) |
+
+**Hardening de produção (13/11/2026, commit `144d3e9`):** watchdog sem auto-kill e só no pregão (feriados em `data/b3_holidays.txt`), endpoints pesados síncronos com cache, `firebase_sync` pulando só a série com falha.
 
 ### Phase 15: Harness de Avaliação e Baseline Congelada
 * **Goal:** Medir a assertividade de forma reprodutível e contínua a partir de `irai_live_snapshots`, antes de mudar qualquer modelo.
-* **Status:** Em revisão (implementada em 2026-11-10 e commitada na branch local `v2/fase-15-harness`, sem push; critério 3 em andamento — tarefa "IRAI Daily Assertividade" seg–sex 18:45; ver `phases/15-harness-de-avaliacao-e-baseline/15-SUMMARY-01.md`) · **Depende de:** 12, 14
+* **Status:** Em revisão (implementada em 2026-11-10 e commitada na branch local `v2/fase-15-harness`, sem push; relatórios automáticos em 10, 11, 12 e 13/11, o 5º em 16/11 18:45 fecha o critério 3 — tarefa "IRAI Daily Assertividade" seg–sex 18:45; ver `phases/15-harness-de-avaliacao-e-baseline/15-SUMMARY-01.md`) · **Depende de:** 12, 14
 * **Success Criteria:** reproduz a baseline da auditoria (WIN AUC 60 min 0,474; WDO 0,486; WIN nowcast 0,711) com tolerância de ±0,005; relatório diário automático por 5 pregões; nenhuma escrita fora de `forecast_eval_daily`.
 
 ### Phase 16: Versionamento Imutável de Parâmetros e Anti-Repaint
@@ -172,22 +175,26 @@ Planejada em 2026-11-10 a partir da auditoria de metodologia do rastro. Document
 
 ### Phase 19: Shadow Mode ao Vivo (Inferência, Snapshots, API, Firebase)
 * **Goal:** Inferência (só WIN$N e WDO$N) a cada ciclo do collector gravando `p_fwd_60` (e `p_fwd_close` só para avaliação) nos snapshots, sem exibir.
-* **Status:** Não iniciada · **Depende de:** 18
-* **Success Criteria:** `p_fwd_60` em ≥ 98% das barras por 10 pregões [META]; p95 ≤ 1 s por alvo [META]; site público compatível e sem `p_fwd_close*` no RTDB.
+* **Status:** Replanejada em 16/11/2026: a fase 18 não aprovou nenhum modelo, então não há inferência `p_fwd_60` para rodar em shadow. Fica a parte 19A (sem migração do banco): `GET /api/eval/assertividade` (REQ-A02), guarda REQ-A05 (`forecast_mode`/`forecast_ui` só em WIN$N/WDO$N), `model_versions` em `/api/health` e `firebase_sync` sem `p_fwd_close*` (REQ-S01) · **Depende de:** 18
+* **Success Criteria (original, suspenso até existir candidato):** `p_fwd_60` em ≥ 98% das barras por 10 pregões [META]; p95 ≤ 1 s por alvo [META]; site público compatível e sem `p_fwd_close*` no RTDB.
 
-### Phase 20: GEX e Fluxo como Features Testáveis
-* **Goal:** Testar GEX (projeto WDO, regra as-of) e delta acumulado pelo mesmo protocolo; aceitar só com ΔBSS > 0 e IC.
-* **Status:** Não iniciada · **Depende de:** 18, 19
-* **Success Criteria:** decisão por feature com ΔBSS e IC em ≥ 40 pregões elegíveis [META]; nenhuma sessão sem garantia as-of no treino.
+### Phase 20: Regiões de GEX + Gatilho de Price Action (rastro como contexto)
+* **Goal:** Alertas de apoio à decisão "zona de GEX as-of + gatilho de price action + direção do rastro", aceitos só com P&L líquido > 0, estável fora da amostra e melhor que zona sozinha e placebos.
+* **Status:** Pesquisa W1–W4 concluída (10/11/2026, config `c985f6b2365e`, commit `c5333c1`, mergeado em `v2/fase-17-18`): WIN$N INCONCLUSIVO (melhor braço T3 + valor justo +29,4 pts/op., n 147, IC −49,2 a +113,7; não bate os controles), WDO$N NO-GO. Sem shadow nem UI; GEX segue só como linha no gráfico (ver `phases/20-gex-regioes-price-action/20-SUMMARY-01.md`) · **Depende de:** 15, 16, 18
+* **Success Criteria:** só sessões com GEX as-of; gatilhos sem lookahead; decisão por ativo em ≥ 40 pregões; shadow de 40 pregões antes de tirar o selo.
+
+### Phase 20b (opcional): Fluxo (delta acumulado) como contexto
+* **Goal:** Avaliar `cum_delta_norm` como filtro adicional dos alertas da fase 20, pelo mesmo protocolo pré-registrado.
+* **Status:** Não iniciada — precisa de pré-registro aprovado pelo owner; delta M5 do WDO só existe desde abr–mai/2026 · **Depende de:** 20
 
 ### Phase 21: UI de Probabilidade com Incerteza e Limiares Calibrados
 * **Goal:** Gauge com P(↑ 60 min), faixa de incerteza, limiares calibrados e card de assertividade, atrás de feature flag, no painel local e no site público (nó `eval/<target>`, regra do RTDB, modo `nowcast_only`).
-* **Status:** Não iniciada · **Depende de:** 15, 19
+* **Status:** Replanejada em 16/11/2026: sem `p_fwd_60`, não há faixa nem limiares de 60 min para mostrar. Fica a parte 21A: card de assertividade fora da amostra (nowcast × 60 min, últimos 20 pregões) e fechamento do modo `nowcast_only` (sem "compra/venda" no gráfico de P, marcadores sem edge desligados por padrão) no painel local; nó `eval/<target>` e regra do RTDB preparados, mas desligados até aprovação do deploy · **Depende de:** 15, 19
 * **Success Criteria:** flag desligada = UI atual (mais as mudanças da fase 17); `nowcast_only` sem nenhum rótulo direcional; site público com `p_fwd_60` (selo "em avaliação") e card; regras 1–4 do `.agents/AGENTS.md` verificadas no UAT; deploy do Firebase só após aprovação explícita do usuário.
 
 ### Phase 22: Avaliação Go/No-Go e Corte
 * **Goal:** Após ≥ 40 pregões em shadow, aplicar os critérios do PRD §8 por ativo, em 60 min, e promover (ou não) o novo modelo a sinal principal; ativo reprovado vai para `nowcast_only` (D3).
-* **Status:** Não iniciada · **Depende de:** 15, 19, 21 (e 20, se aplicável)
+* **Status:** Não iniciada. Sem candidato em shadow (fase 18 rejeitada, fase 20 sem GO), tende a fechar como no-go direcional (D3: `nowcast_only` em WIN/WDO) — decisão do owner · **Depende de:** 15, 19, 21 (e 20, se aplicável)
 * **Success Criteria:** decisão registrada por ativo com os números dos 6 critérios; flags aplicadas no local e no site público (deploy aprovado pelo usuário); reversão testada sem perda de dados.
 
 ## ✅ Concluídos

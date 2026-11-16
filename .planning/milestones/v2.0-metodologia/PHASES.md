@@ -1,8 +1,8 @@
 # Fases GSD — Milestone v2.0 Metodologia Preditiva Calibrada
 
-**Status:** 16 e 17 em produção, 18 concluída (negativa), 19–22 não iniciadas · **Data:** 2026-11-10 · **Revisão:** decisões D1–D4 de 10/11/2026 aplicadas (PRD §12.1)
+**Status:** 16 e 17 em produção, 18 concluída (negativa), 20 pesquisada (WIN inconclusivo, WDO no-go), 19 e 21 replanejadas (19A/21A), 20b e 22 não iniciadas · **Data:** 2026-11-16 (criada em 2026-11-10) · **Revisão:** decisões D1–D4 de 10/11/2026 aplicadas (PRD §12.1)
 
-**Decisões que valem para todas as fases:** D1 horizonte de produto = 60 min (fechamento só avaliação) · D2 só WIN$N e WDO$N · D3 no-go → sem rótulos direcionais, P atual como "Leitura do dia (nowcast)" · D4 `p_fwd_60` e card de assertividade também no site público; **todo deploy do Firebase exige aprovação explícita do usuário** · Q5 (GEX as-of e backfill) em aberto, pendente do projeto WDO.
+**Decisões que valem para todas as fases:** D1 horizonte de produto = 60 min (fechamento só avaliação) · D2 só WIN$N e WDO$N · D3 no-go → sem rótulos direcionais, P atual como "Leitura do dia (nowcast)" · D4 `p_fwd_60` e card de assertividade também no site público; **todo deploy do Firebase exige aprovação explícita do usuário** · Q5 (GEX as-of e backfill): resolvida para a pesquisa da fase 20 (CSV oficial do projeto WDO; fallback = primeiro run < 09:00); para uso ao vivo segue pendente do projeto WDO.
 **Princípio orientador (owner, 10/11/2026):** rastro = contexto, GEX = região, price action = gatilho. O rastro é usado ao vivo, não como observação; as próximas fases (19–22) devem ser pensadas nessa divisão — o IRAI descreve o contexto do dia, o GEX marca as regiões de preço e o gatilho de entrada vem do price action, não de um rótulo COMPRA/VENDA do z.
 **Referências:** [`PRD.md`](./PRD.md) (requisitos REQ-*) · [`SPEC.md`](./SPEC.md) (seções §)
 
@@ -10,8 +10,8 @@ Ordem e dependências:
 
 ```
 15 ──▶ 16 ──▶ 17
- │      └────▶ 18 ──▶ 19 ──▶ 20
- │                    └────▶ 21 ──▶ 22
+ │      └────▶ 18 ──▶ 20 ──▶ 20b
+ │             └────▶ 19 ──▶ 21 ──▶ 22
  └──────────────────────────────────▶ 22 (relatório contínuo é insumo do corte)
 ```
 
@@ -87,17 +87,28 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   3. O site público continua funcionando com os campos novos e com snapshots antigos; o payload sincronizado não contém `p_fwd_close*` (teste do sync). Se for preciso deploy, só com aprovação explícita.
   4. O harness passa a avaliar `forecast` junto do `nowcast` no relatório diário.
 * **Depende de:** 18.
+* **Status (16/11/2026):** replanejada como 19A — sem modelo forecast aprovado (fase 18 negativa), não há inferência em shadow. Escopo mantido: `GET /api/eval/assertividade` (REQ-A02, lendo `data/eval/`), guarda REQ-A05, `model_versions` em `/api/health` (REQ-O01 adaptado) e `firebase_sync` sem `p_fwd_close*` (REQ-S01). Sem migração do banco.
 
-### Phase 20: GEX e Fluxo como Features Testáveis
-* **Slug sugerido:** `20-gex-e-fluxo-como-features`
-* **Goal:** Testar, com o protocolo da fase 18, se GEX (projeto WDO) e delta acumulado melhoram a previsão.
-* **Escopo:** regra as-of do GEX e flag `gex_asof_ok` (§16); features §4.3; ablação com e sem; decisão registrada; nova versão em shadow se aprovada.
-* **Requirements:** REQ-G01, REQ-G02, REQ-G03, REQ-G04
-* **Entregáveis:** relatório de ablação; auditoria de causalidade do histórico de `gex_levels` (sessões com e sem garantia).
+### Phase 20: Regiões de GEX + Gatilho de Price Action, com o Rastro como Contexto
+* **Slug:** `20-gex-regioes-price-action` (antes: `20-gex-e-fluxo-como-features`)
+* **Goal:** Testar se alertas "zona de GEX as-of + gatilho de price action + direção do rastro" têm P&L líquido de custos positivo e estável em 60 min, por ativo (WIN$N, WDO$N), e mostrá-los como apoio à decisão se passarem.
+* **Princípio do owner (10/11/2026):** o rastro dá o contexto, o GEX dá a região e o price action dá o gatilho.
+* **Escopo:** seleção as-of do GEX e flag `gex_asof_ok` (§16); zonas por ATR; filtros C1 (valor justo) e C2 (direção da cesta); gatilhos T0–T3; simulador com stop/alvo/tempo e custos; ablação zona × zona+gatilho × zona+gatilho+rastro com placebos; BH em família fixa de 20 testes; se aprovado, versão `gexpa` em shadow, tabelas append-only e UI atrás de `gexpa_ui`.
+* **Requirements:** REQ-G01, REQ-G02, REQ-G04 (adaptado a eventos); REQ-G03 (fluxo) passa para a 20b.
+* **Entregáveis:** `20-CONTEXT.md`, `20-PLAN-01.md`; auditoria do histórico de `gex_levels`; `data/reports/fase20_gex_pa_<data>.md`; `20-SUMMARY-01.md` com a decisão.
 * **Success Criteria:**
-  1. Cada feature candidata tem decisão aceita/rejeitada com ΔBSS e IC em ≥ 40 pregões elegíveis **[META]**.
-  2. Nenhuma sessão sem `gex_asof_ok=1` entra no treino das features de GEX.
-* **Depende de:** 18 (protocolo) e 19 (para shadow de uma versão nova); dados do projeto WDO.
+  1. Nenhuma sessão sem `gex_asof_ok = 1` na amostra principal (teste).
+  2. Teste de causalidade dos gatilhos verde (truncar em t não muda sinais ≤ t).
+  3. Decisão por ativo GO / INCONCLUSIVO / NO-GO com os números dos critérios da §6 do plano, em ≥ 40 pregões elegíveis **[META]**.
+  4. Se GO: 40 pregões de shadow ao vivo com média líquida > 0 e IC acima de 0 antes de tirar o selo "em avaliação" **[META]**.
+* **Depende de:** 15 (harness), 16 (registro), 18 (valor justo causal). A 19 deixa de ser pré-requisito (p_fwd_60 rejeitado).
+* **Medido em 10/11/2026:** com o CSV oficial, 208 (WIN) / 211 (WDO) sessões de 2026 (antes: 115 / 113 só com o banco); ~1,3 entrada por pregão nas walls fortes; a grade completa de walls cobre ~49% das barras do WIN com ±0,5 ATR (não seletiva); `/api/gex` mostra run posterior ao pregão em 75 sessões.
+* **Status:** Pesquisa W1–W4 concluída em 10/11/2026 (config `c985f6b2365e`): **WIN$N INCONCLUSIVO** (melhor braço T3 + valor justo: +29,4 pts/op., n 147, IC −49,2 a +113,7; não bate os controles), **WDO$N NO-GO** (melhor braço +0,19 pt/op., n 108, IC −1,80 a +2,15). Nada ligado ao vivo; GEX segue só como linha no gráfico. Ver `phases/20-gex-regioes-price-action/20-SUMMARY-01.md`. Commit `c5333c1`, mergeado em `v2/fase-17-18` em 16/11
+
+### Phase 20b (nova, opcional): Fluxo (delta acumulado) como contexto
+* **Goal:** Avaliar `cum_delta_norm` como filtro adicional dos alertas da fase 20, pelo mesmo protocolo.
+* **Observação:** delta M5 do WDO só existe desde abr–mai/2026.
+* **Status:** Não iniciada · **Depende de:** 20.
 
 ### Phase 21: UI de Probabilidade com Incerteza e Limiares Calibrados
 * **Slug sugerido:** `21-ui-probabilidade-com-incerteza`
@@ -113,6 +124,7 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   5. O site público mostra `p_fwd_60` (com selo "em avaliação") e o card lendo `eval/<target>`; nenhum `p_fwd_close*` no RTDB.
   6. Regras e hosting só publicados depois da aprovação explícita do usuário, registrada no SUMMARY.
 * **Depende de:** 19 (dados), 15 (métricas).
+* **Status (16/11/2026):** replanejada como 21A — `ReliabilityCard.jsx` (REQ-U03) com nowcast × 60 min dos últimos 20 pregões; `nowcast_only` sem "compra/venda" no gráfico de P (REQ-U07); marcadores sem edge desligados por padrão (REQ-U05); nó `eval/<target>` e regra do RTDB preparados mas desligados até o deploy aprovado (REQ-S06).
 
 ### Phase 22: Avaliação Go/No-Go e Corte
 * **Slug sugerido:** `22-go-no-go-e-corte`
@@ -125,3 +137,4 @@ Cada fase, ao ser iniciada, ganha a pasta `.planning/phases/NN-<slug>/` com `NN-
   2. Ativo com "go": `forecast_mode=active` e `forecast_ui=on`, local e público (sem o selo "em avaliação"). Ativo com "no-go": `forecast_ui=nowcast_only` (D3), local e público, e plano de pesquisa seguinte. Mudanças no site público só após aprovação explícita do usuário.
   3. Reversão executada em teste em menos de 5 minutos, sem perda de dados **[META]**.
 * **Depende de:** 15, 19, 21 (e 20, se houver versão com GEX em shadow).
+* **Status (16/11/2026):** não iniciada; sem candidato em shadow, tende a fechar como no-go direcional (D3) — decisão do owner.

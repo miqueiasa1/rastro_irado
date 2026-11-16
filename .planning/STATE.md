@@ -1,59 +1,78 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Otimização do Cálculo NWE & Estabilização Live
+milestone: v2.0
+milestone_name: Metodologia Preditiva Calibrada
 status: executing
-last_updated: "2026-11-10T19:30:00.000Z"
-last_activity: 2026-11-10
+last_updated: "2026-11-16T12:30:00.000Z"
+last_activity: 2026-11-16
 progress:
-  total_phases: 14
-  completed_phases: 14
-  total_plans: 13
-  completed_plans: 13
+  total_phases: 9
+  completed_phases: 5
+  note: "v2.0 = fases 15–22 + 20b; v1.0 (fases 1–14) concluída e mantida como registro histórico"
 ---
 
-## Current Position
+# STATE — IRAI (rastro_irado)
 
-Phase: 14
-Plan: sem 14-PLAN formal; entregue no commit f2b6d0d ✓
-Status: Phase complete ✓
-Last activity: 2026-11-10
+## Posição atual (16/11/2026)
 
-## Accumulated Context
+- **Milestone ativa:** v2.0 Metodologia Preditiva Calibrada — documentos em `.planning/milestones/v2.0-metodologia/` (`PRD.md`, `SPEC.md`, `PHASES.md`).
+- **Branch de produção:** a pasta `rastro_irado` roda a branch que estiver em checkout (local, sem push). Branches v2 locais: `v2/fase-15-harness`, `v2/fase-16-versionamento`, `v2/fase-17-18` (fases 15–18, hardening de 13/11 e merge da fase 20), `v2/fase-20-gex-pa` (worktree `rastro_irado_wt_f17_18`).
+- **Serviços (NSSM):** IRAI_API (FastAPI :8888), IRAI_Collector, IRAI_FirebaseSync, IRAI_Frontend (Vite :5175). Banco `data/irai_live.db` (SQLite WAL).
+- **Regras do owner:** nunca dar push, publicar no Firebase ou apagar dados/backups sem aprovação explícita; commits só locais; backup em `data/backups/<nome>_<data>` antes de mexer no banco ou em arquivos importantes.
 
-- O cálculo atual do NWE no frontend é realizado em tempo de renderização em Javascript (`computeNWE` no React), com complexidade O(n²), degradando severamente a performance com o aumento das séries temporais.
-- A migração deve assegurar paridade matemática e visual com o modelo atual: suavização kernel Gaussiana com bandwidth = 8 e envelope traçado por 3 desvios/MAD (Median Absolute Deviation).
-- Fase 4 completou robustez de infraestrutura: guard `_add_column` concorrente, init_db no startup de API e Collector, testes do guard Kalman, auditoria GEX. Engine.py inalterado.
-- Fase 5 completou expansão de ativos no rastro (DE40, US2000, JP225, CHINA50).
-- Fase 6 completou auditoria de conflitos e alinhamento com o fork.
-- Fase 12 completou Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode): tabela `irai_live_snapshots`, persistência automática no `collector.py`, endpoint API `/api/irai/series?mode=live`, indicador de status no frontend e 20/20 testes unitários passando.
-- Fase 13 completou Rastro de Mini Índice (Top 8 Ações IBOV): coleta das 8 ações B3 no `collector.py`, calibração estatística dedicada para `WIN$N_TOP8` em `calibrate_universal.py`, migração em `db.py` e integração completa no Frontend.
-- Fase 14 completou a auditoria waves 0-5 no commit `f2b6d0d` (29/10/2026, 08:55 horário de Brasília / America/Sao_Paulo): cofre do Pine e endurecimento da API, normalização do fuso do broker, sessão B3 09:00 e gap stitching do NWE, sincronização estrita dos gráficos, endurecimento histórico do GEX e manutenção diária. A numeração das waves segue a ordem da mensagem do commit; as ondas 1 e 2 também estão nomeadas em `scripts/deploy_onda1_2.ps1` (fuso/sessão B3 + Regra 4). O mesmo commit ainda inclui o motor de cesta cambial (`backend/irai/forex_basket.py` e UI associada) — atribuição a uma wave específica: a confirmar.
+## Status das fases v2.0
 
-### Roadmap Evolution
-- Phase 12 added & completed: Motor de Armazenamento de Snapshots Imutáveis em Tempo Real (Zero-Repainting Live Mode)
-- Phase 13 added & completed: Rastro de Mini Índice (Top 8 Ações IBOV)
-- Phase 14 added & completed: Auditoria Waves 0-5 (commit f2b6d0d, 2026-10-29)
+| Fase | Título | Status |
+|---|---|---|
+| 15 | Harness de avaliação e baseline congelada | Em revisão — critério 3 (5 pregões seguidos de relatório automático) fecha com o relatório de 16/11 18:45 |
+| 16 | Versionamento imutável e anti-repaint | Em produção desde 10/11/2026 |
+| 17 | Correção β/z e honestidade do painel | Em produção desde 10/11 (versões corrigidas vigentes desde 11/11) |
+| 18 | Features causais + walk-forward | Concluída com resultado **negativo** (p_fwd_60 rejeitado) |
+| 19 | Shadow mode ao vivo | Replanejada: sem modelo forecast aprovado, só a parte de avaliação/contrato (API de assertividade, guarda REQ-A05, sync sem `p_fwd_close*`) |
+| 20 | Regiões de GEX + gatilho de price action | Pesquisa W1–W4 concluída em 10/11: WIN INCONCLUSIVO, WDO NO-GO; nada ligado ao vivo |
+| 20b | Fluxo (delta acumulado) como contexto | Não iniciada — exige pré-registro aprovado pelo owner |
+| 21 | UI com incerteza e card de assertividade | Replanejada: card de assertividade e fechamento do modo `nowcast_only` no painel local; site público só com deploy aprovado |
+| 22 | Go/No-Go e corte | Não iniciada — sem candidato em shadow, tende a fechar como no-go direcional (D3), decisão do owner |
 
-### Working tree (2026-11-10)
-- Diff local não commitado: 229 arquivos de tooling GSD em `.agent/` (atualização da ferramenta; não é código da aplicação).
-- `frontend/src/gexLevels.js` modificado em 10/11/2026 07:32 (horário de Brasília / America/Sao_Paulo); provável sync diário de GEX, ainda não revisado.
+## Contexto acumulado
 
-### Próxima milestone: v2.0 Metodologia Preditiva Calibrada (planejada em 2026-11-10)
-- Status: em andamento. Phase 15 **em revisão** (implementada e commitada em 2026-11-10 na branch local `v2/fase-15-harness`, sem push; critério 3 em andamento). Phase 16 **em produção desde 10/11/2026** (commit `deb199f` na branch local `v2/fase-16-versionamento`, sem push). Phase 17 **em produção desde 10/11/2026** (commit `0bf29a5` na branch local `v2/fase-17-18`, sem push; a pasta de produção roda `v2/fase-17-18`; versões corrigidas de WIN/WDO vigentes a partir de 11/11/2026; `forecast_ui='nowcast_only'` em WIN$N/WDO$N desde 10/11). Phase 18 **concluída com resultado negativo** (p_fwd_60 rejeitado). Fases 19–22 não iniciadas. A milestone v1.0 segue como registro histórico (fases 1–14).
-- Fases 15–22 adicionadas ao `ROADMAP.md` como "Não iniciada": 15 harness de avaliação, 16 versionamento imutável/anti-repaint, 17 correção β/z e honestidade do painel, 18 features causais + walk-forward, 19 shadow mode ao vivo, 20 GEX e fluxo como features, 21 UI com incerteza, 22 go/no-go.
-- Documentos: `.planning/milestones/v2.0-metodologia/PRD.md`, `SPEC.md` e `PHASES.md`.
-- Motivação (auditoria de 10/11/2026, 65 pregões ao vivo de 03/08 a 10/11): AUC do P(↑) de 0,47–0,50 para 5–60 min, nowcast de 0,71 (WIN) e 0,75 (WDO), Brier skill de −0,27 a −0,40.
-- Decisões do owner em 10/11/2026 (PRD §12.1), já propagadas em PRD, SPEC, PHASES e ROADMAP:
-  - D1: horizonte de produto = 60 min para WIN e WDO; fechamento só como horizonte secundário de avaliação. O go/no-go passa a ser por ativo, em 60 min.
-  - D2: só WIN$N e WDO$N no v2.0; demais alvos ficam como não-objetivo/futuro.
-  - D3: se o go/no-go falhar, remover os rótulos direcionais e mostrar o P atual só como "Leitura do dia (nowcast)" (`forecast_ui='nowcast_only'`).
-  - D4: publicar `p_fwd_60` e o card de assertividade no site público (nó `eval/<target>`, regra de leitura no RTDB). Todo deploy do Firebase continua exigindo aprovação explícita do usuário.
-- Em aberto: Q5 (o projeto WDO garante GEX publicado antes de 09:00 e marca o backfill?), pendente de consulta ao projeto WDO; afeta só a Phase 20. Q6 e Q7 têm padrão proposto no PRD.
-- Phase 15: harness `scripts/eval_assertividade.py` + pacote isolado `backend/eval/`; baseline congelada em `data/eval/baseline/assertividade_baseline_20261110.json` (WIN 60 min AUC 0,474, WDO 0,486; nowcast 0,710 / 0,754). Decisões do owner (10/11/2026): (1) tarefa "IRAI Daily Assertividade" seg–sex 18:45 via `scripts/run_eval_assertividade.bat`, log em `logs/eval_assertividade.log`; (2) `forecast_eval_daily` em `data/eval/forecast_eval.db` até a fase 16; (3) endpoint `/api/eval/assertividade` na fase 19; (4) fixture de ~600 KB versionada; (5) baseline aceita com `5904ef5-dirty`. Critério 3 fecha após 5 pregões seguidos de relatório automático.
-- Phase 16 (10/11/2026): registro imutável `model_versions` + `model_version_events` (`backend/irai/model_registry.py`), calibração sem `DELETE` (versão nova `shadow`), engine resolvendo a versão vigente na data, `model_version` em snapshots e no Kalman, `GET /api/model/versions`, Regra 5 no `.agents/AGENTS.md`. Migração `scripts/migrate_fase16_model_versions.py` validada numa cópia (`%TEMP%\irai_p16`) e aplicada ao `irai_live.db` em 10/11/2026 às 13:46 BRT (backup `data/backups/irai_live_pre_fase16_20261110.db`, 14 versões ativas, contagens preservadas): idempotente, ΔP legado × migrado = 0 em 14 alvos × 5 pregões; suíte 87/87 com e sem migração. Não ligada ao `init_db()`. Repaint residual não ligado a parâmetros (mediana 0,5 pp WIN / 0,35 pp WDO, ~1,5% troca de lado) fica em aberto (critério 2 [META]).
-- Phase 17 (10/11/2026): score corrigido (β·σ·z ÷ score_scale), α/b sem clamp e R/Q do Kalman medidos, como opções de versão (`unit_fix`, `score_scale`, `kalman_obs_cov`, `kalman_trans_cov`); versões legado/adotadas inalteradas. Versões corrigidas de WIN/WDO registradas só numa cópia (shadow). Nowcast recalculado nas mesmas barras (03/08–10/11): AUC 0,774 → 0,828 (WIN) e 0,757 → 0,869 (WDO), BSS 0,165 → 0,266 e 0,147 → 0,261; 60 min continua com BSS negativo. Painel honesto atrás de `forecast_ui` (padrão `off`); `/api/irai/targets` com `calibrated` independente de `accuracy`.
-- Phase 18 (10/11/2026): valor justo da cesta com γ walk-forward e z causal (|z| > 2 em 4–8% das barras, contra 54–58% da construção atual); nenhum descolamento previu 15/30/60 min de forma útil (AUC 0,49–0,52) nem teve P&L líquido que sobrevivesse a BH/Bonferroni; p_fwd_60 walk-forward (361 pregões fora da amostra) com AUC 0,48–0,50 e BSS ≤ 0 nos conjuntos A/B/C → não passou. Harness diário com cobertura do z e P&L por evento (`HARNESS_VERSION` 18.0).
-- Ativação da Phase 17 (10/11/2026 16:23 BRT, aprovação do owner): backup `data/backups/irai_live_pre_fase17_20261110.db` (quick_check ok); `win-nowcast-20261110T192649Z` (α 1,354, b +0,148, R 0,5686, Q 4,76e-05) e `wdo-nowcast-20261110T192649Z` (α 1,243, b −0,390, R 0,1495, Q 2,78e-05) promovidas com vigência 11/11/2026, aposentando `win-nowcast-20261028T190510Z`/`wdo-nowcast-20261028T190512Z`; intercepto da logística mantido; IRAI_API, IRAI_FirebaseSync, IRAI_Collector e IRAI_Frontend reiniciados às 16:27–16:29 BRT. Correção à parte: `frontend/node_modules/@rolldown/binding-win32-x64-msvc/package.json` estava ausente (desde 29/10) e impedia o Vite de subir; recriado.
-- **Princípio orientador (owner, 10/11/2026):** rastro = contexto, GEX = região, price action = gatilho. O rastro é usado ao vivo, não como observação; as próximas fases (19–22) devem ser pensadas nessa divisão — o IRAI descreve o contexto do dia, o GEX marca as regiões de preço e o gatilho de entrada vem do price action, não de um rótulo COMPRA/VENDA do z.
-- Próximo passo: acompanhar o primeiro pregão com as versões corrigidas (11/11: snapshots com o novo `model_version`, P coerente, harness das 18:45); planejar as fases 19–22 dentro do princípio rastro = contexto / GEX = região / price action = gatilho; seguir os 5 pregões da Phase 15; consultar o projeto WDO sobre Q5.
+### Fase 15 — harness (10/11/2026)
+- `scripts/eval_assertividade.py` + pacote `backend/eval/`; baseline congelada em `data/eval/baseline/assertividade_baseline_20261110.json` (WIN 60 min AUC 0,474; WDO 0,486; nowcast 0,710 / 0,754).
+- Tarefa "IRAI Daily Assertividade" seg–sex 18:45 (`scripts/run_eval_assertividade.bat`): janela dos últimos 20 pregões + período desde 03/08; relatórios em `data/reports/assertividade_<data>[_ultimos20].md`, JSON em `data/eval/latest/`, métricas em `data/eval/forecast_eval.db` (`forecast_eval_daily`), log em `logs/eval_assertividade.log`.
+- Relatórios automáticos: 10/11, 11/11, 12/11 e 13/11 (4 pregões seguidos, rc 0). O 5º é 16/11 18:45.
+
+### Fase 16 — versionamento (em produção desde 10/11/2026)
+- `model_versions` + `model_version_events` (`backend/irai/model_registry.py`), calibração sem `DELETE`, engine resolvendo a versão vigente na data, `model_version` nos snapshots e no Kalman, `GET /api/model/versions`, Regra 5 no `.agents/AGENTS.md`.
+- Migração aplicada ao `irai_live.db` em 10/11 13:46 BRT (backup `data/backups/irai_live_pre_fase16_20261110.db`). Repaint residual não ligado a parâmetros (mediana 0,5 pp WIN / 0,35 pp WDO) segue em aberto.
+
+### Fase 17 — correção β/z e painel honesto (em produção)
+- Score corrigido (β·σ·z ÷ score_scale), α/b sem clamp, R/Q do Kalman medidos.
+- Promovidas com vigência a partir de 11/11/2026: `win-nowcast-20261110T192649Z` (α 1,354, b +0,148) e `wdo-nowcast-20261110T192649Z` (α 1,243, b −0,390); backup `data/backups/irai_live_pre_fase17_20261110.db`.
+- `forecast_ui='nowcast_only'` em WIN$N e WDO$N desde 10/11 16:23 BRT (sem acc, sem COMPRA/VENDA no z, P como "Leitura do dia").
+
+### Fase 18 — resultado negativo (10/11/2026)
+- Valor justo da cesta (γ walk-forward, z causal): nenhum descolamento previu 15/30/60 min de forma útil (AUC 0,49–0,52), sem P&L líquido que sobreviva a BH.
+- p_fwd_60 walk-forward (361 pregões fora da amostra): AUC 0,48–0,50, BSS ≤ 0 → **rejeitado**, não exibido.
+
+### Fase 20 — GEX + price action (pesquisa, 10/11/2026)
+- Config pré-registrada `c985f6b2365e`; WIN INCONCLUSIVO (C·T3+C1 +29,4 pts/op., n 147, IC −49,2 a +113,7), WDO NO-GO. Nenhum braço passou nos critérios de GO.
+- Histórico de GEX: CSV oficial do projeto WDO (`mt5/Files/jumba_gex_*_history.csv`); fallback = primeiro run < 09:00 em `gex_levels` (regra adotada para a pesquisa; ver Q5).
+- Commit `c5333c1` (branch `v2/fase-20-gex-pa`), mergeado em `v2/fase-17-18` (`5cca370`) em 16/11.
+
+### Hardening de 13/11/2026 (commit `144d3e9`)
+- `scripts/health_watchdog.py`: o collector se reinicia via `os._exit(3)` (NSSM religa); demais serviços com stop/start síncrono; idade da barra lida do SQLite read-only; carência (ciclo 1, 10 min de processo/boot, 3 falhas seguidas da API, timeout 15 s); só age seg–sex 09:10–18:25 BRT fora de feriados.
+- `backend/api/main.py`: endpoints pesados como `def` (threadpool), cache em `/api/health`; `/api/health/sources` e `/api/irai/dates` via índice PK (~2,5 s / 1,4 s → ~10 ms).
+- `scripts/firebase_sync.py`: falha de série pula só série/summary/history, mantendo GARCH e GEX (93 chaves por ciclo).
+- `data/b3_holidays.txt`: feriados B3 2026 (oficial) e 2027 (provisório — revisar quando a B3 publicar o calendário, normalmente em janeiro).
+
+## Decisões do owner (10/11/2026, PRD §12.1)
+- D1: horizonte de produto = 60 min (fechamento só avaliação). D2: só WIN$N e WDO$N no v2.0. D3: se o go/no-go falhar, sem rótulos direcionais e P como "Leitura do dia (nowcast)". D4: `p_fwd_60` e card de assertividade também no site público — todo deploy do Firebase exige aprovação explícita.
+- Princípio orientador: rastro = contexto, GEX = região, price action = gatilho.
+
+## Em aberto
+- Q5 (GEX publicado antes de 09:00 e marca de backfill): resolvida para a pesquisa (CSV oficial + fallback primeiro run < 09:00); para uso ao vivo continua pendente do projeto WDO.
+- Resíduos conhecidos: Quarta de Cinzas (pregão só à tarde) pode gerar restart desnecessário do collector de manhã; queda do collector de madrugada só é religada às 09:10; FirebaseSync usa data UTC à noite; DXY no fallback teórico (razão fixa 3,55); `frontend/src/gexLevels.js` é regenerado todo dia e fica fora dos commits.
+
+## Próximo passo
+- Fechar o critério 3 da fase 15 com o relatório de 16/11 18:45 e reavaliar o nowcast corrigido com mais pregões.
+- Fases 19A/21A (transparência fora da amostra no painel local) e decisões do owner sobre 20b e 22.
