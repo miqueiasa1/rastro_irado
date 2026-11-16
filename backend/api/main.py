@@ -145,16 +145,68 @@ async def notify_update(request: Request):
         print(f"Error reloading engine params: {e}")
     series_cache.clear()
     overview_cache_data.clear()
+    _HEALTH_SOURCES_CACHE["ts"] = 0.0
+    _DATES_CACHE.clear()
     data_updated_event.set()
     return {"status": "ok"}
 
 
+_BAR_COUNT_CACHE = {"value": None, "ts": 0.0}
+_BAR_COUNT_TTL_S = 60.0
+# Fix 13/11/2026: caches de /api/health/sources (15 s) e /api/irai/dates (60 s), zerados no notify_update
+_HEALTH_SOURCES_CACHE = {"value": None, "ts": 0.0}
+_HEALTH_SOURCES_TTL_S = 15.0
+_DATES_CACHE: dict = {}  # target ou "__all__" -> {"value": dict, "ts": float}
+_DATES_TTL_S = 60.0
+
+
+def _list_bar_symbols(conn):
+    """Simbolos distintos de market_bars por "skip-scan" no indice (symbol, timeframe, timestamp_utc):
+    ~60 buscas pontuais (~1 ms) em vez de varrer 12,7 M de linhas."""
+    out, last = [], ""
+    while True:
+        row = conn.execute(
+            "SELECT symbol FROM market_bars WHERE symbol > ? ORDER BY symbol LIMIT 1", [last]
+        ).fetchone()
+        if not row:
+            return out
+        last = row[0]
+        out.append(last)
+
+
+def _m5_dates_for_symbol(conn, symbol, limit=60):
+    """Ate `limit` datas (YYYY-MM-DD, desc) com barra M5 do simbolo, pulando de dia em dia pelo indice."""
+    out, upper = [], None
+    while len(out) < limit:
+        if upper is None:
+            row = conn.execute(
+                "SELECT timestamp_utc FROM market_bars WHERE symbol = ? AND timeframe = 'M5' "
+                "ORDER BY timestamp_utc DESC LIMIT 1", [symbol]).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT timestamp_utc FROM market_bars WHERE symbol = ? AND timeframe = 'M5' "
+                "AND timestamp_utc < ? ORDER BY timestamp_utc DESC LIMIT 1", [symbol, upper]).fetchone()
+        if not row:
+            break
+        d = row[0][:10]
+        out.append(d)
+        upper = d
+    return out
+
+
 @app.get("/api/health")
-async def health():
-    """Status do sistema."""
+def health():
+    """Status do sistema.
+    Fix 13/11/2026: `def` (roda no threadpool, nao bloqueia o event loop) e COUNT(*) de
+    market_bars em cache por ~60 s -- antes o health travava a API e o watchdog a derrubava."""
+    import time as _time
     from datetime import timezone
     conn = get_connection()
-    bar_count = conn.execute("SELECT COUNT(*) as c FROM market_bars").fetchone()["c"]
+    _now_mono = _time.monotonic()
+    if _BAR_COUNT_CACHE["value"] is None or _now_mono - _BAR_COUNT_CACHE["ts"] > _BAR_COUNT_TTL_S:
+        _BAR_COUNT_CACHE["value"] = conn.execute("SELECT COUNT(*) as c FROM market_bars").fetchone()["c"]
+        _BAR_COUNT_CACHE["ts"] = _now_mono
+    bar_count = _BAR_COUNT_CACHE["value"]
     last_bar = conn.execute(
         "SELECT MAX(timestamp_utc) as ts FROM market_bars WHERE timeframe='M5'"
     ).fetchone()["ts"]
@@ -252,24 +304,35 @@ async def health():
     }
 
 @app.get("/api/health/sources")
-async def health_sources():
+def health_sources():
     """Última barra M5 por fonte (br/tickmill/axi). Usado pelo watchdog para
-    checar defasagem sem abrir o banco diretamente."""
+    checar defasagem sem abrir o banco diretamente.
+    Fix 13/11/2026: mesmo resultado do antigo GROUP BY source (~2,4 s na tabela inteira), agora pela
+    ultima barra M5 de cada simbolo via indice (~1-2 ms), com cache de 15 s."""
+    import time as _time
+    now_mono = _time.monotonic()
+    cached = _HEALTH_SOURCES_CACHE["value"]
+    if cached is not None and now_mono - _HEALTH_SOURCES_CACHE["ts"] < _HEALTH_SOURCES_TTL_S:
+        return cached
     conn = get_connection()
     try:
-        rows = conn.execute("""
-            SELECT source, MAX(timestamp_utc) as ts
-            FROM market_bars
-            WHERE timeframe = 'M5'
-            GROUP BY source
-        """).fetchall()
-        return {"sources": {row["source"]: row["ts"] for row in rows}}
+        sources = {}
+        for sym in _list_bar_symbols(conn):
+            row = conn.execute(
+                "SELECT source, timestamp_utc FROM market_bars WHERE symbol = ? AND timeframe = 'M5' "
+                "ORDER BY timestamp_utc DESC LIMIT 1", [sym]).fetchone()
+            if row and (row[0] not in sources or row[1] > sources[row[0]]):
+                sources[row[0]] = row[1]
+        result = {"sources": sources}
     finally:
         conn.close()
+    _HEALTH_SOURCES_CACHE["value"] = result
+    _HEALTH_SOURCES_CACHE["ts"] = now_mono
+    return result
 
 
 @app.get("/api/health/watchdog")
-async def health_watchdog_status():
+def health_watchdog_status():
     """Último ciclo do watchdog de saúde — leitura do instantâneo local
     gravado por scripts/health_watchdog.py a cada ~5 min."""
     from pathlib import Path
@@ -301,7 +364,7 @@ async def health_watchdog_status():
     }
 
 @app.get("/api/gex")
-async def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(None)):
+def get_gex(target: str = Query(...), date: str = Query(...), run: str = Query(None)):
     """Retorna os niveis de GEX para um ativo, data e run especificos."""
     conn = get_connection()
     try:
@@ -388,7 +451,7 @@ def get_gex_pine(key: str = Query(...)):
 
 
 @app.get("/api/garch")
-async def get_garch(symbol: str = Query("IBOV"), date: str = Query(None)):
+def get_garch(symbol: str = Query("IBOV"), date: str = Query(None)):
     """Retorna a volatilidade condicional GARCH e forecast para um símbolo."""
     conn = get_connection()
     try:
@@ -428,7 +491,7 @@ async def get_garch(symbol: str = Query("IBOV"), date: str = Query(None)):
 
 
 @app.get("/api/irai/targets")
-async def irai_targets():
+def irai_targets():
     """Lista todos os targets disponíveis com status."""
     try:
         engine._load_params()
@@ -771,17 +834,20 @@ async def irai_overview(
 ):
     """Snapshot atual de TODOS os targets calibrados."""
     if session_date is None:
-        conn = get_connection()
-        row = conn.execute("""
-            SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
-            FROM market_bars WHERE timeframe = ?
-            ORDER BY d DESC LIMIT 1
-        """, [timeframe]).fetchone()
-        conn.close()
-        if row:
-            session_date = row["d"]
-        else:
-            session_date = date.today().isoformat()
+        def _latest_session_date_sync():
+            conn = get_connection()
+            try:
+                row = conn.execute("""
+                    SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
+                    FROM market_bars WHERE timeframe = ?
+                    ORDER BY d DESC LIMIT 1
+                """, [timeframe]).fetchone()
+            finally:
+                conn.close()
+            return row["d"] if row else date.today().isoformat()
+
+        # Fix 13/11/2026: consulta sincrona fora do event loop
+        session_date = await run_in_threadpool(_latest_session_date_sync)
 
     return await run_in_threadpool(_get_overview_data_sync, session_date, version, timeframe=timeframe)
 
@@ -790,28 +856,31 @@ async def irai_overview(
 async def irai_dates(
     target: str = Query(None, description="Filtrar datas por target específico"),
 ):
-    """Datas com dados disponíveis."""
-    # This query runs very fast (<1ms), so we can run it inline, or in a threadpool. Let's run in threadpool to be safe.
+    """Datas com dados disponíveis (ate 60, mais recente primeiro).
+    Fix 13/11/2026: mesmo resultado do antigo DISTINCT substr(...) ORDER BY d DESC LIMIT 60, agora
+    pulando de dia em dia pelo indice de cada simbolo (~30 ms em vez de ~1,3 s), com cache de 60 s."""
+    import time as _time
+
     def get_dates_sync():
+        key = target or "__all__"
+        now_mono = _time.monotonic()
+        hit = _DATES_CACHE.get(key)
+        if hit is not None and now_mono - hit["ts"] < _DATES_TTL_S:
+            return hit["value"]
         conn = get_connection()
-        if target:
-            rows = conn.execute("""
-                SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
-                FROM market_bars
-                WHERE symbol = ? AND timeframe = 'M5'
-                ORDER BY d DESC
-                LIMIT 60
-            """, [target]).fetchall()
-        else:
-            rows = conn.execute("""
-                SELECT DISTINCT substr(timestamp_utc, 1, 10) as d
-                FROM market_bars
-                WHERE timeframe = 'M5'
-                ORDER BY d DESC
-                LIMIT 60
-            """).fetchall()
-        conn.close()
-        return {"dates": [r["d"] for r in rows]}
+        try:
+            if target:
+                dates = _m5_dates_for_symbol(conn, target, 60)
+            else:
+                all_dates = set()
+                for sym in _list_bar_symbols(conn):
+                    all_dates.update(_m5_dates_for_symbol(conn, sym, 60))
+                dates = sorted(all_dates, reverse=True)[:60]
+        finally:
+            conn.close()
+        result = {"dates": dates}
+        _DATES_CACHE[key] = {"value": result, "ts": now_mono}
+        return result
 
     return await run_in_threadpool(get_dates_sync)
 
@@ -847,7 +916,7 @@ async def irai_current(version: str = Query("v1")):
 
 
 @app.get("/api/model/params")
-async def model_params(target: str = Query("WIN$N")):
+def model_params(target: str = Query("WIN$N")):
     """Parâmetros do modelo calibrado para um target."""
     slug = engine.target_slugs.get(target, "win")
     m = engine.models.get(slug, {})

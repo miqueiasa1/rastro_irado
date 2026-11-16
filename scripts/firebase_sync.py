@@ -141,11 +141,12 @@ def sync():
         target_encoded = urllib.parse.quote(target)
         series_data = fetch_json(f"{LOCAL_API}/api/irai/series?session_date={current_date}&target={target_encoded}&version={used_version}")
         if not series_data or "error" in series_data:
-            try:
-                import backend.api.main as api_main
-                series_data = api_main._get_series_data_sync(target, current_date, used_version)
-            except Exception as e:
-                print(f"  [Series fallback error for {target}]: {e}")
+            # Fix 13/11/2026: sem fallback no proprio processo (o engine da API nao existe aqui e o
+            # calculo local disputaria o lock de escrita do SQLite com o collector). Pula o ativo neste
+            # ciclo; o Firebase mantem o ultimo valor bom e o proximo ciclo (60 s) tenta de novo.
+            # Pula so a serie (series/summaries/history); GARCH e GEX do ativo continuam sendo publicados.
+            print(f"  [Skip] Serie indisponivel para {target} em {current_date}; tenta de novo no proximo ciclo (GARCH/GEX seguem).")
+            series_data = None
         if series_data:
             raw_series = series_data.get("series", [])
             lean_series = []

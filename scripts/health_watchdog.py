@@ -15,6 +15,7 @@ Embutido:        chamado automaticamente pelo collector.py a cada ~5 min
 
 import json
 import os
+import re
 import sys
 import time
 import subprocess
@@ -59,6 +60,38 @@ def _now_utc():
 def _is_br_session_hours(now_utc):
     brt_now = now_utc - timedelta(hours=3)
     return brt_now.weekday() < 5 and BR_SESSION_START_H <= brt_now.hour < BR_SESSION_END_H
+
+
+# Fix 13/11/2026: o collector so e julgado (e reiniciado) por barra M5 velha dentro do pregao B3,
+# seg-sex 09:10-18:25 America/Sao_Paulo. Nao ha calendario de feriados no projeto; se existir
+# data/b3_holidays.txt (uma data YYYY-MM-DD por linha) esses dias contam como fora do pregao.
+B3_COLLECTOR_WINDOW = ((9, 10), (18, 25))
+
+
+def _b3_holidays():
+    path = os.path.join(os.path.dirname(STATUS_SNAPSHOT_PATH), "b3_holidays.txt")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")}
+    except FileNotFoundError:
+        return set()
+    except Exception:
+        return set()
+
+
+def _is_b3_collector_window(now_utc):
+    try:
+        from zoneinfo import ZoneInfo
+        brt = now_utc.astimezone(ZoneInfo("America/Sao_Paulo"))
+    except Exception:
+        brt = now_utc - timedelta(hours=3)  # Brasil sem horario de verao desde 2019
+    if brt.weekday() >= 5:
+        return False
+    if brt.strftime("%Y-%m-%d") in _b3_holidays():
+        return False
+    (h0, m0), (h1, m1) = B3_COLLECTOR_WINDOW
+    hm = (brt.hour, brt.minute)
+    return (h0, m0) <= hm <= (h1, m1)
 
 
 def _is_axi_session_hours(now_utc):
@@ -114,6 +147,68 @@ NSSM_SERVICES = {"collector": "IRAI_Collector", "api": "IRAI_API", "firebase_syn
 _RESTART_HISTORY = {}
 MAX_RESTARTS_PER_HOUR = 4
 
+# Fix 13/11/2026 (quedas noturnas do collector):
+#  - carencia: nada de restart no ciclo 1 nem nos primeiros 10 min do processo / do boot
+#  - API so e reiniciada apos N falhas consecutivas do /api/health (timeout 15 s)
+#  - collector nunca da `sc stop` em si mesmo: sai com codigo 3 e o NSSM (AppExit=Restart) religa
+GRACE_PERIOD_S = 10 * 60
+API_HEALTH_TIMEOUT_S = 15
+API_FAILS_BEFORE_RESTART = 3
+_API_CONSECUTIVE_FAILS = {"n": 0}
+_MODULE_LOADED_AT = time.time()
+_CURRENT_CYCLE = {"n": None}
+
+
+def _process_start_ts():
+    try:
+        return float(os.environ.get("IRAI_PROCESS_START", _MODULE_LOADED_AT))
+    except ValueError:
+        return _MODULE_LOADED_AT
+
+
+def _system_uptime_s():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            fn = ctypes.windll.kernel32.GetTickCount64
+            fn.restype = ctypes.c_ulonglong
+            return fn() / 1000.0
+        except Exception:
+            return None
+    return None
+
+
+def _in_grace_period():
+    """True durante o ciclo 1 e nos primeiros GRACE_PERIOD_S do processo ou do boot do Windows."""
+    if _CURRENT_CYCLE["n"] == 1:
+        return "ciclo 1"
+    since_start = time.time() - _process_start_ts()
+    if since_start < GRACE_PERIOD_S:
+        return f"processo iniciado ha {since_start / 60:.1f} min"
+    up = _system_uptime_s()
+    if up is not None and up < GRACE_PERIOD_S:
+        return f"Windows ligado ha {up / 60:.1f} min"
+    return None
+
+
+def _sc_state(svc):
+    """Estado do servico pelo `sc query` (nomes de estado saem em ingles mesmo em pt-BR)."""
+    try:
+        r = subprocess.run(["sc", "query", svc], capture_output=True, text=True, timeout=10)
+        m = re.search(r"\b[1-7]\s+(STOPPED|START_PENDING|STOP_PENDING|RUNNING|CONTINUE_PENDING|PAUSE_PENDING|PAUSED)\b", r.stdout or "")
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
+def _wait_sc_state(svc, wanted, timeout_s):
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if _sc_state(svc) == wanted:
+            return True
+        time.sleep(1.0)
+    return _sc_state(svc) == wanted
+
 
 def _nssm_service_exists(svc):
     try:
@@ -129,6 +224,10 @@ def _try_restart_service(service_name):
     processos por nome e subir cópias soltas fora do NSSM. Limite de 4 reinícios/hora por serviço
     (antes: a cada 60s sem limite → loop de restart)."""
     now = time.time()
+    grace = _in_grace_period()
+    if grace:
+        print(f"[watchdog] {service_name}: restart ignorado (carencia: {grace}).", flush=True)
+        return
     last_restart = _RESTART_COOLDOWNS.get(service_name, 0)
     if now - last_restart < 120:
         return
@@ -143,14 +242,26 @@ def _try_restart_service(service_name):
 
     svc = NSSM_SERVICES.get(service_name)
     if svc and sys.platform == "win32" and _nssm_service_exists(svc):
+        if service_name == "collector" and os.environ.get("IRAI_ROLE") == "collector":
+            # Antes: `sc stop` disparado de dentro do proprio collector -> o NSSM (AppKillProcessTree)
+            # matava o cmd filho antes do `sc start` e o servico ficava Stopped. Agora saimos com
+            # codigo 3 e o NSSM (AppExit Default=Restart) religa o processo.
+            print(f"[watchdog] AUTO-RESTART {svc}: saindo com codigo 3 para o NSSM religar.", flush=True)
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(3)
         print(f"[watchdog] AUTO-RESTART via serviço Windows: {svc}", flush=True)
         try:
-            # Destacado: se o serviço reiniciado for o próprio collector, o comando sobrevive ao stop.
-            subprocess.Popen(
-                ["cmd", "/c", f"sc stop {svc} & timeout /t 5 /nobreak >nul & sc start {svc}"],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                close_fds=True,
-            )
+            # Sincrono (sem processo filho solto que morre junto com o collector).
+            subprocess.run(["sc", "stop", svc], capture_output=True, text=True, timeout=30)
+            if not _wait_sc_state(svc, "STOPPED", 45):
+                print(f"[watchdog] {svc}: nao chegou a STOPPED em 45 s, tentando start mesmo assim.", flush=True)
+            time.sleep(2.0)
+            subprocess.run(["sc", "start", svc], capture_output=True, text=True, timeout=30)
+            if _wait_sc_state(svc, "RUNNING", 45):
+                print(f"[watchdog] {svc}: RUNNING de novo.", flush=True)
+            else:
+                print(f"[watchdog] ERRO: {svc} nao voltou a RUNNING (estado: {_sc_state(svc)}).", flush=True)
         except Exception as e:
             print(f"[watchdog] ERRO ao reiniciar {svc}: {e}", flush=True)
         return
@@ -264,45 +375,71 @@ def check_firebase_liveness(now_utc):
 
 
 # ── Check 3: Serviços Locais ──────────────────────────────
+def _last_m5_bar_from_db():
+    """Le a ultima barra M5 direto do SQLite (sem depender da API)."""
+    import sqlite3
+    db_path = os.environ.get("IRAI_DB_PATH")
+    if not db_path:
+        from backend.db import DB_PATH as db_path
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=15)
+    try:
+        row = conn.execute("SELECT MAX(timestamp_utc) FROM market_bars WHERE timeframe='M5'").fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
 def check_local_services():
-    """Verifica se os serviços IRAI estão respondendo e reinicia automaticamente se necessário."""
+    """Verifica se os serviços IRAI estão respondendo e reinicia automaticamente se necessário.
+    Fix 13/11/2026: API so e reiniciada apos API_FAILS_BEFORE_RESTART falhas seguidas (timeout 15 s);
+    o collector e avaliado pelo SQLite e NUNCA reiniciado por causa da API lenta/offline."""
     results = []
 
     # API: tenta HTTP na porta 8888
+    api_ok = False
+    api_msg = None
     try:
         req = urllib.request.Request(f"{LOCAL_API_URL}/api/health")
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=API_HEALTH_TIMEOUT_S) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         if data.get("status") == "ok":
+            api_ok = True
             models = data.get("models_loaded", "?")
             results.append(("service:api", f"OK ({models} modelos)", True))
         else:
-            results.append(("service:api", "Resposta inesperada", False))
-            _try_restart_service("api")
+            api_msg = "Resposta inesperada"
     except Exception as exc:
-        results.append(("service:api", f"Offline: {exc}", False))
-        _try_restart_service("api")
+        api_msg = f"Offline: {exc}"
+    if api_ok:
+        _API_CONSECUTIVE_FAILS["n"] = 0
+    else:
+        _API_CONSECUTIVE_FAILS["n"] += 1
+        n = _API_CONSECUTIVE_FAILS["n"]
+        results.append(("service:api", f"{api_msg} (falha {n}/{API_FAILS_BEFORE_RESTART})", False))
+        if n >= API_FAILS_BEFORE_RESTART:
+            _try_restart_service("api")
+            _API_CONSECUTIVE_FAILS["n"] = 0
 
-    # Collector: verifica se a última barra M5 é recente (< 2 min)
+    # Collector: verifica se a última barra M5 é recente, lendo direto do SQLite
     try:
-        req = urllib.request.Request(f"{LOCAL_API_URL}/api/health")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        last_bar = data.get("last_bar")
-        if last_bar:
-            age = _bar_age_seconds(last_bar)
-            if age < 120:  # Barra recente = collector ativo
-                results.append(("service:collector", f"OK (ultima barra ha {age:.0f}s)", True))
-            else:
-                is_ok = age < 600
-                results.append(("service:collector", f"Ultima barra ha {age/60:.0f} min", is_ok))
-                if not is_ok:
-                    _try_restart_service("collector")
+        last_bar = _last_m5_bar_from_db()
+    except Exception as exc:
+        results.append(("service:collector", f"Nao consegui ler o DB: {exc} (sem acao)", False))
+        return results
+    if last_bar and not _is_b3_collector_window(_now_utc()):
+        age = _bar_age_seconds(last_bar)
+        results.append(("service:collector", f"Fora do pregao (ultima barra ha {age/60:.0f} min, sem acao)", True))
+    elif last_bar:
+        age = _bar_age_seconds(last_bar)
+        if age < 120:  # Barra recente = collector ativo
+            results.append(("service:collector", f"OK (ultima barra ha {age:.0f}s)", True))
         else:
-            results.append(("service:collector", "Sem barras no DB", False))
-            _try_restart_service("collector")
-    except Exception:
-        results.append(("service:collector", "API offline", False))
+            is_ok = age < 600
+            results.append(("service:collector", f"Ultima barra ha {age/60:.0f} min", is_ok))
+            if not is_ok:
+                _try_restart_service("collector")
+    else:
+        results.append(("service:collector", "Sem barras no DB", False))
         _try_restart_service("collector")
 
     return results
@@ -328,8 +465,9 @@ def write_status_snapshot(now_utc, component_reports):
 
 
 # ── Main ──────────────────────────────────────────────────
-def run_health_check():
+def run_health_check(cycle=None):
     """Executa todos os checks e grava o snapshot. Retorna o payload."""
+    _CURRENT_CYCLE["n"] = cycle
     now_utc = _now_utc()
 
     component_reports = (

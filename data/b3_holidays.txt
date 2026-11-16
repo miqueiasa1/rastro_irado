@@ -1,0 +1,35 @@
+# Dias uteis sem pregao na B3 (lido por scripts/health_watchdog.py a cada checagem).
+# Formato: uma data YYYY-MM-DD por linha; linhas iniciadas por # sao comentarios.
+# 2026: OFICIAL - B3, calendario de feriados 2026 (noticia de 09/01/2026 e Oficio Circular Calendario-B3-2026.pdf).
+# 09/07 (Rev. Constitucionalista) e 25/01 (aniversario de SP): pregao normal desde 2022 -> fora da lista.
+# 18/02/2026 (Quarta de Cinzas) tem pregao a partir das 13h -> fora da lista (o formato nao cobre meio periodo).
+2026-01-01
+2026-02-16
+2026-02-17
+2026-04-03
+2026-04-21
+2026-05-01
+2026-06-04
+2026-09-07
+2026-10-12
+2026-11-02
+2026-11-20
+2026-12-24
+2026-12-25
+2026-12-31
+# 2027: PROVISORIO - a B3 ainda nao publicou o calendario de 2027 (conferido em 13/11/2026).
+# Calculado: feriados nacionais + Carnaval seg/ter + Sexta-feira Santa + Corpus Christi + vesperas 24/12 e 31/12
+# (Pascoa 28/03/2027). 01/05, 20/11 e 25/12 caem no sabado. 25/01 e 09/07 ficam fora (pregao normal).
+# 10/02/2027 (Quarta de Cinzas) deve ter pregao a partir das 13h -> fora da lista. Revisar quando sair o oficio.
+2027-01-01
+2027-02-08
+2027-02-09
+2027-03-26
+2027-04-21
+2027-05-27
+2027-09-07
+2027-10-12
+2027-11-02
+2027-11-15
+2027-12-24
+2027-12-31

@@ -395,6 +395,12 @@ def main():
     parser.add_argument("--db", default=DB_PATH, help="Caminho do banco SQLite")
     args = parser.parse_args()
 
+    # Fix 13/11/2026: o watchdog embutido precisa saber que roda DENTRO do collector
+    # (para sair com codigo 3 e deixar o NSSM religar, em vez de dar `sc stop` em si mesmo).
+    os.environ["IRAI_ROLE"] = "collector"
+    os.environ["IRAI_PROCESS_START"] = str(time.time())
+    os.environ["IRAI_DB_PATH"] = str(args.db)
+
     log.info("=" * 50)
     log.info("IRAI Collector v1.0")
     log.info(f"Intervalo: {args.interval}s | DB: {args.db}")
@@ -430,7 +436,7 @@ def main():
             if cycle % HEALTH_CHECK_EVERY == 0 or cycle == 1:
                 try:
                     from scripts.health_watchdog import run_health_check
-                    run_health_check()
+                    run_health_check(cycle=cycle)
                 except Exception as e:
                     log.warning(f"  [Health Watchdog] Erro: {e}")
 
