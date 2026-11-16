@@ -12,7 +12,8 @@
     "health": { ".read": true },
     "health_watchdog": { ".read": true },
     "last_update": { ".read": true },
-    "pine_vault": { "$key": { ".read": true } }
+    "pine_vault": { "$key": { ".read": true } },
+    "eval": { "$target": { ".read": true } }
   }
 }
 

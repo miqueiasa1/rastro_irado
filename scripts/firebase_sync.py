@@ -234,6 +234,16 @@ def sync():
     if overview_data:
         update_payload[f"overview/{current_date}"] = clean_for_firebase(overview_data)
 
+    # Fase 21A (deploy aprovado pelo owner em 16/11/2026): eval/<target> com a assertividade fora da
+    # amostra (ultimos 20 pregoes) para o ReliabilityCard do site publico. Leitura publica pela regra
+    # eval/$target; escrita so pelo Admin SDK. Desligavel com IRAI_DISABLE_EVAL_SYNC=1.
+    if os.environ.get("IRAI_DISABLE_EVAL_SYNC") != "1":
+        for eval_target in ("WIN$N", "WDO$N"):
+            eval_data = fetch_json(f"{LOCAL_API}/api/eval/assertividade?target={urllib.parse.quote(eval_target)}&window=20")
+            if eval_data and eval_data.get("available"):
+                safe_eval = eval_target.replace('$', '_').replace('.', '_')
+                update_payload[f"eval/{safe_eval}"] = clean_for_firebase(eval_data)
+
     # Pine Script: publicado apenas pelo sync diário (scripts/sync_gex_to_irai.py → pine_vault).
     # Não reenviar aqui a cada 60s (desperdício de banda e sobrescreve metadados).
     
